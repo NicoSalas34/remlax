@@ -60,6 +60,9 @@ REPS   <- as.integer(opt("reps", "2"))
 SORTIE <- opt("out", "asreml_creux_dense.csv")
 TAG    <- opt("tag", "")
 MAXIT  <- as.integer(opt("maxit", "30"))
+# L'espace de travail par defaut est d'environ 134 Mo et sature des q = 2000 :
+# "Insufficient workspace available when reordering matrices".
+WS     <- opt("workspace", "16gb")
 
 cat(sprintf("[asreml] version %s | n_unit = %d | q = %s | maxit = %d\n",
             as.character(packageVersion("asreml")), N_UNIT,
@@ -106,9 +109,11 @@ for (q in QS) {
       # La partition est fixee par asreml.options : par defaut un terme
       # aleatoire est CREUX ; dense = ~vm(...) le bascule.
       if (voie == "dense") {
-        asreml.options(dense = ~ vm(gen, Ki), trace = FALSE, maxit = MAXIT)
+        asreml.options(dense = ~ vm(gen, Ki), trace = FALSE, maxit = MAXIT,
+                       workspace = WS, pworkspace = WS)
       } else {
-        asreml.options(dense = ~ NULL, trace = FALSE, maxit = MAXIT)
+        asreml.options(dense = ~ NULL, trace = FALSE, maxit = MAXIT,
+                       workspace = WS, pworkspace = WS)
       }
       z <- chrono(asreml(fixed = y ~ 1, random = ~ vm(gen, Ki),
                          residual = ~ units, data = dd$d))
@@ -116,7 +121,7 @@ for (q in QS) {
         lignes[[length(lignes) + 1L]] <- data.frame(
           tag = TAG, q = q, n = dd$n, voie = voie, rep = rep, statut = "echec",
           secondes = NA_real_, n_iter = NA_integer_, logLik = NA_real_,
-          converge = NA, pev_dispo = NA,
+          converge = NA, pev_dispo = NA, pev_se_mediane = NA_real_,
           erreur = substr(conditionMessage(z$r), 1, 180))
         cat(sprintf("  %-6s rep %d : ECHEC %s\n", voie, rep,
                     substr(conditionMessage(z$r), 1, 90)))
@@ -133,8 +138,10 @@ for (q in QS) {
         .champs_imprimes <<- TRUE
       }
       n_it <- suppressWarnings(as.integer(
-        if (!is.null(a$nit)) a$nit[1]
-        else if (!is.null(a$monitor)) ncol(a$monitor)
+        # Champs reellement presents (imprimes par ce script) : ifault converge
+        # nedf nwv nsing noeff loglik sigma2 ... trace ... Il n'y a ni `nit` ni
+        # `monitor` ; l'historique est dans `trace`, une colonne par iteration.
+        if (!is.null(a$trace)) ncol(as.matrix(a$trace))
         else if (length(a$loglik) > 1) length(a$loglik)
         else NA_integer_))
       # La variance d'erreur de prediction n'est disponible QUE pour la partie
