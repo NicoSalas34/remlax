@@ -54,15 +54,41 @@ faire_iid <- function(n = 400L, q = 60L, sg = 1.2, se = 0.9) {
        terms = list(rx_term("g", lev, struct = "iid")),
        residual = rx_residual(), verite = c(sg = sg, se = se))
 }
-faire_ar1 <- function(nr = 20L, nc = 15L, phi = 0.6, sg = 1.0, se = 0.7) {
+#' Champ ar1 entre niveaux, AVEC REPETITION.
+#'
+#' `rep_par_niveau` compte les observations par niveau et il est load-bearing.
+#' A une seule observation par niveau, la variance residuelle n'est pas
+#' identifiee : le champ absorbe tout, l'optimiseur envoie sigma_e a sa borne
+#' inferieure, et la vraisemblance devient plate dans cette direction — deux
+#' theta distants de 4 unites y donnent la meme logLik a 1,5e-7 pres. Ce n'est
+#' pas un dispositif sur lequel comparer deux solveurs, et c'est ce qu'une
+#' premiere version de ce test faisait : elle mesurait un artefact de
+#' conditionnement (cf. le cas degenere ci-dessous) et l'imputait au moteur
+#' creux. Deux repetitions suffisent a identifier la residuelle.
+faire_ar1 <- function(nr = 20L, nc = 15L, phi = 0.6, sg = 1.0, se = 0.7,
+                      rep_par_niveau = 2L) {
   q <- nr * nc
   z <- numeric(q); z[1] <- rnorm(1)
   for (i in 2:q) z[i] <- phi * z[i - 1] + rnorm(1, 0, sqrt(1 - phi^2))
-  lev <- factor(seq_len(q))
-  list(y = 3 + sg * z + rnorm(q, 0, se), X = matrix(1, q, 1),
+  lev <- factor(rep(seq_len(q), rep_par_niveau), levels = seq_len(q))
+  n <- length(lev)
+  list(y = 3 + sg * z[as.integer(lev)] + rnorm(n, 0, se), X = matrix(1, n, 1),
        terms = list(rx_term("f", lev, struct = "iid", level = "ar1")),
        residual = rx_residual(), verite = c(phi = phi, sg = sg, se = se))
 }
+
+#' Le MEME champ sans repetition : cas degenere, garde deliberement.
+#'
+#' Il documente une limite STRUCTURELLE de la formulation creuse, pas un defaut
+#' d'implementation. Les equations du modele mixte contiennent R^-1, donc quand
+#' sigma_e^2 tend vers zero — ici 4e-11, l'optimiseur l'ayant pousse a sa borne —
+#' R^-1 depasse 1e10 et C = Z'R^-1 Z + G^-1 devient tres mal conditionnee. Le
+#' moteur creux perd alors ~2e-4 sur la log-vraisemblance, la ou le moteur dense,
+#' qui travaille sur V = sigma^2 K + sigma_e^2 I, reste exact a 6e-13. Un calcul
+#' REML independant en algebre dense arbitre en faveur du moteur dense sur ce
+#' point precis. C'est la raison pour laquelle asreml travaille sur le RAPPORT
+#' des variances plutot que sur sigma_e^2 lui-meme.
+faire_ar1_degenere <- function(...) faire_ar1(..., rep_par_niveau = 1L)
 faire_bivarie <- function(n = 300L, q = 50L) {
   lev <- sample.int(q, n, replace = TRUE)
   L <- matrix(c(1.1, 0.5, 0, 0.8), 2, 2)
@@ -82,12 +108,14 @@ faire_bivarie <- function(n = 300L, q = 50L) {
 
 CAS <- list(
   list(nom = "un facteur iid", f = faire_iid),
-  list(nom = "champ ar1 entre niveaux", f = faire_ar1),
+  list(nom = "champ ar1 entre niveaux (2 repetitions)", f = faire_ar1),
+  list(nom = "champ ar1 sans repetition", f = faire_ar1_degenere, bord = TRUE),
   list(nom = "bivarie us, residuelle diag", f = faire_bivarie)
 )
 
 for (cs in CAS) {
   cat(sprintf("\n=== %s ===\n", cs$nom))
+  if (!is.null(cs$note)) cat("  ", cs$note, "\n", sep = "")
   d <- cs$f()
   m <- rx_model(d$y, d$X, terms = d$terms, residual = d$residual, name = cs$nom)
 
@@ -98,6 +126,13 @@ for (cs in CAS) {
     cat("  moteur dense en echec :", conditionMessage(attr(dn, "condition")), "\n"); next
   }
 
+  # Le logLik RENDU par l'ajustement est-il celui du theta rendu ? Les deux
+  # viennent du meme appel, donc ils devraient concorder — mais c'est une
+  # hypothese, et un ecart ici se confondrait avec un desaccord entre moteurs.
+  dnA <- rx_fit(m, theta_init = dn$theta, maxiter = 0L, polish = 0L,
+                hessian = FALSE, blups = FALSE, verbose = FALSE)
+  verif("0 : dense reevalue a son propre theta", dnA$logLik - dn$logLik)
+
   # --- A. le creux EVALUE au theta du dense
   spA <- try(rx_fit_sparse(m, theta_init = dn$theta, maxiter = 0L, verbose = FALSE),
              silent = TRUE)
@@ -105,7 +140,15 @@ for (cs in CAS) {
     cat("  moteur creux en echec :", conditionMessage(attr(spA, "condition")), "\n")
     ko <- ko + 1L; next
   }
-  verif("A : creux evalue au theta du dense", spA$logLik - dn$logLik)
+  verif("A : creux evalue au theta du dense", spA$logLik - dn$logLik,
+        tol = cs$tol %||% TOL_LL)
+  # De quoi ATTRIBUER un eventuel decalage residuel plutot que de le supposer :
+  # la constante REML vaut -(n-p)/2 log(2 pi), et le moteur dense expose la
+  # sienne sous const_2pi.
+  n_ <- length(d$y); p_ <- ncol(d$X)
+  cat(sprintf("      n = %d, p = %d | constante REML (n-p)/2 log(2pi) = %.6f | const_2pi du dense = %s\n",
+              n_, p_, 0.5 * (n_ - p_) * log(2 * pi),
+              if (is.null(dn$const_2pi)) "absente" else sprintf("%.6f", dn$const_2pi)))
 
   # --- le creux ajuste librement
   sp <- rx_fit_sparse(m, maxiter = 300L, verbose = FALSE)
@@ -113,7 +156,8 @@ for (cs in CAS) {
   # --- B. le dense EVALUE au theta du creux
   dnB <- rx_fit(m, theta_init = sp$theta, maxiter = 0L, polish = 0L,
                 hessian = FALSE, blups = FALSE, verbose = FALSE)
-  verif("B : dense evalue au theta du creux", dnB$logLik - sp$logLik)
+  verif("B : dense evalue au theta du creux", dnB$logLik - sp$logLik,
+        tol = cs$tol %||% TOL_LL)
 
   # --- C. optima atteints. Le sens du signe est informatif : on ne le cache pas
   # derriere une valeur absolue.
@@ -124,6 +168,34 @@ for (cs in CAS) {
     cat("      verite de simulation :",
         paste(sprintf("%s=%.3f", names(d$verite), d$verite), collapse = " "), "\n")
 }
+
+# -----------------------------------------------------------------------------
+# La limite de conditionnement de la formulation creuse, MESUREE et non supposee
+# -----------------------------------------------------------------------------
+# Les equations du modele mixte contiennent R^-1. Quand sigma_e^2 tend vers zero,
+# R^-1 explose et C = Z'R^-1 Z + G^-1 devient tres mal conditionnee : le moteur
+# creux perd de la precision la ou le moteur dense, qui travaille sur
+# V = sigma^2 K + sigma_e^2 I, n'a aucun probleme. C'est structurel, et c'est la
+# raison pour laquelle asreml parametre le RAPPORT des variances plutot que
+# sigma_e^2 lui-meme.
+#
+# On ne compte pas sur l'optimiseur pour tomber dans ce regime : on l'IMPOSE, en
+# evaluant les deux moteurs a un theta dont la composante residuelle est mise a
+# la borne inferieure du solveur. La mesure est donc reproductible.
+cat("\n=== limite de conditionnement : sigma_e a la borne, theta impose ===\n")
+d <- faire_ar1_degenere()
+m <- rx_model(d$y, d$X, terms = d$terms, residual = d$residual, name = "bord")
+dn <- rx_fit(m, hessian = FALSE, blups = FALSE, verbose = FALSE)
+for (bord in c(-4, -6, -8, -10, -12)) {
+  th <- dn$theta; th[length(th)] <- bord
+  dd <- rx_fit(m, theta_init = th, maxiter = 0L, polish = 0L,
+               hessian = FALSE, blups = FALSE, verbose = FALSE)$logLik
+  ss <- rx_fit_sparse(m, theta_init = th, maxiter = 0L, verbose = FALSE)$logLik
+  cat(sprintf("  theta_residuel = %+5.1f  (sigma_e^2 = %.2e) : dense %.8f | creux %.8f | ecart %+.2e\n",
+              bord, exp(2 * bord), dd, ss, ss - dd))
+}
+cat("  Lecture : l'ecart croit quand sigma_e^2 diminue. C'est la limite a citer\n")
+cat("  dans la documentation du moteur creux, pas un defaut a corriger.\n")
 
 cat(sprintf("\n=== %d verifications, %d echec(s) ===\n", ok + ko, ko))
 if (ko > 0L) quit(status = 1L)

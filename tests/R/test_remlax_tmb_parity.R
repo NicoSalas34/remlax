@@ -108,7 +108,7 @@ for (dims in list(c(4L, 5L), c(7L, 3L))) {
 # --- 4. le perimetre refuse ce qu'il doit refuser ---------------------------
 cat("\n=== 4. perimetre ===\n")
 hors <- list(
-  list(nom = "noyau metrique iexp", tm = list(name = "s", struct = "iid", t = 1L, q = 9L, lvl = "iexp")),
+  list(nom = "noyau metrique iexp", tm = list(name = "s", struct = "iid", t = 1L, q = 9L, level = "iexp")),
   list(nom = "parente dense LK", tm = list(name = "g", struct = "iid", t = 1L, q = 9L, LK = diag(9))),
   list(nom = "fa entre caracteres", tm = list(name = "g", struct = "fa", t = 4L, q = 9L, rank = 2L)))
 for (h in hors) {

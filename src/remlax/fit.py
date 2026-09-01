@@ -246,11 +246,28 @@ def fit_reml(terms, res, y, X, theta_init=None, maxiter=3000,
     if fixed_idx:
         for j in fixed_idx:
             bornes[j] = (float(th0[j]), float(th0[j]))
-    r = minimize(fun_sc, th0, jac=True, method="L-BFGS-B",
-                 bounds=bornes,
-                 options=dict(maxiter=maxiter, maxfun=10 * maxiter,
-                              ftol=tol, gtol=1e-10))
-    theta = np.asarray(r.x, dtype=np.float64)
+    # maxiter = 0 SIGNIFIE « n'optimise pas », et il faut le court-circuiter
+    # explicitement. Passer maxiter=0 a L-BFGS-B ne rend PAS le point de depart :
+    # mesure sur un champ ar1, theta ressortait deplace de 1,6e-2 vers l'optimum
+    # (maxfun = 10 * 0 = 0 n'est pas interprete comme « aucune evaluation »).
+    #
+    # POURQUOI CELA COMPTE. Avec --theta-in, maxiter = 0 et polish = 0, le
+    # solveur est censé EVALUER la vraisemblance au theta impose : c'est l'usage
+    # meme du depart a chaud, et le seul moyen de distinguer deux solveurs qui
+    # calculent une fonction differente de deux solveurs qui s'arretent
+    # ailleurs. Un deplacement silencieux invalide exactement cette comparaison,
+    # en rendant une valeur plus haute que celle demandee — d'autant plus haute
+    # qu'on est loin de l'optimum. C'est ce qui faisait apparaitre un ecart de
+    # 8e-2 entre le moteur dense et le moteur creux la ou un calcul REML
+    # independant, en algebre dense, donnait EXACTEMENT la valeur du creux.
+    if int(maxiter) <= 0:
+        theta = np.asarray(th0, dtype=np.float64)
+    else:
+        r = minimize(fun_sc, th0, jac=True, method="L-BFGS-B",
+                     bounds=bornes,
+                     options=dict(maxiter=maxiter, maxfun=10 * maxiter,
+                                  ftol=tol, gtol=1e-10))
+        theta = np.asarray(r.x, dtype=np.float64)
 
     # --- polissage de Newton -------------------------------------------------
     # L-BFGS-B s'arrete sur une tolerance RELATIVE de l'objectif : il rend un
@@ -311,8 +328,13 @@ def fit_reml(terms, res, y, X, theta_init=None, maxiter=3000,
                logLik_asreml=-0.5 * f_end + cst, const_2pi=float(cst),
                n_par=int(p), n_obs=int(n),
                max_grad=float(np.max(np.abs(g_end))),
-               scipy_success=bool(r.success), scipy_message=str(r.message),
-               n_iter=int(r.nit), secondes=time.time() - hist["t0"])
+               # Avec maxiter = 0 l'optimiseur n'a pas tourne : on le DIT, au
+               # lieu de rendre un statut de convergence qui n'a pas de sens.
+               scipy_success=(True if int(maxiter) <= 0 else bool(r.success)),
+               scipy_message=("evaluation seule (maxiter = 0), aucune optimisation"
+                              if int(maxiter) <= 0 else str(r.message)),
+               n_iter=(0 if int(maxiter) <= 0 else int(r.nit)),
+               secondes=time.time() - hist["t0"])
 
     th_terms, th_res, _ = split_theta(theta, terms, res)
 

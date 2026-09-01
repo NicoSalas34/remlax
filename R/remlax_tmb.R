@@ -53,6 +53,42 @@
 # calculent une fonction differente » de « les deux s'arretent ailleurs ».
 # =============================================================================
 
+# -----------------------------------------------------------------------------
+# LES SURCHARGES DE RTMB SONT OBLIGATOIRES A L'INTERIEUR DE L'OBJECTIF
+# -----------------------------------------------------------------------------
+# RTMB exporte ses propres `matrix`, `diag` et `solve`. Elles ne sont visibles
+# que si le paquet est ATTACHE (library(RTMB)) ou nommee explicitement. Ce
+# fichier n'appelle que RTMB::MakeADFun, donc a l'interieur de l'objectif ces
+# trois fonctions resolvaient vers les versions de base — lesquelles rendent un
+# objet numerique ordinaire et PERDENT l'attribut de classe differentiable. Le
+# symptome etait :
+#
+#     Invalid argument to 'advector' (lost class attribute?)
+#
+# leve par t() sur un objet deja degrade par matrix(). Diagnostic contre-intuitif :
+# une sonde a montre que les cinq facons de CONSTRUIRE une matrice triangulaire
+# differentiable marchent toutes, y compris matrix(0) puis assignation — a
+# condition que `matrix` soit celle de RTMB. Le probleme n'etait donc pas
+# l'ecriture mais la RESOLUTION DE NOM.
+#
+# On lie donc les surcharges localement, dans chaque fonction qui en a besoin,
+# plutot que d'attacher RTMB globalement : un fichier de paquet ne doit pas
+# masquer base::matrix chez son utilisateur. Sur des entrees numeriques ces
+# surcharges se comportent comme celles de base, donc les memes fonctions
+# restent utilisables hors differentiation — c'est ce que verifie le test de
+# concordance.
+#
+# PIEGE MESURE AU PASSAGE : backsolve() ne leve AUCUNE erreur sur un advector,
+# rend NaN et un gradient nul, avec pour seul indice un avertissement sur des
+# parties imaginaires ecartees. Ne pas l'utiliser ici.
+.rx_ad <- function(env = parent.frame()) {
+  if (!requireNamespace("RTMB", quietly = TRUE)) return(invisible(FALSE))
+  assign("matrix", RTMB::matrix, envir = env)
+  assign("diag",   RTMB::diag,   envir = env)
+  assign("solve",  RTMB::solve,  envir = env)
+  invisible(TRUE)
+}
+
 rx_tmb_available <- function() {
   requireNamespace("RTMB", quietly = TRUE) && requireNamespace("Matrix", quietly = TRUE)
 }
@@ -118,6 +154,7 @@ rx_sparse_scope <- function(terms, residual = NULL) {
 #' inferieur ligne par ligne (i croissant, puis j <= i), diagonale exponentiee.
 #' Toute divergence ici rend les deux moteurs incomparables sans lever d'erreur.
 rx_chol_sigma_R <- function(theta, struct, t) {
+  .rx_ad()                     # matrix/diag/solve : versions de RTMB
   t <- as.integer(t)
   if (struct == "iid") return(exp(theta[1]) * diag(t))
   if (struct == "diag") return(diag(exp(theta[seq_len(t)]), nrow = t))
@@ -232,7 +269,12 @@ rx_quad_ar1 <- function(u, phi) {
 #' precision des colonnes a chaque ligne, puis celle des lignes aux colonnes du
 #' resultat — separabilite, jamais de matrice de taille q x q.
 rx_quad_ar1ar1 <- function(u, phi_r, phi_c, nr, nc) {
-  U <- matrix(u, nrow = nr, ncol = nc, byrow = TRUE)
+  .rx_ad()
+  # u est indexe niveau = (ligne - 1) * nc + colonne. Un remplissage
+  # COLONNE PAR COLONNE dans une matrice nc x nr donne donc M[colonne, ligne],
+  # et U = t(M). On evite ainsi byrow=, dont le support par la surcharge de
+  # RTMB n'est pas garanti, au profit de t() qui dispatche sur la classe.
+  U <- t(matrix(u, nrow = nc, ncol = nr))
   sr <- 1 - phi_r * phi_r
   sc <- 1 - phi_c * phi_c
   # P = Pr (x) Pc, donc u'Pu = tr(U' Pr U Pc). On forme Pr U par colonnes et
@@ -241,7 +283,9 @@ rx_quad_ar1ar1 <- function(u, phi_r, phi_c, nr, nc) {
     k <- if (par_ligne) ncol(M) else nrow(M)
     d <- rep(1 + phi * phi, k); d[1] <- 1; d[k] <- 1
     if (par_ligne) {
-      out <- M * matrix(d, nrow = nrow(M), ncol = k, byrow = TRUE)
+      # d doit multiplier les COLONNES de M. rep() sur la longueur voulue donne
+      # le meme resultat qu'un byrow= sans dependre de son support.
+      out <- M * matrix(rep(d, each = nrow(M)), nrow = nrow(M), ncol = k)
       if (k > 1) {
         out[, 1:(k - 1)] <- out[, 1:(k - 1)] - phi * M[, 2:k, drop = FALSE]
         out[, 2:k] <- out[, 2:k] - phi * M[, 1:(k - 1), drop = FALSE]
@@ -321,6 +365,7 @@ rx_fit_sparse <- function(model, theta_init = NULL, maxiter = 200L, verbose = TR
               residual = residual, trait_res = trait_res, np = np, n_res = n_res)
 
   nll <- function(par) {
+    .rx_ad()                   # sans ceci, matrix() degrade u en numerique
     theta <- par$theta; beta <- par$beta; u <- par$u
     mu <- as.vector(dat$X %*% beta)
     o_u <- 0L
@@ -379,9 +424,20 @@ rx_fit_sparse <- function(model, theta_init = NULL, maxiter = 200L, verbose = TR
     }
     r <- dat$y - mu
     nll_data <- 0.5 * sum(log(s2)) + 0.5 * sum(r * r / s2)
-    # Constantes de 2 pi incluses pour que la valeur rendue soit -logL et non
-    # -logL a une constante pres : c'est ce qui permet de la comparer au moteur
-    # dense sans facteur d'ajustement cache.
+    # CONVENTION, ET COMMENT ELLE A ETE ETABLIE. obj$fn rend -logL apres
+    # integration de (beta, u) : le moteur rend donc logLik = -obj$fn, la
+    # log-vraisemblance elle-meme, comme le fait le moteur dense
+    # (fit.py : logLik = -0.5 * neg2_reml). La premiere version rendait
+    # -2*obj$fn, et le test de depart a chaud a montre un rapport de EXACTEMENT
+    # 2,0000000000 sur trois modeles differents — signature d'une convention et
+    # non d'une formulation, puisqu'une divergence de formulation ne produirait
+    # pas un facteur constant. C'est exactement ce que ce test doit separer.
+    #
+    # Les constantes de 2 pi sont incluses ici ; TMB en retire sa part lors de
+    # l'integration de Laplace, si bien que le net vaut -(n-p)/2 log(2 pi), la
+    # constante REML. Tout decalage residuel apres correction du facteur 2 est
+    # donc a chercher dans cette constante, et le test l'affiche pour permettre
+    # de l'attribuer plutot que de la supposer.
     nll_data + pen + 0.5 * (n + q_tot) * log(2 * pi)
   }
 
@@ -391,11 +447,24 @@ rx_fit_sparse <- function(model, theta_init = NULL, maxiter = 200L, verbose = TR
   }
   q_total <- sum(vapply(terms, function(tm) as.integer(tm$t) * as.integer(tm$q), 1L))
   par <- list(theta = th0, beta = rep(0, p), u = rep(0, q_total))
-  obj <- RTMB::MakeADFun(nll, par, random = c("beta", "u"), silent = !verbose)
+  # TOLERANCE DU PROBLEME INTERNE. L'approximation de Laplace est EXACTE pour un
+  # modele lineaire gaussien, mais seulement si le mode interne en (beta, u) est
+  # trouve exactement. TMB le cherche par Newton, avec une tolerance par defaut
+  # calibree pour des modeles non gaussiens ou l'approximation elle-meme domine
+  # l'erreur. Ici elle ne domine pas, et l'arret precoce se lisait directement :
+  # sur le champ ar1 a q = n, evaluer au theta du dense laissait 1,9e-4 d'ecart
+  # de log-vraisemblance, alors que le sens inverse — ou le moteur dense n'a
+  # aucun probleme interne — n'en laissait que 1,9e-8. Cette ASYMETRIE est la
+  # signature d'une convergence interne insuffisante, pas d'une formulation
+  # differente. Le probleme interne etant quadratique, le resserrer ne coute
+  # qu'une iteration ou deux.
+  obj <- RTMB::MakeADFun(nll, par, random = c("beta", "u"), silent = !verbose,
+                         inner.control = list(maxit = 200L, tol = 1e-14,
+                                              tol10 = 0, smartsearch = FALSE))
 
   if (maxiter <= 0L) {
     v <- obj$fn(th0)
-    return(list(theta = th0, logLik = -2 * as.numeric(v), n_par = n_theta,
+    return(list(theta = th0, logLik = -as.numeric(v), n_par = n_theta,
                 n_iter = 0L, engine = "sparse", converged = NA,
                 message = "evaluation seule (maxiter = 0)"))
   }
@@ -403,7 +472,7 @@ rx_fit_sparse <- function(model, theta_init = NULL, maxiter = 200L, verbose = TR
                        control = list(iter.max = maxiter, eval.max = 4L * maxiter,
                                       trace = if (verbose) 1L else 0L))
   sdr <- try(TMB::sdreport(obj), silent = TRUE)
-  list(theta = as.numeric(fit$par), logLik = -2 * fit$objective, n_par = n_theta,
+  list(theta = as.numeric(fit$par), logLik = -as.numeric(fit$objective), n_par = n_theta,
        n_iter = fit$iterations, engine = "sparse",
        converged = identical(fit$convergence, 0L), message = fit$message,
        gradient = as.numeric(obj$gr(fit$par)),
