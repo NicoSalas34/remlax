@@ -317,7 +317,13 @@ rx_quad_ar1ar1 <- function(u, phi_r, phi_c, nr, nc) {
 #' @param theta_init depart a chaud. Avec maxiter = 0 l'objectif est simplement
 #'   EVALUE au theta fourni : c'est ainsi qu'on compare les deux moteurs sur la
 #'   meme fonction plutot que sur leurs points d'arret respectifs.
-rx_fit_sparse <- function(model, theta_init = NULL, maxiter = 200L, verbose = TRUE) {
+#' @param maxiter plafond d'iterations. IL DOIT EGALER CELUI DE rx_fit (3000).
+#'   Un plafond plus bas d'un cote fait passer une TRONCATURE pour une
+#'   convergence : mesure sur la grille, les cellules a p = 45 s'arretaient a
+#'   exactement 200 iterations, et leurs temps — 12,4 s et 42,8 s — n'etaient pas
+#'   des temps d'ajustement mais des temps de plafond. Comparer les deux moteurs
+#'   avec des plafonds differents biaise la comparaison en faveur du plus bas.
+rx_fit_sparse <- function(model, theta_init = NULL, maxiter = 3000L, verbose = TRUE) {
   stopifnot(rx_tmb_available())
   terms <- model$terms; residual <- model$residual
   y <- model$y; X <- as.matrix(model$X)

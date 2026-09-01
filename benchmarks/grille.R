@@ -32,6 +32,7 @@ CAS <- arg("cas", "creux"); MOT <- arg("moteur", "dense"); BK <- arg("backend", 
 N   <- as.integer(arg("n", "2000")); Q <- as.integer(arg("q", "500"))
 TT  <- as.integer(arg("t", "2")); OUT <- arg("out", "grille.csv"); TAG <- arg("tag", "")
 SEED <- as.integer(arg("seed", "20260901"))
+MAXIT <- as.integer(arg("maxiter", "3000"))
 REPO <- arg("repo", ".")
 source(file.path(REPO, "R/remlax.R"))
 if (MOT == "creux") source(file.path(REPO, "R/remlax_tmb.R"))
@@ -70,8 +71,10 @@ m <- rx_model(y, X, terms = list(tm),
               residual = rx_residual(trait = factor(trait), struct = "diag"))
 
 t0 <- proc.time()[["elapsed"]]
-r <- try(if (MOT == "creux") rx_fit_sparse(m, verbose = FALSE)
-         else rx_fit(m, backend = BK, hessian = FALSE, blups = FALSE, verbose = FALSE),
+# MEME plafond des deux cotes : sinon une troncature passe pour une convergence.
+r <- try(if (MOT == "creux") rx_fit_sparse(m, maxiter = MAXIT, verbose = FALSE)
+         else rx_fit(m, backend = BK, maxiter = MAXIT, hessian = FALSE,
+                     blups = FALSE, verbose = FALSE),
          silent = TRUE)
 paroi <- proc.time()[["elapsed"]] - t0
 
@@ -91,6 +94,9 @@ ligne <- data.frame(
   fit_interne_s = if (inherits(r, "try-error")) NA_real_
                   else as.numeric(r$secondes %||% paroi),
   logLik = if (inherits(r, "try-error")) NA_real_ else as.numeric(r$logLik),
+  maxiter = MAXIT,
+  # Une cellule qui atteint le plafond n'est PAS un temps d'ajustement.
+  tronque = !inherits(r, "try-error") && !is.null(r$n_iter) && r$n_iter >= MAXIT,
   statut = if (inherits(r, "try-error")) "echec" else "ok",
   erreur = if (inherits(r, "try-error"))
              substr(conditionMessage(attr(r, "condition")), 1, 160) else "",
