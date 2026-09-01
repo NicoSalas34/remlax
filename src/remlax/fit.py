@@ -488,7 +488,8 @@ def fit_reml(terms, res, y, X, theta_init=None, maxiter=3000,
     if hessian:
         H = _hessian_fd(fun_jac, theta, floor=floor, ceil=ceil)
         out["hessian"] = H
-        out.update(_diagnostic(H, g_end, theta, floor, ceil, fixed_idx=fixed_idx))
+        out.update(_diagnostic(H, g_end, theta, floor, ceil, fixed_idx=fixed_idx,
+                               f_obj=out.get("neg2_reml")))
     return out
 
 
@@ -588,7 +589,7 @@ def _verdict(d):
     return v
 
 
-def _diagnostic(H, g, theta, floor, ceil, tol_bound=1e-7, fixed_idx=None):
+def _diagnostic(H, g, theta, floor, ceil, tol_bound=1e-7, fixed_idx=None, f_obj=None):
     """Trois questions distinctes, jamais fusionnees en un booleen.
 
       1. suis-je au sommet ?   decrement de Newton g' H^+ g, en unites de logLik
@@ -664,8 +665,17 @@ def _diagnostic(H, g, theta, floor, ceil, tol_bound=1e-7, fixed_idx=None):
     # l'esprit du critere de Dennis et Schnabel. Le facteur max(|theta_i|, 1)
     # evite de diviser par un parametre proche de zero.
     ech = np.maximum(np.abs(np.asarray(theta, dtype=np.float64)), 1.0)
-    f_ech = max(abs(out.get("_f", 1.0)) if "_f" in out else 1.0, 1.0)
-    grad_rel = float(np.max(np.abs(g_proj) * ech) / f_ech) if p else np.nan
+    # f_obj est la valeur de -2logL AU POINT COURANT, passee par l'appelant. Une
+    # version anterieure la cherchait dans `out`, qui ne la contient jamais : le
+    # denominateur valait donc 1 et la normalisation annoncee ne se produisait
+    # pas. Le symptome etait visible — grad_rel sortait bit a bit egal a
+    # grad_proj_max. Si l'appelant ne la fournit pas, on le DIT en rendant NaN
+    # plutot qu'en normalisant silencieusement par 1.
+    if f_obj is None or not np.isfinite(f_obj):
+        grad_rel = np.nan
+    else:
+        f_ech = max(abs(float(f_obj)), 1.0)
+        grad_rel = float(np.max(np.abs(g_proj) * ech) / f_ech) if p else np.nan
 
     res = dict(out, newton_decrement=dec, leak=leak,
                 grad_proj_max=gpm, grad_rel=grad_rel,
