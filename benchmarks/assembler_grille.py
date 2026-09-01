@@ -53,12 +53,21 @@ def main(motifs, sortie="grille_assemblee.csv"):
         print("  moteur %-6s p=%-4d : %3d cellules, iterations %4d a %4d (mediane %4d)"
               % (k[0], k[1], len(v), min(v), max(v), sorted(v)[len(v) // 2]))
 
+    print("\n=== cout par iteration, cellules convergees seulement ===")
+    print("  %-13s %6s %6s %4s %6s %8s %12s" % ("cellule", "n", "q", "p", "iter", "total s", "s/iter"))
+    for r in sorted(rows, key=lambda r: (r["cellule"], r["n"], r["q"], r["p"])):
+        if r["moteur"] == "creux" and r["n_iter"] >= 200:
+            continue                      # tronquee : ce n'est pas un temps d'ajustement
+        print("  %-13s %6d %6d %4d %6d %8.1f %12.4f"
+              % (r["cellule"], r["n"], r["q"], r["p"], r["n_iter"],
+                 r["fit_interne_s"], r["s_par_iter"]))
+
     print("\n=== le prix du mauvais moteur : cas dense force sur le creux ===")
-    ref = {(r["n"], r["q"], r["p"]): r for r in rows if r["cellule"] == "creux-creux"}
+    ref = {(r["n"], r["q"], r["t"]): r for r in rows if r["cellule"] == "creux-creux"}
     for r in sorted(rows, key=lambda r: (r["n"], r["q"], r["p"])):
         if r["cellule"] != "dense-creux":
             continue
-        b = ref.get((r["n"], r["q"], r["p"]))
+        b = ref.get((r["n"], r["q"], r["t"]))
         if b:
             print("  n=%-6d q=%-5d p=%-3d : cas dense %9.1f s contre cas creux %7.2f s  -> x%.0f"
                   % (r["n"], r["q"], r["p"], r["fit_interne_s"], b["fit_interne_s"],
@@ -68,7 +77,7 @@ def main(motifs, sortie="grille_assemblee.csv"):
     idx = {}
     for r in rows:
         if r["moteur"] == "dense":
-            idx.setdefault((r["cas"], r["n"], r["q"], r["p"]), {})[r["backend"]] = r
+            idx.setdefault((r["cas"], r["n"], r["q"], r["t"]), {})[r["backend"]] = r
     for k in sorted(idx):
         d = idx[k]
         if "cpu" in d and "gpu" in d:

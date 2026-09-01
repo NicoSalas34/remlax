@@ -227,6 +227,38 @@ def fit_reml(terms, res, y, X, theta_init=None, maxiter=3000,
     if th0.shape[0] != p:
         raise ValueError("theta initial de longueur %d, attendu %d" % (th0.shape[0], p))
 
+    # ------------------------------------------------------------------
+    # COMBIEN COUTE LA COMPILATION, ET COMBIEN UNE EVALUATION
+    # ------------------------------------------------------------------
+    # XLA compile le programme au PREMIER appel. Le premier chrono paie donc
+    # compilation + evaluation, le second l'evaluation seule, et leur difference
+    # est la compilation. C'est la seule facon de l'obtenir : le compilateur ne
+    # la rapporte pas, et le solveur etant invoque hors processus depuis R, on
+    # ne peut pas la mesurer de l'exterieur en comparant deux appels.
+    #
+    # POURQUOI CELA MERITE UNE EVALUATION SUPPLEMENTAIRE. La compilation est
+    # payee UNE FOIS et ne se divise pas par le nombre d'iterations : sans la
+    # separer, un ajustement court se voit attribuer un cout unitaire qui est
+    # surtout du temps de compilation. Mesure sur parente dense, elle valait
+    # jusqu'a 66 % du temps total. Le surcout est d'une evaluation sur plusieurs
+    # dizaines a plusieurs centaines.
+    _t = time.time()
+    _v0 = fun_jac(th0)
+    try:
+        import jax as _jax
+        _jax.block_until_ready(_v0[0])
+    except Exception:
+        pass
+    _t_premier = time.time() - _t
+    _t = time.time()
+    _v1 = fun_jac(th0 * 1.0001 + 1e-6)
+    try:
+        _jax.block_until_ready(_v1[0])
+    except Exception:
+        pass
+    _t_eval = time.time() - _t
+    _t_compil = max(_t_premier - _t_eval, 0.0)
+
     hist = {"n": 0, "t0": time.time()}
 
     def cb(_):
@@ -334,7 +366,11 @@ def fit_reml(terms, res, y, X, theta_init=None, maxiter=3000,
                scipy_message=("evaluation seule (maxiter = 0), aucune optimisation"
                               if int(maxiter) <= 0 else str(r.message)),
                n_iter=(0 if int(maxiter) <= 0 else int(r.nit)),
-               secondes=time.time() - hist["t0"])
+               secondes=time.time() - hist["t0"],
+               # Mesures separees : la compilation est payee UNE fois, une
+               # evaluation autant de fois qu'il y a d'iterations. Les melanger
+               # attribue a l'algebre du temps de compilateur.
+               compile_s=_t_compil, eval_s=_t_eval, first_call_s=_t_premier)
 
     th_terms, th_res, _ = split_theta(theta, terms, res)
 

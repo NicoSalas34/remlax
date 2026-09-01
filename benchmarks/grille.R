@@ -93,6 +93,12 @@ ligne <- data.frame(
   fit_paroi_s = paroi,
   fit_interne_s = if (inherits(r, "try-error")) NA_real_
                   else as.numeric(r$secondes %||% paroi),
+  # Le moteur dense rapporte desormais lui-meme sa compilation et le cout d'une
+  # evaluation : XLA compile au premier appel, donc premier - suivant = compilation.
+  # Le moteur creux n'a pas d'equivalent — RTMB compile son C++ une fois a la
+  # construction, et ce cout est deja dans le total.
+  compile_s = if (inherits(r, "try-error")) NA_real_ else as.numeric(r$compile_s %||% NA),
+  eval_s = if (inherits(r, "try-error")) NA_real_ else as.numeric(r$eval_s %||% NA),
   logLik = if (inherits(r, "try-error")) NA_real_ else as.numeric(r$logLik),
   maxiter = MAXIT,
   # Une cellule qui atteint le plafond n'est PAS un temps d'ajustement.
