@@ -1,6 +1,6 @@
 """Structures de covariance : theta (libre, non contraint) -> Sigma (t x t).
 
-CONVENTION UNIQUE, PARTAGEE AVEC LE COTE R (R/remlkit.R). Toute divergence
+CONVENTION UNIQUE, PARTAGEE AVEC LE COTE R (R/remlax.R). Toute divergence
 ici casse silencieusement la correspondance des parametres : les fonctions de
 ce fichier sont donc la reference, et R doit les reproduire a l'identique.
 

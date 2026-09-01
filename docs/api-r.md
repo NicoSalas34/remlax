@@ -1,18 +1,18 @@
 # R interface reference
 
-`R/remlkit.R` describes models; it fits none. It builds the incidences, checks
+`R/remlax.R` describes models; it fits none. It builds the incidences, checks
 their consistency, serialises everything, and delegates the computation to the
 JAX solver, which uses a GPU if the machine has one and a CPU otherwise
 **without the model changing**.
 
 ```r
-source("R/remlkit.R")     # requires Matrix and jsonlite
+source("R/remlax.R")     # requires Matrix and jsonlite
 ```
 
 Two ways in. The formula interface, in the spirit of asreml:
 
 ```r
-fit <- rk_reml(fixed    = y ~ 1 + traitement,
+fit <- rx_reml(fixed    = y ~ 1 + traitement,
                random   = ~ vm(genotype, K = Kmat) + iid(bloc),
                residual = ~ units,
                data     = df,
@@ -23,10 +23,10 @@ and, for everything a formula cannot say — weighted incidences, heterogeneous
 columns — the explicit path, the same machinery without the sugar:
 
 ```r
-mod <- rk_model(y, X,
-                terms    = list(rk_term("voisinage", list(W1, W2), K = Kb, struct = "us")),
-                residual = rk_residual("us", trait = d$trait, unit = d$unit))
-fit <- rk_fit(mod, backend = "auto")
+mod <- rx_model(y, X,
+                terms    = list(rx_term("voisinage", list(W1, W2), K = Kb, struct = "us")),
+                residual = rx_residual("us", trait = d$trait, unit = d$unit))
+fit <- rx_fit(mod, backend = "auto")
 ```
 
 ---
@@ -59,7 +59,7 @@ with a relationship matrix. `rank =` only means something for `fa`, `rr`,
 `chol` and `ante`. `mm()` accepts `name =` to control the output key.
 
 `diag`, `us`, `fa`, `rr`, `chol`, `ante` and `corh` require `trait =` on
-`rk_reml()`: the data are then in **long format**, one row per unit x trait,
+`rx_reml()`: the data are then in **long format**, one row per unit x trait,
 and each column's incidence is built automatically. Long format is chosen over
 a `cbind()` of responses because it handles traits measured on different
 subsets of units with nothing special — which is the rule as soon as
@@ -141,10 +141,10 @@ one variance and one residual: 12.
 
 ### Correspondence with asreml names
 
-asreml writes variance and correlation in one symbol. remlkit separates them,
+asreml writes variance and correlation in one symbol. remlax separates them,
 so an asreml name maps to a pair.
 
-| asreml | remlkit | comment |
+| asreml | remlax | comment |
 |---|---|---|
 | `idv(f)` | `iid(f)` | |
 | `idh(f)` | `diag(f)` | |
@@ -157,7 +157,7 @@ so an asreml name maps to a pair.
 | `vm(f, K)` | `vm(f, K = K)` | |
 | `ar1v(f)` | `ar1(f)` | `Sigma = s2` |
 | `ar1h(f)` | `ar1(f, struct = "diag")` | `Sigma` diagonal |
-| `ar1(f)` (correlation only) | `ar1(f)` | remlkit always carries a scale in `Sigma` |
+| `ar1(f)` (correlation only) | `ar1(f)` | remlax always carries a scale in `Sigma` |
 | `ar2v`, `ar3v`, `sarv`, `ma1v`, ... | `ar2(f)`, `ar3(f)`, `sar(f)`, `ma1(f)`, ... | same rule |
 | `corbv(f, b)` | `corb(f, order = b)` | |
 | `corgv(f)` | `corg(f)` | |
@@ -213,10 +213,12 @@ argument is the column passed as `trait =` — and the others bear on the units.
 | `~ us(trait):units` | coupling between traits of the same unit |
 | `~ diag(trait):units` | one variance per trait |
 | `~ ar1(row):ar1(col)` | separable residual field |
+| `~ us(trait):ar1(row):ar1(col)` | separable field **and** coupling between traits |
+| `~ diag(trait):ar1(row):ar1(col)` | separable field, one variance per trait |
 | `~ exp(pos)` | metric decay |
 | `~ dsum(~ <structure> | <section factor>)` | direct sum |
 
-Verified:
+Verified (the totals include the random terms of the model that was fitted):
 
 ```
 res ~ units                                    2 parametre(s) de variance
@@ -226,6 +228,13 @@ res ~ ar1(row):ar1(col)                        4
 res ~ exp(col)                                 3
 res ~ dsum(~ units | site)                     3
 res ~ dsum(~ ar1(col) | site)                  5
+```
+
+and, on a 6 x 5 grid with two traits in long format and one random term:
+
+```
+res ~ us(trait):ar1(row):ar1(col)              6
+res ~ diag(trait):ar1(row):ar1(col)            5
 ```
 
 Underneath there is a single formula:
@@ -252,43 +261,71 @@ permutation. Both the R and the Python side check the partition: a forgotten
 row would leave `V` with a zero variance, a duplicated one would count it
 twice.
 
-### A limitation of the residual parser
+### A separable field combined with a trait structure
 
-`us(trait):ar1(row):ar1(col)` **cannot be written as a formula** on
-long-format data. The parser recognises the `ar1(r):ar1(c)` pair before
-anything else and requires at most one observation per `(row, col)` cell,
-which long format violates by construction:
-
-```
-residual = ~ ar1(row):ar1(col) : 30 cellule(s) en double. Un champ residuel
-structure exige au plus une observation par cellule.
-```
-
-The solver supports the structure. Build it through `rk_residual()`, giving
-the cell index as `unit`:
+`us(trait):ar1(row):ar1(col)` works as a formula on long-format data. The
+uniqueness constraint of a structured residual field bears on the
+**(cell, trait) pair**, not on the cell: with `t` traits each cell of the field
+appears `t` times by construction, and `R = Sigma_trait (x) C_cell` is perfectly
+regular there — the correlation within a cell is what `Sigma_trait` carries.
 
 ```r
-cell <- (as.integer(d$row) - 1L) * nc + as.integer(d$col)
-r <- rk_residual("diag", trait = d$trait, unit = cell,
-                 level = "ar1ar1", dims = c(nr, nc), n_unit = nr * nc)
-mod <- rk_model(d$y, X, list(rk_term("gid", d$gid)), r)
+rx_reml(y ~ trait, random = ~ gid,
+        residual = ~ us(trait):ar1(row):ar1(col),
+        data = dl, trait = "trait", unit = "unite",
+        backend = "cpu", verbose = FALSE)
 ```
 
 ```
-Ajustement REML (cpu) : logLik -79.255014 | 5 parametres | 60 obs
-  Sigma[gid] 1x1, diagonale : 0.02091
-  residuelle : 0.6537 0.9782
-  rho : 0.118476 0.043092
-  noms : gid, residuelle[1,1], residuelle[2,1], residuelle[2,2],
-         residuelle!ar1ar11, residuelle!ar1ar12
+Ajustement REML (cpu) : logLik -78.941857 | 6 parametres | 60 obs | 0.4 s
+  max|grad| 3.46e-06 | decrement de Newton 1.68e-13 | 0 valeur(s) propre(s) negative(s)
+  Sigma[gid] 1x1, diagonale : 3.775e-11
+  residuelle : 0.6717 1.0029
+   rho : 0.122630 0.036921
+   noms : gid, residuelle[1,1], residuelle[2,1], residuelle[2,2],
+          residuelle!ar1ar11, residuelle!ar1ar12
 ```
+
+What the guard still refuses is a genuine repetition — the same trait twice in
+the same cell:
+
+```
+residual = ~ ar1(row):ar1(col) : 1 couple(s) (cellule, caractere) en double. Un
+champ residuel structure exige au plus une observation par cellule et par
+caractere.
+```
+
+The explicit path builds the same structure and remains useful when the cell
+index is computed rather than read from two columns, or when the residual is
+generated programmatically. `struct` carries what the formula writes as
+`us(trait)`, so it is `"us"` below and would be `"diag"` for
+`diag(trait):ar1(row):ar1(col)`:
+
+```r
+cell <- (as.integer(base$row) - 1L) * nc + as.integer(base$col)
+r_ex <- rx_residual("us", trait = dl$trait, unit = rep(cell, nt),
+                    level = "ar1ar1", dims = c(nr, nc), n_unit = nr * nc)
+me <- rx_model(dl$y, model.matrix(y ~ trait, dl), list(rx_term("gid", dl$gid)), r_ex)
+fe <- rx_fit(me, backend = "cpu", verbose = FALSE)
+```
+
+```
+formule   : logLik -78.941857, 6 parametres
+explicite : logLik -78.941857, 6 parametres
+ecart de logLik      : 0.000e+00
+ecart max sur R      : 0.000e+00
+ecart max sur les rho : 0.000e+00
+```
+
+Same likelihood, same parameter count, and `R` and both AR1 correlations agree
+exactly. The `diag` variant behaves the same way, with one parameter fewer.
 
 ---
 
-## 3. `rk_reml()`
+## 3. `rx_reml()`
 
 ```r
-rk_reml(fixed, random = NULL, residual = "units", data,
+rx_reml(fixed, random = NULL, residual = "units", data,
         trait = NULL, unit = NULL,
         backend = c("auto", "gpu", "cpu"), ...)
 ```
@@ -302,21 +339,21 @@ rk_reml(fixed, random = NULL, residual = "units", data,
 | `trait` | name of the trait column (long format), or a vector |
 | `unit` | name of the unit column, or a vector |
 | `backend` | machine, never model |
-| `...` | passed to `rk_fit()`: `vpredict`, `wald`, `kenward_roger`, `predict`, `fixed_theta`, `n_restarts`, `polish`, `maxiter`, `hessian`, `blups`, `verbose`, `keep`, `dir` |
+| `...` | passed to `rx_fit()`: `vpredict`, `wald`, `kenward_roger`, `predict`, `fixed_theta`, `n_restarts`, `polish`, `maxiter`, `hessian`, `blups`, `verbose`, `keep`, `dir` |
 
 Incomplete rows are dropped with a message; `attr(X, "assign")` is restored
 afterwards, without which a Wald test would examine each column in isolation
 instead of the whole term.
 
-The returned object is of class `rk_fit`, and additionally carries `model`,
-`fixed`, `data`, `xlevels` and `call`, which is what `rk_predict()` needs.
+The returned object is of class `rx_fit`, and additionally carries `model`,
+`fixed`, `data`, `xlevels` and `call`, which is what `rx_predict()` needs.
 
 ---
 
-## 4. `rk_fit()`
+## 4. `rx_fit()`
 
 ```r
-rk_fit(model, backend = c("auto", "gpu", "cpu"), dir = NULL,
+rx_fit(model, backend = c("auto", "gpu", "cpu"), dir = NULL,
        maxiter = 3000L, polish = 25L, n_restarts = 0L,
        hessian = TRUE, blups = TRUE, vpredict = NULL, wald = FALSE,
        kenward_roger = FALSE, predict = NULL,
@@ -325,7 +362,7 @@ rk_fit(model, backend = c("auto", "gpu", "cpu"), dir = NULL,
 
 | argument | meaning |
 |---|---|
-| `model` | an `rk_model` |
+| `model` | an `rx_model` |
 | `backend` | `"auto"` takes the GPU if JAX sees one; `"gpu"` **refuses** rather than falling back silently |
 | `dir` | where to write the serialised design; a temporary directory by default, removed unless `keep = TRUE` |
 | `maxiter`, `polish` | optimiser caps |
@@ -347,7 +384,7 @@ wrong on the next run. Expressions use `V1, V2, ...` and the usual operators,
 plus `sqrt`, `log`, `exp`, `abs`.
 
 ```r
-fit <- rk_reml(y ~ 1, random = ~ gid + iid(bloc), data = d,
+fit <- rx_reml(y ~ 1, random = ~ gid + iid(bloc), data = d,
                vpredict = c(h2 = "V1/(V1+V2+V3)", vg = "V1",
                             pct = "100*V1/(V1+V2+V3)"))
 fit$vpredict$composantes
@@ -420,14 +457,34 @@ parameters, for which the omitted second-order term is not exactly zero.
 ### `fixed_theta` and `n_restarts`
 
 ```
-   libre : logLik -155.75273, theta = -0.175965 -0.038052, n_at_bound = 0
-   fixe  : logLik -155.80423, theta = -0.113874 -0.041241, n_at_bound = 0
+libre  logLik -141.733086  theta = -0.153257 -0.218434
+       n_par 2 | n_at_bound 0 | n_fixed 0 | n_fixed_out 0 | n_par_free 2
+       max|grad| 1.934e-08 | decrement de Newton 1.548e-18
+fixe   logLik -141.765166  theta = -0.197944 -0.216115
+       n_par 2 | n_at_bound 0 | n_fixed 1 | n_fixed_out 1 | n_par_free 1
+       max|grad| 2.879e+00 | decrement de Newton 4.614e-28
 ```
 
 A fixed parameter is bounded to its starting value; the algebra is unchanged.
-It is counted in `n_fixed` and excluded from the covariance used by
-`vpredict`. It is **not** counted in `n_at_bound`, which reports parameters at
-the global `floor`/`ceil`.
+It is excluded from the covariance used by `vpredict`.
+
+It is **outside the free subspace without being at a bound** — it is pinned to
+its starting value, which has nothing to do with `floor`/`ceil`. Three
+counters keep the three notions apart:
+
+| counter | meaning |
+|---|---|
+| `n_at_bound` | parameters at `floor` or `ceil`, **excluding** fixed ones |
+| `n_fixed_out` | parameters held by `fixed_theta` (`n_fixed` is the same count) |
+| `n_par_free` | dimension of the actual free subspace |
+
+Read the two diagnostics in the fixed row above together. `max|grad|` is 2.879
+— the gradient along the pinned direction, large and irrelevant — while the
+Newton decrement is `4.6e-28`, correctly reporting the single free parameter as
+converged. The diagnostic is computed on the free subspace only; a pinned
+coordinate left inside it would contribute the slope available along a
+direction the step cannot take, and the fit would announce an optimum not
+reached where it was.
 
 ```
    n_restarts 3, restart_better 0, restart_gain 0.000e+00, logLik -155.752735
@@ -449,10 +506,10 @@ in the whole package where the choice of machine intervenes.
 
 ---
 
-## 5. `rk_term()`
+## 5. `rx_term()`
 
 ```r
-rk_term(name, Z, K = NULL, struct = "iid", rank = 0L,
+rx_term(name, Z, K = NULL, struct = "iid", rank = 0L,
         t = NULL, levels = NULL, level = "auto",
         dims = NULL, order = 0L, coord = NULL,
         opts = NULL, expr = NULL)
@@ -499,10 +556,10 @@ variance shared by the `t` columns.
 
 ---
 
-## 6. `rk_residual()`
+## 6. `rx_residual()`
 
 ```r
-rk_residual(struct = "iid", trait = NULL, unit = NULL, rank = 0L,
+rx_residual(struct = "iid", trait = NULL, unit = NULL, rank = 0L,
             level = "id", order = 0L, coord = NULL, n_unit = NULL,
             dims = NULL, opts = NULL, expr = NULL, sections = NULL,
             rows = NULL, name = NULL)
@@ -513,14 +570,14 @@ rk_residual(struct = "iid", trait = NULL, unit = NULL, rank = 0L,
 observations of the **same** unit on different traits are correlated under
 `us`. `level`, `order`, `coord`, `dims`, `opts` and `expr` describe the
 structure between units, exactly as for a term. `sections` holds a list of
-`rk_residual` objects for a direct sum, each carrying its `rows` and `name`.
+`rx_residual` objects for a direct sum, each carrying its `rows` and `name`.
 
 ---
 
-## 7. `rk_model()`
+## 7. `rx_model()`
 
 ```r
-rk_model(y, X, terms, residual = rk_residual(), name = "modele")
+rx_model(y, X, terms, residual = rx_residual(), name = "modele")
 ```
 
 Assembles and checks. Refuses: a term whose incidence has the wrong number of
@@ -536,7 +593,7 @@ refused: there is nothing to estimate.
 `attr(X, "assign")` and `attr(X, "termes")` are carried through so that Wald
 tests operate on whole terms.
 
-`print.rk_model()` gives the inventory:
+`print.rx_model()` gives the inventory:
 
 ```
 Modele REML 'modele' : 240 observations, 1 effets fixes
@@ -548,10 +605,10 @@ Modele REML 'modele' : 240 observations, 1 effets fixes
 
 ---
 
-## 8. `rk_export()`
+## 8. `rx_export()`
 
 ```r
-rk_export(model, dir)
+rx_export(model, dir)
 ```
 
 Serialises the design into `dir`: `manifest.json` plus one `<name>.bin` (raw
@@ -573,10 +630,10 @@ stacked in the order `column = (a-1)*q + level`.
 
 ---
 
-## 9. `rk_predict()`
+## 9. `rx_predict()`
 
 ```r
-rk_predict(fit, classify, levels = NULL, at = NULL,
+rx_predict(fit, classify, levels = NULL, at = NULL,
            average = c("equal", "proportional"), weights = NULL,
            vcov = c("simple", "kenward-roger"),
            sed = FALSE, include_random = TRUE,
@@ -606,7 +663,7 @@ building the right combination.
   (`attr(out, "sed")`) and their quadratic mean (`attr(out, "sed.moyen")`).
 
 ```r
-pv <- rk_predict(f, classify = "trt", sed = TRUE)
+pv <- rx_predict(f, classify = "trt", sed = TRUE)
 ```
 
 ```
@@ -628,10 +685,10 @@ produces a warning and is dropped from the random part.
 
 ---
 
-## 10. `rk_spl2d()`
+## 10. `rx_spl2d()`
 
 ```r
-rk_spl2d(x, y, nseg = c(6L, 6L), deg = 3L, pord = 2L, prefix = "spl")
+rx_spl2d(x, y, nseg = c(6L, 6L), deg = 3L, pord = 2L, prefix = "spl")
 ```
 
 Tensor-product P-spline basis with the PS-ANOVA decomposition. Returns
@@ -641,15 +698,15 @@ Tensor-product P-spline basis with the PS-ANOVA decomposition. Returns
   otherwise the surface is penalised down to its linear component and the
   smoothing is biased. Its columns are centred and reduced to an independent
   basis by a rank-revealing QR, so it can sit next to an intercept.
-- `terms` is a list of three `rk_term` objects, `<prefix>_x`, `<prefix>_y` and
+- `terms` is a list of three `rx_term` objects, `<prefix>_x`, `<prefix>_y` and
   `<prefix>_xy`, each with its **own** variance — which is what makes the
   smoothing anisotropic, a surface being allowed to be rough in one direction
   and smooth in the other.
 
 ```r
-sp  <- rk_spl2d(d$coln, d$rown, nseg = c(6, 6))
+sp  <- rx_spl2d(d$coln, d$rown, nseg = c(6, 6))
 X   <- cbind("(Intercept)" = 1, sp$X)
-mod <- rk_model(d$y, X, terms = c(list(rk_term("gid", d$gid)), sp$terms))
+mod <- rx_model(d$y, X, terms = c(list(rx_term("gid", d$gid)), sp$terms))
 ```
 
 ```
@@ -666,7 +723,7 @@ known incidence, exactly as in sommer and asreml.
 
 ## 11. Reading the result
 
-`rk_fit` objects have a `print` method:
+`rx_fit` objects have a `print` method:
 
 ```
 Ajustement REML (cpu) : logLik -388.088838 | 3 parametres | 240 obs | 1.6 s
@@ -679,16 +736,17 @@ Ajustement REML (cpu) : logLik -388.088838 | 3 parametres | 240 obs | 1.6 s
 | field | contents |
 |---|---|
 | `theta` | estimate on the internal scale |
-| `logLik`, `logLik_asreml`, `const_2pi` | remlkit includes `(n-p)/2 log(2 pi)`, asreml omits it |
+| `logLik`, `logLik_asreml`, `const_2pi` | remlax includes `(n-p)/2 log(2 pi)`, asreml omits it |
 | `n_par`, `n_obs`, `secondes`, `backend` | |
 | `sigmas` | named list of `Sigma` matrices |
 | `sigmas_res`, `sigma_res` | per-section residual matrices, and the first one |
-| `rho` | between-level parameters; a single-parameter structure keeps the bare key (`rho$residuelle`), several are prefixed (`rho[["residuelle!phi"]]`) |
+| `rho` | between-level parameters, **on the scale actually used in `C`**; a single-parameter structure keeps the bare key (`rho$residuelle`), several are prefixed (`rho[["residuelle!phi"]]`). A `cor` structure also carries `!borne_inf`, and the metric families `!signe_non_identifie` |
 | `pacf` | partial autocorrelations of `ar2`/`ar3` |
 | `blups` | named list of `q x t` matrices |
 | `beta`, `vbeta`, `vbeta_kr` | fixed effects and their covariance |
 | `hessian` | Hessian of `-2 logL` |
-| `max_grad`, `newton_decrement`, `n_neg_eig`, `n_null_dir`, `n_at_bound`, `cond` | diagnostics |
+| `max_grad`, `newton_decrement`, `n_neg_eig`, `n_null_dir`, `cond` | diagnostics |
+| `n_at_bound`, `n_fixed`, `n_fixed_out`, `n_par_free` | bounds, fixed parameters, and the free-subspace dimension |
 | `composantes_degenerees` | terms with a parameter at the floor |
 | `composantes_noms` | the `Vi` numbering |
 | `vpredict`, `wald`, `kenward_roger`, `predictions` | present when requested |
@@ -708,15 +766,15 @@ between models. Use `logLik_asreml` when comparing.
 
 | variable | meaning |
 |---|---|
-| `RK_PY` | command that starts Python, space-separated |
-| `RK_CLI` | path to `cli.py`, or `-m remlkit.cli` |
-| `IGE_JAX_CMD` | fallback for `RK_PY` |
+| `RX_PY` | command that starts Python, space-separated |
+| `RX_CLI` | path to `cli.py`, or `-m remlax.cli` |
+| `IGE_JAX_CMD` | fallback for `RX_PY` |
 | `IGE_JAX_SIF` | Apptainer image; becomes `apptainer exec --nv <sif> python3` |
 
-`rk_python_cmd()` returns the first of `RK_PY`, `IGE_JAX_CMD`, `IGE_JAX_SIF`,
-`python3`. `rk_solver_args()` returns `RK_CLI` if set, then `-m remlkit.cli`
-if `import remlkit` succeeds, then `src/remlkit/cli.py` relative to
-`R/remlkit.R`.
+`rx_python_cmd()` returns the first of `RX_PY`, `IGE_JAX_CMD`, `IGE_JAX_SIF`,
+`python3`. `rx_solver_args()` returns `RX_CLI` if set, then `-m remlax.cli`
+if `import remlax` succeeds, then `src/remlax/cli.py` relative to
+`R/remlax.R`.
 
 The coupling goes through **files**, not reticulate. Two reasons: R and JAX
 may live in different containers, and the file makes CPU/GPU parity verifiable
@@ -728,11 +786,11 @@ because both backends then read strictly the same input.
 
 `$` performs **partial matching** on R lists. When a `sigmas_res` field was
 added to the result, the expression `r$sigmas` — not yet created at that point
-of `rk_read_result()` — started matching `sigmas_res`. The terms' `Sigma`
+of `rx_read_result()` — started matching `sigmas_res`. The terms' `Sigma`
 matrices were appended to the residual list, and `fit$sigmas[[1]]` returned the
 **residual** instead of the first term. Seven failures across three test
 suites, all shifted by one, and the log-likelihood stayed correct throughout,
 which made the diagnosis counter-intuitive.
 
-`rk_read_result()` now uses `[[ ]]` only, which matches exactly. Use `[[ ]]`
+`rx_read_result()` now uses `[[ ]]` only, which matches exactly. Use `[[ ]]`
 when reading a fit programmatically.

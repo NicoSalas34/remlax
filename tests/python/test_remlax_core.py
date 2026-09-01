@@ -1,10 +1,10 @@
-"""Tests unitaires du noyau remlkit (Python), independants de R.
+"""Tests unitaires du noyau remlax (Python), independants de R.
 
 Couvre ce qui ne peut se verifier qu'ici : parametrisations, gradients,
 assemblage de V, invariance au peripherique. Les comparaisons a des
-implementations independantes (lme4, sommer) sont dans test_remlkit.R.
+implementations independantes (lme4, sommer) sont dans test_remlax.R.
 
-    python3 scripts/tests/test_remlkit_core.py
+    python3 scripts/tests/test_remlax_core.py
 """
 import os
 import sys
@@ -13,9 +13,9 @@ import numpy as np
 
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "..", "src"))
 import jax.numpy as jnp  # noqa: E402
-from remlkit import structures as S  # noqa: E402
-from remlkit.model import assemble_V, dense_Z, make_objective, split_theta, n_theta  # noqa: E402
-from remlkit.fit import fit_reml  # noqa: E402
+from remlax import structures as S  # noqa: E402
+from remlax.model import assemble_V, dense_Z, make_objective, split_theta, n_theta  # noqa: E402
+from remlax.fit import fit_reml  # noqa: E402
 
 ECHECS = []
 

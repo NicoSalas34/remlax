@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Benchmarks de remlkit : temps, compilation, memoire, par backend.
+"""Benchmarks de remlax : temps, compilation, memoire, par backend.
 
     python3 benchmarks/bench.py --backend cpu --suite all --out results/cpu.csv
 
@@ -136,7 +136,7 @@ def gpu_mem_mb():
 
 def timed_fit(terms, res, y, X, reps, hessian, **kw):
     """Ajustements repetes ; rend la mediane, le min, le max et le dernier resultat."""
-    from remlkit.fit import fit_reml
+    from remlax.fit import fit_reml
     ts = []
     out = None
     for _ in range(reps):
@@ -156,9 +156,9 @@ def timed_objective(terms, res, y, X, reps):
     fait qu'un petit modele est plus rapide sur CPU que sur GPU.
     """
     import jax
-    from remlkit import structures as S
-    from remlkit.model import make_objective, n_theta
-    from remlkit.fit import initial_theta
+    from remlax import structures as S
+    from remlax.model import make_objective, n_theta
+    from remlax.fit import initial_theta
     fun_sc, fun, sc, Zs = make_objective(terms, res, y, X)
     th = np.asarray(initial_theta(terms, res, y))
     t0 = time.perf_counter()
@@ -310,7 +310,7 @@ def main(argv=None):
     a = ap.parse_args(argv)
 
     import jax
-    from remlkit.device import pick_device, device_report
+    from remlax.device import pick_device, device_report
     dev, plat = pick_device(a.backend)
     ctx = jax.default_device(dev)
     ctx.__enter__()

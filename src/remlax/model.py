@@ -20,12 +20,12 @@ ASSEMBLAGE PAR FACTEUR, ET POURQUOI
 
     ORDRE DES COLONNES DE Z : colonne = (col_trait - 1) * q + niveau, c'est-a-dire
     NIVEAU le plus rapide. Sigma (x) K suit le meme ordre (Sigma sur l'index lent).
-    R/remlkit.R construit Z avec cette convention ; en changer d'un cote sans
+    R/remlax.R construit Z avec cette convention ; en changer d'un cote sans
     l'autre donnerait un modele different sans aucune erreur visible.
 
 VRAISEMBLANCE
     -2 logL_REML = log|V| + log|X'V^-1 X| + y' P y  (+ constante)
-    Le noyau reml_from_V de remlkit/core.py porte le gradient
+    Le noyau reml_from_V de remlax/core.py porte le gradient
     analytique par rapport a V (d(-2logL)/dV = P - (Py)(Py)'), qui est agnostique
     a la facon dont V a ete batie : toute parametrisation lisse de V est donc
     differentiee gratuitement.

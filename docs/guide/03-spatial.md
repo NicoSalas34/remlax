@@ -14,7 +14,7 @@ A 16 x 12 grid, 192 plots, 48 genotypes replicated four times, with a
 simulated field of AR1(0.6) across rows and AR1(0.3) across columns.
 
 ```r
-source("R/remlkit.R")
+source("R/remlax.R")
 set.seed(21)
 nr <- 16; nc <- 12
 d <- expand.grid(col = seq_len(nc), row = seq_len(nr))
@@ -43,9 +43,9 @@ coordinates rather than factor levels.
 ## The separable residual field
 
 ```r
-f0 <- rk_reml(y ~ 1, random = ~ gid, residual = ~ units, data = d,
+f0 <- rx_reml(y ~ 1, random = ~ gid, residual = ~ units, data = d,
               backend = "cpu", verbose = FALSE)
-f1 <- rk_reml(y ~ 1, random = ~ gid, residual = ~ ar1(row):ar1(col), data = d,
+f1 <- rx_reml(y ~ 1, random = ~ gid, residual = ~ ar1(row):ar1(col), data = d,
               backend = "cpu", verbose = FALSE)
 ```
 
@@ -82,9 +82,11 @@ a recognisable signature: on a design where one factor alternates, lag 1 of
 asreml becomes lag 2 of the full-grid field, and the estimated correlation
 comes out as the **square** of the right one with its sign erased.
 
-A structured residual field requires **at most one observation per cell**.
-remlkit refuses otherwise, because two observations of the same cell would be
-perfectly correlated, `R` singular, and `-2 logL` NaN.
+A structured residual field requires at most one observation **per cell and
+per trait**. remlax refuses otherwise, because two observations of the same
+cell for the same trait would be perfectly correlated, `R` singular, and
+`-2 logL` NaN. On long-format multi-trait data every cell legitimately appears
+once per trait — see [below](#a-separable-field-across-several-traits).
 
 ---
 
@@ -94,7 +96,7 @@ The same field can be written as a random term instead, leaving the residual
 as a separate nugget.
 
 ```r
-f2 <- rk_reml(y ~ 1, random = ~ gid + ar1(row, col), residual = ~ units,
+f2 <- rx_reml(y ~ 1, random = ~ gid + ar1(row, col), residual = ~ units,
               data = d, backend = "cpu", verbose = FALSE)
 print(f2)
 f2$rho
@@ -137,7 +139,7 @@ n_at_bound             : 1
 
 A variance at the floor is not "estimated at zero", it is **unidentified**.
 Its standard error, its share of variance, and any test touching it are void.
-asreml refuses to converge in this situation; remlkit converges, so it has to
+asreml refuses to converge in this situation; remlax converges, so it has to
 say so.
 
 The practical rule: put the field in the **residual** when there is one
@@ -153,22 +155,22 @@ handle irregular positions and gaps that an AR1 cannot.
 
 ```r
 essai <- function(fx)
-  rk_reml(y ~ 1, random = ~ gid, residual = fx, data = d,
+  rx_reml(y ~ 1, random = ~ gid, residual = fx, data = d,
           backend = "cpu", verbose = FALSE)
 ```
 
 ```
-~ units                            logLik  -345.6646  2 par.
-~ ar1(row):ar1(col)                logLik  -320.7582  4 par.  residuelle=0.4628/0.3123
-~ iexp(coln, rown)                 logLik  -345.6646  3 par.  residuelle=0
-~ ieuc(coln, rown)                 logLik  -345.6646  3 par.  residuelle=0
-~ sph(coln, rown)                  logLik  -327.8789  3 par.  residuelle!portee=4.64
-~ aexp(coln, rown)                 logLik  -345.6646  4 par.  residuelle=0/0
+~units                             logLik  -345.6646  2 par.
+~ar1(row):ar1(col)                 logLik  -320.7582  4 par.  residuelle=0.4628/0.3123
+~iexp(coln, rown)                  logLik  -345.6646  3 par.  residuelle=1e-12 residuelle!signe_non_identifie=1
+~ieuc(coln, rown)                  logLik  -345.6646  3 par.  residuelle=1e-12 residuelle!signe_non_identifie=1
+~sph(coln, rown)                   logLik  -327.8789  3 par.  residuelle!portee=4.64
+~aexp(coln, rown)                  logLik  -345.6646  4 par.  residuelle=1e-12/1e-12 residuelle!signe_non_identifie=1
 ```
 
 Two things are visible here.
 
-**`iexp`, `ieuc` and `aexp` collapsed to `phi = 0`** and reproduced the
+**`iexp`, `ieuc` and `aexp` collapsed to `phi = 1e-12`** and reproduced the
 independent-residual likelihood exactly. Their single correlation applies the
 same decay in both directions of a field whose two directions have very
 different correlations (0.6 and 0.3); the compromise is worse than no
@@ -181,14 +183,23 @@ decays as fast as an AR1 only along the axes, and here it also went to zero.
 spherical kernel with a sill has a shape a separable AR1 does not, and it
 identifies here because the field is genuinely isotropic over short distances.
 
-The `portee` key rather than `phi` in the reported parameters signals that
-`sph`, `cir` and `lvr` are parametrised by a **range** in `exp(theta)` —
-positive and unbounded — not by a correlation in `tanh`.
+`1e-12` rather than a plain zero is the floor of the clip applied to the
+correlation; read it as "turned off".
 
-**Read the reported `phi` of the metric families in absolute value.** They use
-`|tanh(theta)|` internally, so the sign of the reported value is not
-identified. `ar1` keeps its sign: a negative `phi` there is a legitimate
-alternating correlation.
+The reported keys tell you what scale you are reading, and remlax always
+reports the value that is actually in `C`.
+
+- `portee` instead of `phi` for `sph`, `cir` and `lvr`: those are parametrised
+  by a **range** in `exp(theta)` — positive and unbounded — not by a
+  correlation in `tanh`.
+- `signe_non_identifie` on the metric families: they raise `abs(tanh(theta))`
+  to a distance, so `theta` and `-theta` give the **same** correlation matrix
+  (verified to `max|C(+) - C(-)| = 0`). The reported `phi` is therefore always
+  positive; there is no sign to interpret. `ar1` carries no such flag and its
+  sign is meaningful — a negative `phi` there is a legitimate alternating
+  correlation.
+- `borne_inf` on a `cor` structure: the reported correlation has already been
+  rescaled onto `(-1/(q-1), 1)`, and `borne_inf` is that bound.
 
 ---
 
@@ -199,9 +210,9 @@ alternating correlation.
 `lambda` fixed at 1 or 2.
 
 ```r
-m1 <- rk_reml(y ~ 1, random = ~ gid, residual = ~ mtrn(coln, rown), data = d, ...)
-m2 <- rk_reml(y ~ 1, random = ~ gid, residual = ~ mtrn(coln, rown, nu = 1.0), ...)
-m3 <- rk_reml(y ~ 1, random = ~ gid, residual = ~ mtrn(coln, rown, nu = "1.0 F"), ...)
+m1 <- rx_reml(y ~ 1, random = ~ gid, residual = ~ mtrn(coln, rown), data = d, ...)
+m2 <- rx_reml(y ~ 1, random = ~ gid, residual = ~ mtrn(coln, rown, nu = 1.0), ...)
+m3 <- rx_reml(y ~ 1, random = ~ gid, residual = ~ mtrn(coln, rown, nu = "1.0 F"), ...)
 ```
 
 ```
@@ -235,7 +246,7 @@ that it is the one that generated the data.
 `K_nu` for arbitrary `nu` is computed by trapezoidal quadrature of the
 integral representation, not by a series expansion — the usual series has a
 singularity at integer `nu`. See
-[api-python.md](../api-python.md#9-remlkitbessel).
+[api-python.md](../api-python.md#9-remlaxbessel).
 
 ---
 
@@ -246,7 +257,7 @@ Passing a column factor as the unit on a 16-row field violates it:
 
 ```r
 tryCatch(
-  rk_reml(y ~ 1, random = ~ gid,
+  rx_reml(y ~ 1, random = ~ gid,
           residual = ~ own(coln, expr = "exp(-lag*exp(p1))", n_par = 1),
           data = d, backend = "cpu", verbose = FALSE),
   error = function(e) conditionMessage(e))
@@ -262,6 +273,87 @@ The check covers **every** structure between units. It used to cover
 `us`/`diag`/`fa` only, and a `dsum(~ ar1(col) | site)` with several rows per
 column slipped through and returned NaN in silence.
 
+What the check counts is the **(unit, trait) pair**. That distinction is what
+makes the next section work.
+
+---
+
+## A separable field across several traits
+
+A residual field and a covariance between traits combine in one formula. Six
+rows, five columns, two traits in long format, one random term:
+
+```r
+set.seed(3)
+nr <- 6; nc <- 5; nt <- 2; ng <- 10
+base <- expand.grid(col = seq_len(nc), row = seq_len(nr))
+base$unite <- factor(seq_len(nrow(base)))
+base$gid   <- factor(rep_len(seq_len(ng), nrow(base)))
+dl <- do.call(rbind, lapply(paste0("t", seq_len(nt)),
+                            function(tt) transform(base, trait = tt)))
+dl$trait <- factor(dl$trait); dl$row <- factor(dl$row); dl$col <- factor(dl$col)
+dl$y <- rnorm(nrow(dl)) + as.numeric(dl$trait)
+
+ff <- rx_reml(y ~ trait, random = ~ gid,
+              residual = ~ us(trait):ar1(row):ar1(col),
+              data = dl, trait = "trait", unit = "unite",
+              backend = "cpu", verbose = FALSE)
+print(ff)
+```
+
+```
+Ajustement REML (cpu) : logLik -78.941857 | 6 parametres | 60 obs | 0.4 s
+  max|grad| 3.46e-06 | decrement de Newton 1.68e-13 | 0 valeur(s) propre(s) negative(s)
+  Sigma[gid] 1x1, diagonale : 3.775e-11
+  residuelle : 0.6717 1.0029
+   rho : 0.122630 0.036921
+   noms : gid, residuelle[1,1], residuelle[2,1], residuelle[2,2],
+          residuelle!ar1ar11, residuelle!ar1ar12
+```
+
+`R = Sigma_trait (x) C_cell`: the `2 x 2` residual covariance couples the two
+traits observed in the same cell, and the separable AR1 x AR1 couples the
+cells. Each cell of the field appears twice in the data — once per trait — and
+that is not a repetition, because `Sigma_trait` is what carries the correlation
+inside a cell. Only the same trait twice in the same cell is refused:
+
+```
+residual = ~ ar1(row):ar1(col) : 1 couple(s) (cellule, caractere) en double. Un
+champ residuel structure exige au plus une observation par cellule et par
+caractere.
+```
+
+The data here are pure noise, which is why the genotypic variance collapses to
+`3.8e-11` and the two correlations come out near zero; the point of the block
+is the structure, not the estimates.
+
+The explicit path builds the **same** structure and gives an identical fit,
+which is worth knowing when the cell index is computed rather than read from
+two columns. Note `rx_residual("us", ...)`: the `struct` argument is what
+`us(trait)` says in the formula, so it has to be `"us"` here and would be
+`"diag"` for `diag(trait):ar1(row):ar1(col)`.
+
+```r
+cell <- (as.integer(base$row) - 1L) * nc + as.integer(base$col)
+r_ex <- rx_residual("us", trait = dl$trait, unit = rep(cell, nt),
+                    level = "ar1ar1", dims = c(nr, nc), n_unit = nr * nc)
+me <- rx_model(dl$y, model.matrix(y ~ trait, dl),
+               list(rx_term("gid", dl$gid)), r_ex)
+fe <- rx_fit(me, backend = "cpu", verbose = FALSE)
+```
+
+```
+formule   : logLik -78.941857, 6 parametres
+explicite : logLik -78.941857, 6 parametres
+ecart de logLik      : 0.000e+00
+ecart max sur R      : 0.000e+00
+ecart max sur les rho : 0.000e+00
+```
+
+Same likelihood, same 6 parameters, and the residual matrix and both AR1
+correlations agree exactly — this is the `us(trait):ar1(row):ar1(col)` model
+of the block above, reached the other way.
+
 ---
 
 ## A user-defined correlation
@@ -274,9 +366,9 @@ Here it is used as a random term — where the levels are the 12 columns, so
 there is no duplicate-cell problem — and it reproduces `ar1` exactly.
 
 ```r
-o1 <- rk_reml(y ~ 1, random = ~ gid + own(col, expr = "exp(-lag*exp(p1))", n_par = 1),
+o1 <- rx_reml(y ~ 1, random = ~ gid + own(col, expr = "exp(-lag*exp(p1))", n_par = 1),
               data = d, backend = "cpu", verbose = FALSE)
-a1 <- rk_reml(y ~ 1, random = ~ gid + ar1(col), data = d,
+a1 <- rx_reml(y ~ 1, random = ~ gid + ar1(col), data = d,
               backend = "cpu", verbose = FALSE)
 ```
 
@@ -308,12 +400,12 @@ counted twice.
 
 ## Two-dimensional splines
 
-`rk_spl2d()` builds a tensor-product P-spline basis with the PS-ANOVA
+`rx_spl2d()` builds a tensor-product P-spline basis with the PS-ANOVA
 decomposition. It returns a null-space part for the fixed effects and three
 random blocks.
 
 ```r
-sp <- rk_spl2d(d$coln, d$rown, nseg = c(6, 6))
+sp <- rx_spl2d(d$coln, d$rown, nseg = c(6, 6))
 ```
 
 ```
@@ -334,11 +426,11 @@ smooth across columns.
 
 ```r
 X <- cbind("(Intercept)" = 1, sp$X)
-mod <- rk_model(d$y, X,
-                terms = c(list(rk_term("gid", d$gid)), sp$terms),
-                residual = rk_residual("iid"))
+mod <- rx_model(d$y, X,
+                terms = c(list(rx_term("gid", d$gid)), sp$terms),
+                residual = rx_residual("iid"))
 print(mod)
-fs <- rk_fit(mod, backend = "cpu", verbose = FALSE)
+fs <- rx_fit(mod, backend = "cpu", verbose = FALSE)
 print(fs)
 ```
 
@@ -367,7 +459,7 @@ for.
 
 Nothing was added to the solver: a smooth surface is a random effect with a
 known incidence, exactly as in sommer and asreml. That is why the splines go
-through `rk_model()` rather than through the formula interface.
+through `rx_model()` rather than through the formula interface.
 
 ---
 
@@ -381,8 +473,9 @@ through `rk_model()` rather than through the formula interface.
 | a range and a sill | `sph`, `cir` |
 | different behaviour along each axis | `aexp`, `agau`, or `mtrn` with `delta` |
 | unknown roughness | `mtrn(x, y, nu = <start>)` |
-| a smooth trend rather than a correlation | `rk_spl2d()` |
+| a smooth trend rather than a correlation | `rx_spl2d()` |
 | a formula of your own | `own(f, expr =, n_par =)` |
+| several traits over the same field | `residual = ~ us(trait):ar1(row):ar1(col)` |
 | several trials with different fields | `residual = ~ dsum(~ ar1(row):ar1(col) | site)` |
 
 `lvr` (the truncated tent) exists in one dimension only. `ilv` is **not

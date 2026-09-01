@@ -1,6 +1,6 @@
 # Structure catalogue
 
-Every random term in remlkit carries two structures:
+Every random term in remlax carries two structures:
 
 ```
 u_k ~ N(0, Sigma_k (x) K_k)
@@ -22,8 +22,8 @@ itself, so no eigenvalue can go negative; and a scalar that must live in an
 interval is passed through `tanh` (a correlation) or `exp` (a variance, a
 range, a shape).
 
-The two reference implementations are `src/remlkit/structures.py` (Sigma) and
-`src/remlkit/levels.py` (between levels). `R/remlkit.R` reproduces the
+The two reference implementations are `src/remlax/structures.py` (Sigma) and
+`src/remlax/levels.py` (between levels). `R/remlax.R` reproduces the
 parameter counts and must agree exactly: two different counts would split
 `theta` at the wrong place, silently.
 
@@ -49,7 +49,7 @@ n_loadings(w, k) = sum_{i=1..w} min(i, k)
 | `corh` | `corh` | `D C D`, `C` uniform correlation | `w + 1` | `D = diag(exp(th))`, correlation bounded (below) |
 | `fixed` | — | supplied matrix | 0 | Cholesky of the given `Sigma` |
 
-Counts, computed by `remlkit.structures.n_params`:
+Counts, computed by `remlax.structures.n_params`:
 
 ```
 t        iid     diag    us      fa(2)   rr(2)   chol(1)  ante(1)  corh
@@ -73,7 +73,7 @@ discovered by accident.
 
 ### rr(k): a trapezoidal Gamma, and why the count differs from the manual
 
-The manual gives `k*w` parameters for `rr(k)`. remlkit counts
+The manual gives `k*w` parameters for `rr(k)`. remlax counts
 `n_loadings(w, k)`, which is smaller by `k(k-1)/2`, because `Gamma` is
 constrained to be **lower trapezoidal**. Without that constraint `Gamma` is
 defined only up to a `k x k` rotation: the likelihood has a flat ridge of
@@ -136,7 +136,7 @@ the midpoint of `(-1, 1)` to the midpoint of `(-1/3, 1)`.
 ## 2. Correlation structures between levels
 
 All of them return a correlation matrix `C` with unit diagonal. Every
-stationary structure is Toeplitz, so remlkit computes the autocorrelation
+stationary structure is Toeplitz, so remlax computes the autocorrelation
 function `rho_0 .. rho_{q-1}` and expands `C[i,j] = rho_{|i-j|}`.
 
 | name | `C` or `rho_k` | parameters | parametrisation |
@@ -177,51 +177,94 @@ accepted silently and would fit a different model.
 For one term, `theta` is `[Sigma parameters, between-level parameters]`, in
 that order; terms come first, in declaration order, then the residual (and,
 for `dsum`, each section in turn with its own parameters). This split is
-performed identically by `remlkit.model.split_theta` and by the R side. It is
+performed identically by `remlax.model.split_theta` and by the R side. It is
 fixed, and changing it on one side only would produce a different model with
 no visible error.
 
-### Two reported values that are not the ones used
+### Which scale each family reports
 
-Both come from `level_params_report`, which reports on the asreml scale.
+`level_params_report` reports on the asreml scale, and the rule it follows is
+that **the value reported is the value actually used in `C`**, never an
+intermediate `theta`. Two families need more than a plain `tanh` for that to
+hold, and both are handled.
 
-**`cor` reports `tanh(theta)`, not the correlation.** The bound is applied
-inside the autocorrelation function, not in the report:
+`fit$rho` on the R side, and the dictionary returned by
+`level_params_report`, carry these keys:
 
-```
-theta  -2.00   rapporte -0.964028   C[0,1] -0.178417   borne basse -0.200000
-theta  -0.50   rapporte -0.462117   C[0,1]  0.122730
-theta   0.00   rapporte  0.000000   C[0,1]  0.400000
-theta   1.00   rapporte  0.761594   C[0,1]  0.856956
-```
+| family | key | reported value |
+|---|---|---|
+| `cor` | `phi`, `borne_inf` | the correlation in `C`, already rescaled onto `(-1/(q-1), 1)`, plus that lower bound |
+| `ar1`, `sar`, `ma1` | `phi` | `tanh(theta)`; the sign is meaningful |
+| `ma2`, `arma` | `phi` (2) | `tanh(theta_i)`; the MA sign may differ from asreml, see below |
+| `ar2`, `ar3` | `phi`, `pacf` | asreml's autoregressive coefficients, and the internal partial autocorrelations |
+| `corb(b)` | `phi` (b) | `tanh(theta_k)` per band |
+| `corg` | (none) | the free correlation matrix is not summarised by scalars |
+| `exp`, `gau`, `iexp`, `igau`, `ieuc` | `phi`, `signe_non_identifie` | `abs(tanh(theta))`, floored at `1e-12` |
+| `aexp`, `agau` | `phi` (2), `signe_non_identifie` | `abs(tanh(theta_i))` per axis |
+| `sph`, `cir`, `lvr` | `portee` | the range `exp(theta)`, not a correlation |
+| `mtrn` | `phi`, `nu`, `delta`, `alpha` | only the declared parameters; `exp(theta)` except `alpha`, which is an angle |
+| `own` | `own` | the **raw** unconstrained parameters; the expression decides what they mean |
+| `ar1ar1` | `phi` (2) | `tanh(theta_i)` for the row and column factors |
 
-To recover the correlation actually used, apply
-`lo + (rapporte + 1)/2 * (1 - lo)` with `lo = -1/(q-1)`.
-
-**Metric structures use `|tanh(theta)|`, so the reported sign is not
-identified.** Two starting points of opposite sign give the same fit and
-opposite reported `phi`:
-
-```
-exp : theta -1.0  rapporte -0.761594   C[0,1]  0.761594
-      theta  1.0  rapporte  0.761594   C[0,1]  0.761594
-```
-
-`ar1` does keep the sign — `phi^k` with negative `phi` is a legitimate
-alternating correlation:
+Measured, at `q = 4`:
 
 ```
-ar1 : theta -1.0  rapporte -0.761594   C[0,1] -0.761594
+theta -2.000000   phi rapporte -0.309352   C[0,1] -0.309352   borne_inf -0.333333
+theta -0.500000   phi rapporte  0.025255   C[0,1]  0.025255   borne_inf -0.333333
+theta  0.000000   phi rapporte  0.333333   C[0,1]  0.333333   borne_inf -0.333333
+theta  1.040774   phi rapporte  0.852129   C[0,1]  0.852129   borne_inf -0.333333
 ```
 
-Read the reported `phi` of `exp`, `gau`, `iexp`, `igau`, `ieuc`, `aexp` and
-`agau` in absolute value.
+The reported `phi` of `cor` is now the entry of `C`, to the digit. `q` is a
+**required** argument of `level_params_report` for this structure, because
+without it the rescaling cannot be applied:
+
+```
+ValueError: level_params_report(kind='cor') exige q : la correlation uniforme est
+remise a l'echelle sur (-1/(q-1), 1), donc tanh(theta) n'est pas la valeur du modele.
+```
+
+Note again that `theta = 0` gives `1/3` and not `0`: the mapping sends the
+midpoint of `(-1, 1)` to the midpoint of `(-1/(q-1), 1)`.
+
+### The metric families: the sign of theta is not identified
+
+The metric families raise `abs(tanh(theta))` to a distance, so `theta` and
+`-theta` give **the same** correlation matrix. The reported `phi` is therefore
+always positive, and the report carries `signe_non_identifie` to say why:
+
+```
+exp   phi(+theta)  0.761594  phi(-theta)  0.761594  max|C(+)-C(-)| 0.00e+00  signe_non_identifie 1
+gau   phi(+theta)  0.761594  phi(-theta)  0.761594  max|C(+)-C(-)| 0.00e+00  signe_non_identifie 1
+iexp  phi(+theta)  0.761594  phi(-theta)  0.761594  max|C(+)-C(-)| 0.00e+00  signe_non_identifie 1
+igau  phi(+theta)  0.761594  phi(-theta)  0.761594  max|C(+)-C(-)| 0.00e+00  signe_non_identifie 1
+ieuc  phi(+theta)  0.761594  phi(-theta)  0.761594  max|C(+)-C(-)| 0.00e+00  signe_non_identifie 1
+aexp  phi [0.761594 0.604368]  max|C(+)-C(-)| 0.00e+00  signe_non_identifie 1
+agau  phi [0.761594 0.604368]  max|C(+)-C(-)| 0.00e+00  signe_non_identifie 1
+```
+
+`max|C(+) - C(-)| = 0` exactly: this is a genuine non-identification of the
+sign, not a reporting artefact. Two runs starting from opposite `theta` reach
+the same likelihood and now report the same `phi`.
+
+A consequence to recognise in output: a metric structure whose correlation has
+collapsed reports `phi = 1e-12`, the floor of the clip, rather than a plain
+zero. See [guide 3](guide/03-spatial.md#metric-kernels) for a fit where three
+of them do exactly that.
+
+`ar1` keeps its sign, because `phi^k` with negative `phi` is a legitimate
+alternating correlation and the two are not the same model:
+
+```
+theta  -1.0  phi rapporte -0.761594   C[0,1] -0.761594
+theta   1.0  phi rapporte  0.761594   C[0,1]  0.761594
+```
 
 ### ar2 and ar3: partial autocorrelations, not phi
 
 Bounding `|phi_i| < 1` is not enough. The stationarity region of an AR(2) is a
 triangle, not a square, and a `phi` outside it produces a "correlation" that
-is not positive definite — the fit then fails without saying why. remlkit
+is not positive definite — the fit then fails without saying why. remlax
 parametrises the **partial autocorrelations**, each mapped into `(-1,1)` by
 `tanh`, and derives the `phi` by the Levinson-Durbin recursion. That bijection
 maps `(-1,1)^p` exactly onto the admissible region, so every point of the
@@ -248,7 +291,7 @@ The formula printed in appendix C,
 `rho_1 = (th - ph)(1 - th ph)/(1 + th^2 - 2 th ph)`, produces sequences that
 are **not** positive definite over a large part of the square
 `|th| < 1, |ph| < 1` — 204 out of 300 random draws, including `rho_1 = -0.976`
-with `rho_2 = -0.944`, which is impossible. remlkit uses the standard ARMA(1,1)
+with `rho_2 = -0.944`, which is impossible. remlax uses the standard ARMA(1,1)
 autocorrelation, valid over the whole square. The fitted model is the same; the
 **sign** of the reported MA parameter may differ from asreml.
 
@@ -295,9 +338,9 @@ the range `phi`. Three other plausible conventions (`delta` on one axis only,
 `delta` not square-rooted) shift the log-likelihood by 0.5 to 4 points.
 
 `lambda = 1` with `nu != 0.5` is **not positive definite** in two dimensions.
-asreml returns a number anyway; remlkit refuses.
+asreml returns a number anyway; remlax refuses.
 
-`K_nu` for arbitrary `nu` is computed in `src/remlkit/bessel.py` by trapezoidal
+`K_nu` for arbitrary `nu` is computed in `src/remlax/bessel.py` by trapezoidal
 quadrature of the integral representation, not by a series. The usual series
 goes through `K_nu = pi/2 (I_-nu - I_nu)/sin(nu pi)`, which blows up at integer
 `nu`. The integral is analytic in `nu`, has no order singularity, and its
@@ -309,7 +352,7 @@ trapezoidal error decays like `exp(-pi^2/h)`. What is computed is
 
 asreml's `own(obj, fun)` calls an R function at each evaluation. That is not
 possible here: R and JAX do not share memory, and the **derivative** would be
-missing — an opaque R function has none. remlkit takes an **expression**
+missing — an opaque R function has none. remlax takes an **expression**
 instead, which crosses the boundary as a string and is differentiated
 automatically.
 
@@ -383,11 +426,12 @@ The `Sigma` side of a residual accepts `iid`, `diag`, `us` and `fa` only.
 each carries its own parameters, so two sites or two trials can have residual
 structures of different shapes inside one fit.
 
-Two observations of the same unit under the same trait would have correlation
-1 under any residual structure: `R` is then singular, `V` with it, and
-`-2 logL` is NaN. remlkit refuses explicitly, for any structure between units
-(the check used to cover `us`/`diag`/`fa` only, and a `dsum(~ ar1(col) | site)`
-with several rows per column slipped through and returned NaN in silence):
+Two observations of the same unit **under the same trait** would have
+correlation 1 under any residual structure: `R` is then singular, `V` with it,
+and `-2 logL` is NaN. remlax refuses explicitly, for any structure between
+units (the check used to cover `us`/`diag`/`fa` only, and a
+`dsum(~ ar1(col) | site)` with several rows per column slipped through and
+returned NaN in silence):
 
 ```
 ValueError: structure 'own' entre unites : 180 couple(s) (unite, caractere) en
@@ -395,11 +439,23 @@ double. Chaque unite ne peut etre observee qu'une fois par caractere ; sinon la
 matrice residuelle est singuliere et la vraisemblance vaut NaN.
 ```
 
+The unit of the constraint is the **(unit, trait) pair**, not the unit. On
+long-format data with `t` traits every cell of a residual field appears `t`
+times by construction, and `R = Sigma_trait (x) C_cell` is perfectly regular
+there: `Sigma_trait` carries the correlation within a cell. The R-side parser
+enforces the same pair, so `us(trait):ar1(row):ar1(col)` is a legal formula:
+
+```
+residual = ~ ar1(row):ar1(col) : 1 couple(s) (cellule, caractere) en double. Un
+champ residuel structure exige au plus une observation par cellule et par
+caractere.
+```
+
 ---
 
 ## 4. Two-dimensional splines
 
-`rk_spl2d(x, y, nseg)` builds a tensor-product P-spline basis and returns the
+`rx_spl2d(x, y, nseg)` builds a tensor-product P-spline basis and returns the
 PS-ANOVA decomposition: three random blocks (`_x`, `_y`, `_xy`), each with its
 own variance so the smoothing can be anisotropic, plus a null-space part that
 **must** go into the fixed effects. Nothing is added to the solver — a smooth
@@ -416,7 +472,35 @@ removing them keeps all the algebra unchanged. The `P` code (positive) is
 automatic here, since log standard deviations are what is parametrised, and
 `U` is the default.
 
-The count of fixed parameters is reported as `n_fixed`, and they are excluded
-from the covariance used by `vpredict`. They are **not** counted in
-`n_at_bound`, which reports parameters sitting at the global `floor`/`ceil`
-(default `-12`/`12`).
+A fixed parameter is **outside the free subspace without being at a bound**:
+it is pinned to its starting value, which has nothing to do with `floor` or
+`ceil`. Three separate counters say so, and they are deliberately not merged
+into one — they do not mean the same thing:
+
+| counter | meaning |
+|---|---|
+| `n_at_bound` | parameters sitting at `floor` or `ceil` (default `-12`/`12`), **excluding** fixed ones |
+| `n_fixed_out` | parameters held by `fixed_theta` |
+| `n_par_free` | dimension of the actual free subspace |
+
+`n_fixed` is the same count as `n_fixed_out`, reported by `fit_reml` alongside
+the diagnostic block. Fixed parameters are excluded from the covariance used by
+`vpredict`.
+
+This matters beyond bookkeeping. The Newton decrement is computed on the free
+subspace only; a pinned parameter left inside it would contribute the slope
+available along a direction the step cannot take, and the fit would report an
+optimum not reached where it was. Measured on a two-component model with the
+first parameter fixed:
+
+```
+libre          n_par 3 | n_at_bound 0 | n_fixed 0 | n_fixed_out 0 | n_par_free 3
+               max_grad 5.888076e-13 | newton_decrement 5.471e-28
+fixed_idx=[0]  n_par 3 | n_at_bound 0 | n_fixed 1 | n_fixed_out 1 | n_par_free 2
+               max_grad 5.117183e+01 | newton_decrement 4.510e-14
+```
+
+`max_grad` is 51.2 in the fixed case — the gradient along the pinned
+direction, which is large and irrelevant — while the Newton decrement stays at
+`4.5e-14`, correctly reporting that the two free parameters are at their
+optimum. This is one more reason to read the decrement and not the gradient.

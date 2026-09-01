@@ -301,7 +301,7 @@ def fit_reml(terms, res, y, X, theta_init=None, maxiter=3000,
 
     f_end, g_end = fun_jac(theta)
     # DEUX CONVENTIONS DE LOG-VRAISEMBLANCE, et il faut les deux.
-    # remlkit et lme4 incluent la constante (n-p)/2 * log(2*pi) ; asreml et
+    # remlax et lme4 incluent la constante (n-p)/2 * log(2*pi) ; asreml et
     # sommer l'omettent. Comparer les deux nombres sans le savoir donne un ecart
     # de plusieurs centaines (219.6 sur un jeu a n=240, p=1) qu'on prendrait
     # pour un desaccord de modele. VERIFIE a 1.3e-08 sur ce meme jeu.

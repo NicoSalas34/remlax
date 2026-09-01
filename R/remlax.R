@@ -1,10 +1,10 @@
 # ==============================================================================
-# remlkit — INTERFACE R D'UN SOLVEUR REML GENERIQUE
+# remlax — INTERFACE R D'UN SOLVEUR REML GENERIQUE
 # ==============================================================================
 #
 # Ce fichier decrit des MODELES ; il n'en ajuste aucun. Il construit les
 # incidences, verifie leur coherence, serialise le tout, et delegue le calcul au
-# solveur JAX (scripts/gpu/remlkit/), qui tourne sur GPU si la machine en a un
+# solveur JAX (scripts/gpu/remlax/), qui tourne sur GPU si la machine en a un
 # et sur CPU sinon, SANS QUE LE MODELE CHANGE.
 #
 # MODELE
@@ -23,13 +23,13 @@
 #                                            incidence (voisinage pondere)
 #
 # INTERFACE, dans l'esprit d'asreml
-#     rk_reml(fixed    = y ~ 1 + traitement,
+#     rx_reml(fixed    = y ~ 1 + traitement,
 #             random   = ~ vm(genotype, K = Kmat) + iid(bloc),
 #             residual = ~ units,
 #             data     = df)
 # et, pour tout ce qu'une formule ne sait pas dire (incidences ponderees,
 # colonnes heterogenes), la voie explicite :
-#     rk_model(y, X, terms = list(rk_term(...)), residual = rk_residual(...))
+#     rx_model(y, X, terms = list(rx_term(...)), residual = rx_residual(...))
 #
 # CE QUE ce solveur PARTAGE avec asreml : l'objectif (la vraisemblance
 # restreinte), donc l'optimum, et un schema de type Newton pour y finir.
@@ -49,7 +49,7 @@ suppressPackageStartupMessages({ library(Matrix); library(jsonlite) })
 # solveur Python dans l'arborescence du depot quand le paquet n'est pas installe.
 # `sys.frame(i)$ofile` n'existe que pendant un source() : on parcourt la pile
 # d'appels, du plus recent au plus ancien, et on retient le premier trouve.
-.RK_FILE_DIR <- local({
+.RX_FILE_DIR <- local({
   for (i in rev(seq_len(sys.nframe()))) {
     of <- sys.frame(i)$ofile
     if (!is.null(of)) return(dirname(normalizePath(of)))
@@ -59,26 +59,26 @@ suppressPackageStartupMessages({ library(Matrix); library(jsonlite) })
 
 # Structures de Sigma (annexe C du manuel ASReml-R 4.2). Correspondances :
 #   iid = idv   diag = idh   us = corgh   fa(k)   rr(k)   chol(k)   ante(k)   corh
-RK_STRUCTURES <- c("iid", "diag", "us", "fa", "rr", "chol", "ante", "corh")
+RX_STRUCTURES <- c("iid", "diag", "us", "fa", "rr", "chol", "ante", "corh")
 
 # ==============================================================================
 # 1. STRUCTURES : nombre de parametres (doit reproduire structures.py)
 # ==============================================================================
-rk_n_loadings <- function(t, r) sum(pmin(seq_len(t), r))
+rx_n_loadings <- function(t, r) sum(pmin(seq_len(t), r))
 
-rk_n_params <- function(struct, t, rank = 0L) {
+rx_n_params <- function(struct, t, rank = 0L) {
   t <- as.integer(t); k <- as.integer(rank)
   switch(struct,
          iid  = 1L,
          diag = t,
          us   = as.integer(t * (t + 1) / 2),
-         fa   = as.integer(rk_n_loadings(t, k) + t),
+         fa   = as.integer(rx_n_loadings(t, k) + t),
          # Le manuel annonce k*omega pour rr. On contraint Gamma a etre
          # TRAPEZOIDALE, comme pour fa : sans cela Gamma n'est definie qu'a une
          # rotation pres et le Hessien est singulier de k(k-1)/2 dimensions.
          # structures.py compte pareil ; deux decomptes differents feraient
          # decouper theta au mauvais endroit.
-         rr   = as.integer(rk_n_loadings(t, k)),
+         rr   = as.integer(rx_n_loadings(t, k)),
          chol = ,
          ante = as.integer((k + 1) * (t - k / 2)),
          corh = as.integer(t + 1L),
@@ -103,38 +103,38 @@ rk_n_params <- function(struct, t, rank = 0L) {
 # Catalogue des structures ENTRE NIVEAUX (correlations), aligne sur l'annexe C
 # du manuel ASReml-R 4.2. La VARIANCE vit dans Sigma : `ar1v` d'asreml = ici
 # struct="iid" + level="ar1" ; `ar1h` = struct="diag" + level="ar1".
-RK_LEVEL_STRUCTURES <- c("id", "fixed", "cor", "corb", "corg",
+RX_LEVEL_STRUCTURES <- c("id", "fixed", "cor", "corb", "corg",
                          "ar1", "ar2", "ar3", "sar", "ma1", "ma2", "arma",
                          "exp", "gau", "lvr", "iexp", "igau", "ieuc",
                          "sph", "cir", "aexp", "agau", "mtrn", "own", "ar1ar1")
-RK_LEVEL_NP <- c(id = 0L, fixed = 0L, cor = 1L, ar1 = 1L, ar2 = 2L, ar3 = 3L,
+RX_LEVEL_NP <- c(id = 0L, fixed = 0L, cor = 1L, ar1 = 1L, ar2 = 2L, ar3 = 3L,
                  sar = 1L, ma1 = 1L, ma2 = 2L, arma = 2L, exp = 1L, gau = 1L,
                  lvr = 1L, iexp = 1L, igau = 1L, ieuc = 1L,
                  sph = 1L, cir = 1L, aexp = 2L, agau = 2L, ar1ar1 = 2L)
 # corb : `order` parametres ; corg : order*(order-1)/2 ; mtrn : ceux qui sont
-# declares (cf. .rk_mtrn_opts) ; own : n_par declare par l'utilisateur.
+# declares (cf. .rx_mtrn_opts) ; own : n_par declare par l'utilisateur.
 # Structures METRIQUES : elles exigent des coordonnees. 1D et 2D separees, car
 # une coordonnee a une seule colonne fournie a iexp() serait acceptee en silence
 # et donnerait un modele different de celui demande.
-RK_METRIQUES_1D <- c("exp", "gau", "lvr")
-RK_METRIQUES_2D <- c("iexp", "igau", "ieuc", "sph", "cir",
+RX_METRIQUES_1D <- c("exp", "gau", "lvr")
+RX_METRIQUES_2D <- c("iexp", "igau", "ieuc", "sph", "cir",
                      "aexp", "agau", "mtrn")
-RK_METRIQUES <- c(RK_METRIQUES_1D, RK_METRIQUES_2D)
+RX_METRIQUES <- c(RX_METRIQUES_1D, RX_METRIQUES_2D)
 
 #' Nombre de parametres d'une structure entre niveaux (doit suivre levels.py)
-rk_n_level <- function(level, order = 0L, opts = NULL) {
+rx_n_level <- function(level, order = 0L, opts = NULL) {
   if (level == "mtrn")
     return(sum(vapply(c("phi", "nu", "delta", "alpha"),
                       function(p) isTRUE(opts[[paste0("est_", p)]] > 0.5), TRUE)))
   if (level == "own")  return(as.integer(opts[["n_par"]] %||% 0L))
   if (level == "corb") return(as.integer(order))
   if (level == "corg") return(as.integer(order * (order - 1L) / 2L))
-  RK_LEVEL_NP[[level]]
+  RX_LEVEL_NP[[level]]
 }
 
 #' Argument facon asreml : 3 = estime en partant de 3 ; "3 F" = fixe a 3 ;
 #' absent = fixe au defaut. C'est la regle du manuel, reprise telle quelle.
-.rk_arg_vs <- function(x, defaut, estime_si_absent = FALSE) {
+.rx_arg_vs <- function(x, defaut, estime_si_absent = FALSE) {
   if (is.null(x)) return(list(est = estime_si_absent, val = defaut))
   if (is.numeric(x)) return(list(est = TRUE, val = as.numeric(x)))
   s <- trimws(as.character(x))
@@ -144,14 +144,14 @@ rk_n_level <- function(level, order = 0L, opts = NULL) {
   list(est = !identical(code, "F"), val = v)
 }
 
-.rk_mtrn_opts <- function(opt, env = parent.frame()) {
+.rx_mtrn_opts <- function(opt, env = parent.frame()) {
   ev <- function(z) if (is.null(z)) NULL else eval(z, envir = env)
   dfl <- list(phi = NA, nu = 0.5, delta = 1.0, alpha = 0.0)
   o <- c(lambda = as.numeric(ev(opt$lambda) %||% 2))
   if (!o[["lambda"]] %in% c(1, 2))
     stop("mtrn : lambda vaut 1 (city-block) ou 2 (euclidienne), pas ", o[["lambda"]], ".")
   for (p in c("phi", "nu", "delta", "alpha")) {
-    a <- .rk_arg_vs(ev(opt[[p]]), dfl[[p]], estime_si_absent = (p == "phi"))
+    a <- .rx_arg_vs(ev(opt[[p]]), dfl[[p]], estime_si_absent = (p == "phi"))
     o[paste0("est_", p)] <- as.numeric(isTRUE(a$est))
     o[p] <- if (is.na(a$val)) dfl[[p]] else a$val
     if (isTRUE(a$est) && !is.na(a$val)) o[paste0("init_", p)] <- a$val
@@ -159,12 +159,12 @@ rk_n_level <- function(level, order = 0L, opts = NULL) {
   o
 }
 
-rk_term <- function(name, Z, K = NULL, struct = "iid", rank = 0L,
+rx_term <- function(name, Z, K = NULL, struct = "iid", rank = 0L,
                     t = NULL, levels = NULL, level = "auto",
                     dims = NULL, order = 0L, coord = NULL,
                     opts = NULL, expr = NULL) {
-  struct <- match.arg(struct, RK_STRUCTURES)
-  level  <- match.arg(level, c("auto", RK_LEVEL_STRUCTURES))
+  struct <- match.arg(struct, RX_STRUCTURES)
+  level  <- match.arg(level, c("auto", RX_LEVEL_STRUCTURES))
   if (is.factor(Z) || is.character(Z)) {
     f <- factor(Z)
     levels <- levels(f)
@@ -235,14 +235,14 @@ rk_term <- function(name, Z, K = NULL, struct = "iid", rank = 0L,
   if (!level %in% c("id", "fixed") && !is.null(LK))
     stop("terme '", name, "' : une structure '", level, "' et une matrice K ",
          "fournie sont exclusives (la structure EST la covariance entre niveaux).")
-  if (level %in% RK_METRIQUES) {
+  if (level %in% RX_METRIQUES) {
     if (is.null(coord))
       stop("terme '", name, "' : level='", level, "' exige `coord` ",
            "(coordonnees des ", q, " niveaux, vecteur ou matrice a 2 colonnes).")
     coord <- as.matrix(coord)
     if (nrow(coord) != q)
       stop("terme '", name, "' : `coord` a ", nrow(coord), " lignes pour ", q, " niveaux.")
-    if (level %in% RK_METRIQUES_2D && ncol(coord) != 2L)
+    if (level %in% RX_METRIQUES_2D && ncol(coord) != 2L)
       stop("terme '", name, "' : '", level, "' est une structure a DEUX ",
            "dimensions ; `coord` a ", ncol(coord), " colonne(s). Une coordonnee ",
            "1D serait acceptee en silence et donnerait un autre modele.")
@@ -250,13 +250,13 @@ rk_term <- function(name, Z, K = NULL, struct = "iid", rank = 0L,
   if (level == "own" && (is.null(expr) || !nzchar(expr)))
     stop("terme '", name, "' : level='own' exige `expr`, l'expression de la ",
          "correlation (variables : d, dx, dy, lag, I, J, p1..pk).")
-  n_lvl <- rk_n_level(level, order, opts)
+  n_lvl <- rx_n_level(level, order, opts)
   structure(list(name = name, Zl = Zl, t = as.integer(t), q = as.integer(q),
                  struct = struct, rank = as.integer(rank), LK = LK,
                  level = level, dims = dims, order = as.integer(order), coord = coord,
                  opts = opts, expr = expr,
-                 levels = levels, n_par = rk_n_params(struct, t, rank) + n_lvl),
-            class = "rk_term")
+                 levels = levels, n_par = rx_n_params(struct, t, rank) + n_lvl),
+            class = "rx_term")
 }
 
 #' Structure residuelle
@@ -264,17 +264,17 @@ rk_term <- function(name, Z, K = NULL, struct = "iid", rank = 0L,
 #' @param trait  facteur de caractere (longueur n) ; NULL = un seul caractere
 #' @param unit   identifiant d'unite : deux observations de la MEME unite sur
 #'               des caracteres differents sont correlees sous `us`.
-rk_residual <- function(struct = "iid", trait = NULL, unit = NULL, rank = 0L,
+rx_residual <- function(struct = "iid", trait = NULL, unit = NULL, rank = 0L,
                         level = "id", order = 0L, coord = NULL, n_unit = NULL,
                         dims = NULL, opts = NULL, expr = NULL, sections = NULL,
                         rows = NULL, name = NULL) {
   struct <- match.arg(struct, c("iid", "diag", "us", "fa"))
-  level  <- match.arg(level, RK_LEVEL_STRUCTURES)
+  level  <- match.arg(level, RX_LEVEL_STRUCTURES)
   structure(list(struct = struct, trait = trait, unit = unit, rank = as.integer(rank),
                  level = level, order = as.integer(order), coord = coord,
                  n_unit = n_unit, dims = dims, opts = opts, expr = expr,
                  sections = sections, rows = rows, name = name),
-            class = "rk_residual")
+            class = "rx_residual")
 }
 
 # ------------------------------------------------------------------------------
@@ -306,7 +306,7 @@ rk_residual <- function(struct = "iid", trait = NULL, unit = NULL, rank = 0L,
 # permutation pres. C'est ce qui permet a deux essais de tailles ou de
 # geometries differentes de coexister dans un seul ajustement, sans imposer a
 # l'un la structure spatiale de l'autre.
-.rk_parse_residual <- function(residual, data, trait = NULL, unit = NULL) {
+.rx_parse_residual <- function(residual, data, trait = NULL, unit = NULL) {
   if (inherits(residual, "formula")) {
     lab1 <- attr(terms(residual, keep.order = TRUE), "term.labels")
     if (length(lab1) == 1L && grepl("^dsum\\(", lab1)) {
@@ -329,7 +329,7 @@ rk_residual <- function(struct = "iid", trait = NULL, unit = NULL, rank = 0L,
       # `+` au premier niveau = structures DIFFERENTES ; sinon la meme partout.
       formules <- attr(terms(stats::as.formula(call("~", gauche)),
                              keep.order = TRUE), "term.labels")
-      bloc <- .rk_dsum_blocs(gauche)
+      bloc <- .rx_dsum_blocs(gauche)
       lv <- if (!is.null(args$levels)) eval(args$levels, envir = data) else NULL
       if (length(bloc) > 1L) {
         if (is.null(lv) || length(lv) != length(bloc))
@@ -346,10 +346,10 @@ rk_residual <- function(struct = "iid", trait = NULL, unit = NULL, rank = 0L,
         if (!length(idx))
           stop("dsum : le groupe ", k, " (", paste(niv, collapse = ", "),
                ") ne couvre aucune observation.")
-        s <- .rk_parse_residual_1(stats::as.formula(call("~", bloc[[k]])),
+        s <- .rx_parse_residual_1(stats::as.formula(call("~", bloc[[k]])),
                                   data[idx, , drop = FALSE],
-                                  trait = .rk_sub(trait, idx, data, names(data)),
-                                  unit  = .rk_sub(unit, idx, data, names(data)))
+                                  trait = .rx_sub(trait, idx, data, names(data)),
+                                  unit  = .rx_sub(unit, idx, data, names(data)))
         s$rows <- idx
         s$name <- make.names(paste(niv, collapse = "_"))
         secs[[k]] <- s
@@ -364,24 +364,24 @@ rk_residual <- function(struct = "iid", trait = NULL, unit = NULL, rank = 0L,
       return(r)
     }
   }
-  .rk_parse_residual_1(residual, data, trait = trait, unit = unit)
+  .rx_parse_residual_1(residual, data, trait = trait, unit = unit)
 }
 
 # Termes du premier niveau d'une formule, sans casser les ':' internes.
-.rk_dsum_blocs <- function(e) {
+.rx_dsum_blocs <- function(e) {
   if (is.call(e) && identical(as.character(e[[1]]), "+"))
-    return(c(.rk_dsum_blocs(e[[2]]), list(e[[3]])))
+    return(c(.rx_dsum_blocs(e[[2]]), list(e[[3]])))
   list(e)
 }
 
 # Sous-ensemble d'un `trait`/`unit` fourni en NOM de colonne ou en VECTEUR.
-.rk_sub <- function(x, idx, data, noms) {
+.rx_sub <- function(x, idx, data, noms) {
   if (is.null(x)) return(NULL)
   if (is.character(x) && length(x) == 1L && x %in% noms) return(x)
   x[idx]
 }
 
-.rk_parse_residual_1 <- function(residual, data, trait = NULL, unit = NULL) {
+.rx_parse_residual_1 <- function(residual, data, trait = NULL, unit = NULL) {
   # `trait` et `unit` peuvent arriver comme NOM de colonne ou comme VECTEUR.
   # Le parseur a besoin du NOM pour reconnaitre `diag(trait)` dans la formule :
   # sans lui, `trait` etait pris pour un facteur d'UNITE et la residuelle
@@ -405,7 +405,7 @@ rk_residual <- function(struct = "iid", trait = NULL, unit = NULL, rank = 0L,
   if (is.character(residual) && length(residual) == 1L &&
       residual %in% c("units", "iid", "diag", "us", "fa")) {
     r <- if (residual == "units") "iid" else residual
-    return(rk_residual(r, trait = .vec_de(trait), unit = .vec_de(unit)))
+    return(rx_residual(r, trait = .vec_de(trait), unit = .vec_de(unit)))
   }
   if (!inherits(residual, "formula")) stop("`residual` : chaine ou formule attendue.")
   env <- environment(residual); if (is.null(env)) env <- parent.frame()
@@ -457,7 +457,7 @@ rk_residual <- function(struct = "iid", trait = NULL, unit = NULL, rank = 0L,
         st2 <- switch(as.character(e2[[1]]), iid = , idv = , id = "iid",
                       diag = , idh = "diag", us = , corgh = "us", "iid")
     }
-    return(rk_residual(st2, trait = if (is.null(nom_trait)) .vec_de(trait) else data[[nom_trait]],
+    return(rx_residual(st2, trait = if (is.null(nom_trait)) .vec_de(trait) else data[[nom_trait]],
                        unit = un, level = "ar1ar1", dims = c(nlevels(fr), nlevels(fc)),
                        n_unit = nlevels(fr) * nlevels(fc)))
   }
@@ -482,7 +482,7 @@ rk_residual <- function(struct = "iid", trait = NULL, unit = NULL, rank = 0L,
       }
       next
     }
-    if (f %in% RK_LEVEL_STRUCTURES) {
+    if (f %in% RX_LEVEL_STRUCTURES) {
       if (lvl != "id")
         stop("residual : deux structures entre unites ('", lvl, "' et '", f,
              "'). Un seul facteur structure les unites, sauf ar1(r):ar1(c), ",
@@ -499,7 +499,7 @@ rk_residual <- function(struct = "iid", trait = NULL, unit = NULL, rank = 0L,
       # option, donc sans aucun parametre estime et avec les valeurs par defaut
       # (phi = 1, nu = 0.5). Quatre jeux de parametres differents donnaient la
       # MEME vraisemblance, a -19.5572007 — le signe qu'aucun n'arrivait.
-      if (f == "mtrn") lvl_opts <- .rk_mtrn_opts(args, env)
+      if (f == "mtrn") lvl_opts <- .rx_mtrn_opts(args, env)
       if (f == "own") {
         lvl_expr <- as.character(eval(args$expr, env))
         lvl_opts <- c(n_par = as.numeric(eval(args$n_par %||% 1L, env)),
@@ -507,7 +507,7 @@ rk_residual <- function(struct = "iid", trait = NULL, unit = NULL, rank = 0L,
       }
       # Metrique 2D en deux colonnes : mtrn(x, y), iexp(x, y)... L'unite est
       # alors la CELLULE (x, y) et les coordonnees en decoulent.
-      if (f %in% RK_METRIQUES_2D && length(posit) == 2L && is.null(co)) {
+      if (f %in% RX_METRIQUES_2D && length(posit) == 2L && is.null(co)) {
         xv <- eval(posit[[1]], envir = data, enclos = env)
         yv <- eval(posit[[2]], envir = data, enclos = env)
         cle <- paste(xv, yv, sep = "\r")
@@ -522,12 +522,12 @@ rk_residual <- function(struct = "iid", trait = NULL, unit = NULL, rank = 0L,
         next
       }
       un_fac <- c(un_fac, a1)
-      if (f %in% RK_METRIQUES_1D && is.null(co)) co <- NA          # deduit plus bas
+      if (f %in% RX_METRIQUES_1D && is.null(co)) co <- NA          # deduit plus bas
       next
     }
     stop("residual : facteur non reconnu '", fx, "'.\n  Attendu : units, ",
          "id/iid/diag/us/fa(<caractere>), ou une structure entre niveaux (",
-         paste(setdiff(RK_LEVEL_STRUCTURES, c("id", "fixed")), collapse = "/"), ").")
+         paste(setdiff(RX_LEVEL_STRUCTURES, c("id", "fixed")), collapse = "/"), ").")
   }
 
   un_fac <- setdiff(un_fac, nom_trait)      # le caractere n'est pas une unite
@@ -547,7 +547,7 @@ rk_residual <- function(struct = "iid", trait = NULL, unit = NULL, rank = 0L,
            "Fournir coord = <positions>.")
     co <- as.matrix(co)
   }
-  rk_residual(st, trait = tr_vec, unit = un_vec, rank = rk,
+  rx_residual(st, trait = tr_vec, unit = un_vec, rank = rk,
               level = lvl, order = ordre, coord = co,
               opts = lvl_opts, expr = lvl_expr,
               n_unit = if (!is.null(cell_un)) length(unique(cell_un)) else NULL)
@@ -556,7 +556,7 @@ rk_residual <- function(struct = "iid", trait = NULL, unit = NULL, rank = 0L,
 # ==============================================================================
 # 3. MODELE
 # ==============================================================================
-rk_model <- function(y, X, terms, residual = rk_residual(), name = "modele") {
+rx_model <- function(y, X, terms, residual = rx_residual(), name = "modele") {
   n <- length(y)
   if (!is.matrix(X)) X <- matrix(X, nrow = n)
   if (nrow(X) != n) stop("X a ", nrow(X), " lignes pour ", n, " observations.")
@@ -567,7 +567,7 @@ rk_model <- function(y, X, terms, residual = rk_residual(), name = "modele") {
       identical(residual$struct, "iid"))
     stop("aucun terme aleatoire et residuelle iid : il n'y a rien a estimer.")
   for (tm in terms) {
-    if (!inherits(tm, "rk_term")) stop("terms doit contenir des objets rk_term.")
+    if (!inherits(tm, "rx_term")) stop("terms doit contenir des objets rx_term.")
     if (nrow(tm$Zl[[1]]) != n)
       stop("terme '", tm$name, "' : incidence a ", nrow(tm$Zl[[1]]), " lignes pour ", n, " obs.")
   }
@@ -576,7 +576,7 @@ rk_model <- function(y, X, terms, residual = rk_residual(), name = "modele") {
     if (s$struct %in% c("diag", "us", "fa") && .t_de(s) < 2L)
       stop("structure residuelle '", s$struct, "'",
            if (!is.null(s$name)) paste0(" (section ", s$name, ")") else "",
-           " sans caractere multiple : fournir `trait` a rk_residual().")
+           " sans caractere multiple : fournir `trait` a rx_residual().")
   }
   if (!is.null(residual$sections)) {
     vus <- unlist(lapply(residual$sections, `[[`, "rows"))
@@ -601,12 +601,12 @@ rk_model <- function(y, X, terms, residual = rk_residual(), name = "modele") {
                  # champ ar1 x ar1 qui en a 4.
                  n_par = sum(vapply(terms, `[[`, 1L, "n_par")) +
                    sum(vapply(residual$sections %||% list(residual), function(s)
-                     rk_n_params(s$struct, .t_de(s), s$rank) +
-                       rk_n_level(s$level %||% "id", s$order %||% 0L, s$opts), 1L))),
-            class = "rk_model")
+                     rx_n_params(s$struct, .t_de(s), s$rank) +
+                       rx_n_level(s$level %||% "id", s$order %||% 0L, s$opts), 1L))),
+            class = "rx_model")
 }
 
-print.rk_model <- function(x, ...) {
+print.rx_model <- function(x, ...) {
   cat(sprintf("Modele REML '%s' : %d observations, %d effets fixes\n",
               x$name, x$n, ncol(x$X)))
   for (tm in x$terms)
@@ -616,8 +616,8 @@ print.rk_model <- function(x, ...) {
                        ar1ar1 = "AR1xAR1", toupper(tm$level)), tm$n_par,
                 if (tm$n_par > 1) "s" else ""))
   cat(sprintf("  residuelle     %-5s t=%d  (%d parametre%s)\n", x$residual$struct, x$t_res,
-              rk_n_params(x$residual$struct, x$t_res, x$residual$rank),
-              if (rk_n_params(x$residual$struct, x$t_res, x$residual$rank) > 1) "s" else ""))
+              rx_n_params(x$residual$struct, x$t_res, x$residual$rank),
+              if (rx_n_params(x$residual$struct, x$t_res, x$residual$rank) > 1) "s" else ""))
   cat(sprintf("  total : %d parametres de variance\n", x$n_par))
   invisible(x)
 }
@@ -625,7 +625,7 @@ print.rk_model <- function(x, ...) {
 # ==============================================================================
 # 4. SERIALISATION (binaire brut + manifeste ; aucune dependance Python en R)
 # ==============================================================================
-rk_export <- function(model, dir) {
+rx_export <- function(model, dir) {
   dir.create(dir, recursive = TRUE, showWarnings = FALSE)
   man <- list()
   put <- function(name, x, dtype = "f8") {
@@ -723,14 +723,14 @@ rk_export <- function(model, dir) {
 #'   l'ordre rendu par `fit$composantes_noms`.
 #' @param wald TRUE pour les tests de Wald sur les effets fixes
 #' @param fixed_theta indices (1-based) des parametres a FIXER a leur depart
-rk_fit <- function(model, backend = c("auto", "gpu", "cpu"), dir = NULL,
+rx_fit <- function(model, backend = c("auto", "gpu", "cpu"), dir = NULL,
                    maxiter = 3000L, polish = 25L, n_restarts = 0L,
                    hessian = TRUE, blups = TRUE, vpredict = NULL, wald = FALSE,
                    kenward_roger = FALSE, predict = NULL, theta_init = NULL,
                    fixed_theta = NULL, verbose = TRUE, keep = FALSE) {
   backend <- match.arg(backend)
-  if (is.null(dir)) { dir <- tempfile("rk_"); on.exit(if (!keep) unlink(dir, recursive = TRUE)) }
-  rk_export(model, dir)
+  if (is.null(dir)) { dir <- tempfile("rx_"); on.exit(if (!keep) unlink(dir, recursive = TRUE)) }
+  rx_export(model, dir)
   # predict : L (l x p) et, par terme aleatoire, M (l x t*q). Ecrits en
   # column-major comme tout le reste du paquet.
   if (!is.null(predict)) {
@@ -747,8 +747,8 @@ rk_fit <- function(model, backend = c("auto", "gpu", "cpu"), dir = NULL,
     con <- file(file.path(dir, "in_theta.bin"), "wb")
     writeBin(as.double(theta_init), con, size = 8); close(con)
   }
-  py <- rk_python_cmd()
-  a <- c(rk_solver_args(), dir, "--backend", backend, "--maxiter", maxiter, "--polish", polish,
+  py <- rx_python_cmd()
+  a <- c(rx_solver_args(), dir, "--backend", backend, "--maxiter", maxiter, "--polish", polish,
          "--restarts", n_restarts,
          if (!is.null(vpredict)) c("--vpredict",
            paste(sprintf("%s=%s", names(vpredict), unlist(vpredict)), collapse = ";")) else NULL,
@@ -766,51 +766,51 @@ rk_fit <- function(model, backend = c("auto", "gpu", "cpu"), dir = NULL,
     cat(st, sep = "\n"); stop("solveur REML : echec")
   }
   if (verbose && !identical(as.integer(st), 0L)) stop("solveur REML : echec")
-  rk_read_result(dir)
+  rx_read_result(dir)
 }
 
-rk_here <- function() if (requireNamespace("here", quietly = TRUE)) here::here("R") else "R"
+rx_here <- function() if (requireNamespace("here", quietly = TRUE)) here::here("R") else "R"
 
 #' Repertoire de l'interface R, quelle que soit la facon dont elle a ete chargee.
-rk_pkg_dir <- function() {
-  if (!is.na(.RK_FILE_DIR)) return(.RK_FILE_DIR)
-  rk_here()
+rx_pkg_dir <- function() {
+  if (!is.na(.RX_FILE_DIR)) return(.RX_FILE_DIR)
+  rx_here()
 }
 
 #' Localisation du solveur Python : les arguments a passer AVANT le repertoire
 #' du paquet serialise.
 #'
 #' Trois voies, dans cet ordre :
-#'   1. $RK_CLI            explicite : chemin d'un cli.py, ou "-m remlkit.cli"
-#'   2. paquet installe    `-m remlkit.cli` si `import remlkit` reussit — voie a
+#'   1. $RX_CLI            explicite : chemin d'un cli.py, ou "-m remlax.cli"
+#'   2. paquet installe    `-m remlax.cli` si `import remlax` reussit — voie a
 #'                         preferer, elle ne suppose rien du repertoire courant
-#'   3. arborescence       src/remlkit/cli.py a cote de R/remlkit.R (depot non
-#'                         installe), ou l'ancien scripts/gpu/remlkit/cli.py
-rk_solver_args <- function() {
-  if (nzchar(Sys.getenv("RK_CLI"))) return(strsplit(Sys.getenv("RK_CLI"), " +")[[1]])
-  py <- rk_python_cmd()
-  ok <- suppressWarnings(try(system2(py[1], shQuote(c(py[-1], "-c", "import remlkit")),
+#'   3. arborescence       src/remlax/cli.py a cote de R/remlax.R (depot non
+#'                         installe), ou l'ancien scripts/gpu/remlax/cli.py
+rx_solver_args <- function() {
+  if (nzchar(Sys.getenv("RX_CLI"))) return(strsplit(Sys.getenv("RX_CLI"), " +")[[1]])
+  py <- rx_python_cmd()
+  ok <- suppressWarnings(try(system2(py[1], shQuote(c(py[-1], "-c", "import remlax")),
                                      stdout = FALSE, stderr = FALSE), silent = TRUE))
-  if (identical(as.integer(ok), 0L)) return(c("-m", "remlkit.cli"))
-  base <- rk_pkg_dir()
-  cands <- c(file.path(base, "..", "src", "remlkit", "cli.py"),
-             file.path(base, "..", "scripts", "gpu", "remlkit", "cli.py"),
-             file.path("src", "remlkit", "cli.py"))
+  if (identical(as.integer(ok), 0L)) return(c("-m", "remlax.cli"))
+  base <- rx_pkg_dir()
+  cands <- c(file.path(base, "..", "src", "remlax", "cli.py"),
+             file.path(base, "..", "scripts", "gpu", "remlax", "cli.py"),
+             file.path("src", "remlax", "cli.py"))
   for (p in cands) if (file.exists(p)) return(normalizePath(p))
   stop("solveur Python introuvable. Installer le paquet (`pip install -e .`), ",
-       "ou definir $RK_CLI, ou lancer depuis la racine du depot.")
+       "ou definir $RX_CLI, ou lancer depuis la racine du depot.")
 }
 
-#' Commande Python : $RK_PY, sinon $IGE_JAX_CMD, sinon $IGE_JAX_SIF, sinon python3
-rk_python_cmd <- function() {
-  if (nzchar(Sys.getenv("RK_PY"))) return(strsplit(Sys.getenv("RK_PY"), " +")[[1]])
+#' Commande Python : $RX_PY, sinon $IGE_JAX_CMD, sinon $IGE_JAX_SIF, sinon python3
+rx_python_cmd <- function() {
+  if (nzchar(Sys.getenv("RX_PY"))) return(strsplit(Sys.getenv("RX_PY"), " +")[[1]])
   if (nzchar(Sys.getenv("IGE_JAX_CMD"))) return(strsplit(Sys.getenv("IGE_JAX_CMD"), " +")[[1]])
   sif <- Sys.getenv("IGE_JAX_SIF")
   if (nzchar(sif)) return(c("apptainer", "exec", "--nv", sif, "python3"))
   "python3"
 }
 
-rk_read_result <- function(dir) {
+rx_read_result <- function(dir) {
   f <- file.path(dir, "result.json")
   if (!file.exists(f)) stop("resultat introuvable : ", f)
   r <- jsonlite::fromJSON(f, simplifyVector = TRUE)
@@ -848,10 +848,10 @@ rk_read_result <- function(dir) {
     if (!is.null(v)) r[["blups"]][[nm]] <- matrix(v, r[["blup_dims"]][[nm]][1],
                                                   r[["blup_dims"]][[nm]][2])
   }
-  class(r) <- "rk_fit"; r
+  class(r) <- "rx_fit"; r
 }
 
-print.rk_fit <- function(x, ...) {
+print.rx_fit <- function(x, ...) {
   cat(sprintf("Ajustement REML (%s) : logLik %.6f | %d parametres | %d obs | %.1f s\n",
               x$backend, x$logLik, x$n_par, x$n_obs, x$secondes))
   cat(sprintf("  max|grad| %.2e | decrement de Newton %.2e | %d valeur(s) propre(s) negative(s)\n",
@@ -885,7 +885,7 @@ print.rk_fit <- function(x, ...) {
 # ==============================================================================
 # 6. INTERFACE PAR FORMULE, DANS L'ESPRIT D'ASREML
 # ------------------------------------------------------------------------------
-#     rk_reml(fixed    = y ~ 1 + traitement,
+#     rx_reml(fixed    = y ~ 1 + traitement,
 #             random   = ~ vm(genotype, K) + iid(bloc),
 #             residual = ~ units,
 #             data     = df)
@@ -909,14 +909,14 @@ print.rk_fit <- function(x, ...) {
 # regle des que le phenotypage n'est pas complet.
 #
 # CE QUE LA FORMULE NE SAIT PAS DIRE : une incidence PONDEREE (voisinages,
-# covariables continues par niveau). Passer alors par rk_term(Z = <matrice>)
-# et rk_model() : c'est la meme machinerie, sans le sucre.
+# covariables continues par niveau). Passer alors par rx_term(Z = <matrice>)
+# et rx_model() : c'est la meme machinerie, sans le sucre.
 # ==============================================================================
 
 # --- construction d'une incidence a partir d'une expression -------------------
 # Rend list(Z = <matrice n x q ou NULL si facteur>, f = <facteur ou NULL>,
 #           levels = <niveaux>, q = <nb niveaux>).
-.rk_incidence <- function(e, data, env) {
+.rx_incidence <- function(e, data, env) {
   if (is.name(e) || is.character(e)) {
     nm <- as.character(e)
     if (!nm %in% names(data)) stop("colonne '", nm, "' absente de `data`.")
@@ -934,7 +934,7 @@ print.rk_fit <- function(x, ...) {
        "\n  attendu : un nom de colonne, ou mm(<matrice>).")
 }
 
-.rk_parse_random <- function(random, data, trait = NULL) {
+.rx_parse_random <- function(random, data, trait = NULL) {
   if (is.null(random)) return(list())
   env <- environment(random)
   if (is.null(env)) env <- parent.frame()
@@ -967,7 +967,7 @@ print.rk_fit <- function(x, ...) {
       # Nom lisible : on prend le nom de chaque incidence (colonne ou mm(name=)),
       # pas le texte brut de l'expression, qui donnait "gid_mmZwnamepente".
       nm <- if (!is.null(args$name)) as.character(args$name) else NA_character_
-      inc <- lapply(lab, function(l) .rk_incidence(str2lang(l), data, env))
+      inc <- lapply(lab, function(l) .rx_incidence(str2lang(l), data, env))
       if (is.na(nm)) nm <- paste(vapply(inc, `[[`, "", "nom"), collapse = "_")
       lv0 <- inc[[1]]$levels
       for (k in seq_along(inc)) if (!identical(inc[[k]]$levels, lv0))
@@ -976,7 +976,7 @@ print.rk_fit <- function(x, ...) {
       Zl <- lapply(inc, function(z) if (is.null(z$Z))
         Matrix::sparseMatrix(i = seq_len(n), j = as.integer(z$f), x = 1,
                              dims = c(n, z$q)) else methods::as(as.matrix(z$Z), "dgCMatrix"))
-      return(rk_term(nm, Zl, K = K, struct = st, rank = rk, levels = lv0))
+      return(rx_term(nm, Zl, K = K, struct = st, rank = rk, levels = lv0))
     }
 
     # ---- structures de CORRELATION entre niveaux -----------------------------
@@ -993,7 +993,7 @@ print.rk_fit <- function(x, ...) {
     # l'INTERIEUR d'un bloc qui n'acceptait deja que ar1/ar2/.../gau : iexp() et
     # ses voisines tombaient donc dans "terme non reconnu", alors qu'elles
     # etaient implementees des deux cotes. Une seule liste desormais.
-    if (fn %in% setdiff(RK_LEVEL_STRUCTURES, c("id", "fixed", "ar1ar1"))) {
+    if (fn %in% setdiff(RX_LEVEL_STRUCTURES, c("id", "fixed", "ar1ar1"))) {
       args <- as.list(e)[-1]
       nommes <- names(args); if (is.null(nommes)) nommes <- rep("", length(args))
       pos <- args[nommes == ""]
@@ -1011,7 +1011,7 @@ print.rk_fit <- function(x, ...) {
         # levels.py construit L_r (x) L_c dans le meme ordre.
         idx <- (as.integer(fr) - 1L) * nc + as.integer(fc)
         Z <- Matrix::sparseMatrix(i = seq_len(n), j = idx, x = 1, dims = c(n, nr * nc))
-        return(rk_term(paste0(as.character(pos[[1]]), "_", as.character(pos[[2]])),
+        return(rx_term(paste0(as.character(pos[[1]]), "_", as.character(pos[[2]])),
                        Z, t = 1L, struct = "iid", level = "ar1ar1", dims = c(nr, nc),
                        levels = as.vector(outer(levels(fc), levels(fr),
                                                 function(a, b) paste(b, a, sep = ":")))))
@@ -1021,7 +1021,7 @@ print.rk_fit <- function(x, ...) {
         as.matrix(eval(opt$coord, envir = data, enclos = env)) else NULL
       # Metrique a DEUX arguments positionnels : mtrn(x, y) comme chez asreml.
       # Le niveau est alors la CELLULE (x, y), et les coordonnees en decoulent.
-      if (fn %in% RK_METRIQUES_2D && length(pos) == 2L && is.null(co)) {
+      if (fn %in% RX_METRIQUES_2D && length(pos) == 2L && is.null(co)) {
         xv <- eval(pos[[1]], envir = data, enclos = env)
         yv <- eval(pos[[2]], envir = data, enclos = env)
         cle <- paste(xv, yv, sep = "\r")
@@ -1032,16 +1032,16 @@ print.rk_fit <- function(x, ...) {
         if (any(!is.finite(co)))
           stop("terme '", txt, "' : coordonnees non numeriques.")
         nm <- paste0(deparse(pos[[1]])[1], "_", deparse(pos[[2]])[1])
-        opts <- if (fn == "mtrn") .rk_mtrn_opts(opt, env) else NULL
-        return(rk_term(make.names(nm), fz, struct = st, rank = rkk, level = fn,
+        opts <- if (fn == "mtrn") .rx_mtrn_opts(opt, env) else NULL
+        return(rx_term(make.names(nm), fz, struct = st, rank = rkk, level = fn,
                        levels = lev, coord = co, opts = opts))
       }
       if (!length(pos))
         stop(fn, "() : aucun facteur de groupement.")
-      z <- .rk_incidence(pos[[1]], data, env)
+      z <- .rx_incidence(pos[[1]], data, env)
       # Metrique 1D sans `coord` : les NIVEAUX doivent etre numeriques, sinon la
       # distance n'a pas de sens et le modele serait silencieusement faux.
-      if (fn %in% RK_METRIQUES_1D && is.null(co)) {
+      if (fn %in% RX_METRIQUES_1D && is.null(co)) {
         co <- suppressWarnings(as.numeric(z$levels))
         if (any(!is.finite(co)))
           stop("terme '", txt, "' : les niveaux ne sont pas numeriques ; ",
@@ -1049,7 +1049,7 @@ print.rk_fit <- function(x, ...) {
         co <- as.matrix(co)
       }
       opts <- NULL; expr <- NULL
-      if (fn == "mtrn") opts <- .rk_mtrn_opts(opt, env)
+      if (fn == "mtrn") opts <- .rx_mtrn_opts(opt, env)
       if (fn == "own") {
         expr <- as.character(eval(opt$expr, env))
         npar <- as.integer(eval(opt$n_par %||% 1L, env))
@@ -1057,7 +1057,7 @@ print.rk_fit <- function(x, ...) {
                   normalise = as.numeric(eval(opt$normalise %||% TRUE, env)))
       }
       if (fn == "corg") ordre <- z$q
-      return(rk_term(z$nom, z$f, struct = st, rank = rkk, level = fn,
+      return(rx_term(z$nom, z$f, struct = st, rank = rkk, level = fn,
                      levels = z$levels, order = ordre, coord = co,
                      opts = opts, expr = expr))
     }
@@ -1067,22 +1067,22 @@ print.rk_fit <- function(x, ...) {
       args <- as.list(e)[-(1:2)]
       rk <- if (!is.null(args$rank)) as.integer(eval(args$rank)) else 1L
       K  <- if (!is.null(args$K)) eval(args$K, envir = data, enclos = env) else NULL
-      z <- .rk_incidence(e[[2]], data, env)
+      z <- .rx_incidence(e[[2]], data, env)
       if (is.null(trait))
         stop("terme '", txt, "' : structure '", fn, "' multi-caractere, mais ",
-             "aucun `trait` n'a ete fourni a rk_reml().")
+             "aucun `trait` n'a ete fourni a rx_reml().")
       tf <- factor(trait, levels = t_lev)
       Zl <- lapply(t_lev, function(tt2) {
         ix <- which(tf == tt2)
         Matrix::sparseMatrix(i = ix, j = as.integer(z$f)[ix], x = 1, dims = c(n, z$q))
       })
-      return(rk_term(z$nom, Zl, K = K, struct = fn, rank = rk, levels = z$levels))
+      return(rx_term(z$nom, Zl, K = K, struct = fn, rank = rk, levels = z$levels))
     }
     if (!fn %in% c("iid", "vm", "diag", "us", "fa", "mm"))
       stop("terme aleatoire non reconnu : '", txt, "'.\n  Structures de Sigma : ",
-           paste(RK_STRUCTURES, collapse = "/"), " (via iid/vm/diag/us/fa/mm)\n",
+           paste(RX_STRUCTURES, collapse = "/"), " (via iid/vm/diag/us/fa/mm)\n",
            "  Structures entre niveaux : ",
-           paste(setdiff(RK_LEVEL_STRUCTURES, c("id", "fixed", "ar1ar1")), collapse = "/"),
+           paste(setdiff(RX_LEVEL_STRUCTURES, c("id", "fixed", "ar1ar1")), collapse = "/"),
            "\n  Groupement : str(~ a + b, struct=)   Incidence fournie : mm(Z)")
     args <- if (is.name(e)) list() else as.list(e)[-(1:2)]
     struct <- switch(fn, iid = "iid", vm = "iid", mm = "iid",
@@ -1094,28 +1094,28 @@ print.rk_fit <- function(x, ...) {
     rank <- if (!is.null(args$rank)) as.integer(eval(args$rank)) else 0L
 
     if (fn == "mm") {                    # incidence PERSONNALISEE
-      z <- .rk_incidence(e, data, env)
+      z <- .rx_incidence(e, data, env)
       if (struct == "iid")
-        return(rk_term(z$nom, list(z$Z), K = K, struct = "iid", levels = z$levels))
+        return(rx_term(z$nom, list(z$Z), K = K, struct = "iid", levels = z$levels))
       if (is.null(trait))
         stop("mm(..., struct='", struct, "') : structure multi-caractere sans `trait`.")
-      stop("mm() multi-caractere : passer une LISTE d'incidences a rk_term(), ",
+      stop("mm() multi-caractere : passer une LISTE d'incidences a rx_term(), ",
            "une seule matrice ne peut pas porter ", length(t_lev), " colonnes.")
     }
 
     # `e` peut etre un simple nom (~ g) : il n'a alors pas de e[[2]].
-    z <- .rk_incidence(if (is.name(e)) e else e[[2]], data, env)
+    z <- .rx_incidence(if (is.name(e)) e else e[[2]], data, env)
     if (struct == "iid")
-      return(rk_term(z$nom, z$f, K = K, struct = "iid", levels = z$levels))
+      return(rx_term(z$nom, z$f, K = K, struct = "iid", levels = z$levels))
     if (is.null(trait))
       stop("terme '", txt, "' : structure '", struct,
-           "' multi-caractere, mais aucun `trait` n'a ete fourni a rk_reml().")
+           "' multi-caractere, mais aucun `trait` n'a ete fourni a rx_reml().")
     tf <- factor(trait, levels = t_lev)
     Zl <- lapply(t_lev, function(tt2) {
       ix <- which(tf == tt2)
       Matrix::sparseMatrix(i = ix, j = as.integer(z$f)[ix], x = 1, dims = c(n, z$q))
     })
-    rk_term(z$nom, Zl, K = K, struct = struct, rank = rank, levels = z$levels)
+    rx_term(z$nom, Zl, K = K, struct = struct, rank = rank, levels = z$levels)
   })
 }
 
@@ -1128,10 +1128,10 @@ print.rk_fit <- function(x, ...) {
 #' @param unit     nom de la colonne d'unite ; deux lignes de la meme unite sur
 #'                 des caracteres differents sont correlees sous residual="us"
 #' @param backend  "auto" | "gpu" | "cpu" — choix de MACHINE, jamais de modele
-rk_reml <- function(fixed, random = NULL, residual = "units", data,
+rx_reml <- function(fixed, random = NULL, residual = "units", data,
                     trait = NULL, unit = NULL,
                     backend = c("auto", "gpu", "cpu"), ...) {
-  # `...` transmet vpredict, wald, fixed_theta, n_restarts, verbose... a rk_fit.
+  # `...` transmet vpredict, wald, fixed_theta, n_restarts, verbose... a rx_fit.
   backend <- match.arg(backend)
 
   mf <- model.frame(fixed, data, na.action = na.pass)
@@ -1142,7 +1142,7 @@ rk_reml <- function(fixed, random = NULL, residual = "units", data,
   attr(X, "termes") <- .lab[sort(unique(.asg)) + 1L]
   ok <- stats::complete.cases(y, X)
   if (!all(ok)) {
-    message("rk_reml : ", sum(!ok), " ligne(s) incompletes retirees.")
+    message("rx_reml : ", sum(!ok), " ligne(s) incompletes retirees.")
     data <- data[ok, , drop = FALSE]
     y <- y[ok]; X <- X[ok, , drop = FALSE]
     # Le sous-ensemblage de X PERD ses attributs : sans eux, wald() testerait
@@ -1155,13 +1155,13 @@ rk_reml <- function(fixed, random = NULL, residual = "units", data,
   }
   tr <- if (is.character(trait) && length(trait) == 1L) data[[trait]] else trait
   un <- if (is.character(unit)  && length(unit)  == 1L) data[[unit]]  else unit
-  terms_l <- .rk_parse_random(random, data, trait = tr)
-  res_obj <- .rk_parse_residual(residual, data,
+  terms_l <- .rx_parse_random(random, data, trait = tr)
+  res_obj <- .rx_parse_residual(residual, data,
                                 trait = if (!is.null(trait)) trait else tr,
                                 unit  = if (!is.null(unit))  unit  else un)
-  mod <- rk_model(y, X, terms_l, res_obj,
+  mod <- rx_model(y, X, terms_l, res_obj,
                   name = deparse(fixed[[2]])[1])
-  fit <- rk_fit(mod, backend = backend, ...)
+  fit <- rx_fit(mod, backend = backend, ...)
   fit$model <- mod
   # Conserve de quoi predire : formule des effets fixes, donnees nettoyees et
   # niveaux des facteurs. Sans les xlevels, une prediction construite sur une
@@ -1196,25 +1196,25 @@ rk_reml <- function(fixed, random = NULL, residual = "units", data,
 # Chacun a SA variance : c'est ce qui rend le lissage anisotrope, une surface
 # pouvant etre rugueuse dans un sens et lisse dans l'autre.
 #
-#   sp <- rk_spl2d(d$row, d$col, nseg = c(6, 6))
-#   mod <- rk_model(y, cbind(X, sp$X), c(list(...), sp$terms))
+#   sp <- rx_spl2d(d$row, d$col, nseg = c(6, 6))
+#   mod <- rx_model(y, cbind(X, sp$X), c(list(...), sp$terms))
 # Les colonnes sp$X sont la partie NULLE : elles DOIVENT aller dans les effets
 # fixes, sinon la surface est penalisee jusque dans sa composante lineaire et le
 # lissage est biaise.
 # ==============================================================================
 
-.rk_bbase <- function(x, nseg = 6L, deg = 3L, xl = min(x), xr = max(x)) {
+.rx_bbase <- function(x, nseg = 6L, deg = 3L, xl = min(x), xr = max(x)) {
   dx <- (xr - xl) / nseg
   kn <- seq(xl - deg * dx, xr + deg * dx, by = dx)
   splines::spline.des(kn, x, deg + 1L, 0 * x, outer.ok = TRUE)$design
 }
 
-#' Base P-spline 2D, prete pour rk_model()
-#' @return list(X = partie nulle (fixe), terms = liste de rk_term aleatoires)
-rk_spl2d <- function(x, y, nseg = c(6L, 6L), deg = 3L, pord = 2L, prefix = "spl") {
+#' Base P-spline 2D, prete pour rx_model()
+#' @return list(X = partie nulle (fixe), terms = liste de rx_term aleatoires)
+rx_spl2d <- function(x, y, nseg = c(6L, 6L), deg = 3L, pord = 2L, prefix = "spl") {
   x <- as.numeric(x); y <- as.numeric(y); n <- length(x)
-  if (length(y) != n) stop("rk_spl2d : x et y de longueurs differentes.")
-  Bx <- .rk_bbase(x, nseg[1], deg); By <- .rk_bbase(y, nseg[min(2, length(nseg))], deg)
+  if (length(y) != n) stop("rx_spl2d : x et y de longueurs differentes.")
+  Bx <- .rx_bbase(x, nseg[1], deg); By <- .rx_bbase(y, nseg[min(2, length(nseg))], deg)
   # Decomposition de la penalite : U_pen (colonnes penalisees) et noyau
   decomp <- function(B, pord) {
     c_ <- ncol(B); D <- diff(diag(c_), differences = pord); P <- crossprod(D)
@@ -1233,7 +1233,7 @@ rk_spl2d <- function(x, y, nseg = c(6L, 6L), deg = 3L, pord = 2L, prefix = "spl"
   Zxy <- rowk(dx$Zc, dy$Zc)                   # interaction lisse
   Xn  <- rowk(dx$Xn, dy$Xn)                   # partie NULLE -> effets fixes
   # La partie nulle CONTIENT la direction constante : cbind(1, Xn) serait de rang
-  # deficient et rk_model() le refuserait (a raison). On projette donc Xn hors de
+  # deficient et rx_model() le refuserait (a raison). On projette donc Xn hors de
   # l'intercept, puis on ne garde qu'une base independante par QR revelatrice de
   # rang. `X` est ainsi utilisable tel quel a cote d'un intercept.
   Xn <- Xn - matrix(colMeans(Xn), n, ncol(Xn), byrow = TRUE)
@@ -1242,9 +1242,9 @@ rk_spl2d <- function(x, y, nseg = c(6L, 6L), deg = 3L, pord = 2L, prefix = "spl"
   colnames(Xn) <- paste0(prefix, "_lin", seq_len(ncol(Xn)))
   list(X = Xn,
        terms = list(
-         rk_term(paste0(prefix, "_x"),  list(Zx),  struct = "iid"),
-         rk_term(paste0(prefix, "_y"),  list(Zy),  struct = "iid"),
-         rk_term(paste0(prefix, "_xy"), list(Zxy), struct = "iid")))
+         rx_term(paste0(prefix, "_x"),  list(Zx),  struct = "iid"),
+         rx_term(paste0(prefix, "_y"),  list(Zy),  struct = "iid"),
+         rx_term(paste0(prefix, "_xy"), list(Zxy), struct = "iid")))
 }
 
 # ==============================================================================
@@ -1270,17 +1270,17 @@ rk_spl2d <- function(x, y, nseg = c(6L, 6L), deg = 3L, pord = 2L, prefix = "spl"
 # estimable : la rendre quand meme donnerait un nombre qui depend de la
 # parametrisation choisie. Elle est marquee NON estimable et sa valeur est NA.
 #
-#   pv <- rk_predict(fit, classify = "trt")
-#   pv <- rk_predict(fit, classify = "genotype", vcov = "kenward-roger", sed = TRUE)
+#   pv <- rx_predict(fit, classify = "trt")
+#   pv <- rx_predict(fit, classify = "genotype", vcov = "kenward-roger", sed = TRUE)
 # ==============================================================================
-rk_predict <- function(fit, classify, levels = NULL, at = NULL,
+rx_predict <- function(fit, classify, levels = NULL, at = NULL,
                        average = c("equal", "proportional"), weights = NULL,
                        vcov = c("simple", "kenward-roger"),
                        sed = FALSE, include_random = TRUE,
                        backend = c("auto", "gpu", "cpu"), verbose = FALSE) {
   average <- match.arg(average); vcov <- match.arg(vcov); backend <- match.arg(backend)
   if (is.null(fit$fixed) || is.null(fit$data))
-    stop("rk_predict : cet ajustement ne vient pas de rk_reml() ; la formule des ",
+    stop("rx_predict : cet ajustement ne vient pas de rx_reml() ; la formule des ",
          "effets fixes et les donnees ne sont pas connues.")
   cls <- unlist(strsplit(classify, "[:+]"))
   cls <- trimws(cls[nzchar(cls)])
@@ -1292,7 +1292,7 @@ rk_predict <- function(fit, classify, levels = NULL, at = NULL,
   # contribution vient du BLUP, pas de X.
   noms_alea <- vapply(fit$model$terms, `[[`, "", "name")
   if (length(manque <- setdiff(cls, c(vars, noms_alea))))
-    stop("rk_predict : ", paste(manque, collapse = ", "), " n'est ni dans le ",
+    stop("rx_predict : ", paste(manque, collapse = ", "), " n'est ni dans le ",
          "modele fixe (", paste(vars, collapse = ", "), ") ni parmi les termes ",
          "aleatoires (", paste(noms_alea, collapse = ", "), ").")
 
@@ -1300,7 +1300,7 @@ rk_predict <- function(fit, classify, levels = NULL, at = NULL,
   vals <- list()
   for (v in union(vars, cls)) {
     if (!v %in% names(data))
-      stop("rk_predict : colonne '", v, "' absente des donnees de l'ajustement.")
+      stop("rx_predict : colonne '", v, "' absente des donnees de l'ajustement.")
     x <- data[[v]]
     if (!is.null(at[[v]])) { vals[[v]] <- at[[v]]; next }
     if (is.factor(x) || is.character(x) || is.logical(x)) {
@@ -1315,7 +1315,7 @@ rk_predict <- function(fit, classify, levels = NULL, at = NULL,
   grille <- expand.grid(vals, stringsAsFactors = FALSE, KEEP.OUT.ATTRS = FALSE)
   Xg <- stats::model.matrix(tt, grille, xlev = fit$xlevels)
   if (ncol(Xg) != length(fit$beta))
-    stop("rk_predict : la grille donne ", ncol(Xg), " colonnes pour ",
+    stop("rx_predict : la grille donne ", ncol(Xg), " colonnes pour ",
          length(fit$beta), " coefficients. Un facteur a-t-il des niveaux absents ",
          "de la grille ?")
 
@@ -1335,7 +1335,7 @@ rk_predict <- function(fit, classify, levels = NULL, at = NULL,
   if (!is.null(weights)) poids_ligne <- poids_ligne * weights[cle]
   L <- t(vapply(ucle, function(k) {
     i <- which(cle == k); w <- poids_ligne[i]
-    if (sum(w) <= 0) stop("rk_predict : poids nuls pour la cellule '",
+    if (sum(w) <= 0) stop("rx_predict : poids nuls pour la cellule '",
                           gsub("\r", ":", k), "'.")
     colSums(Xg[i, , drop = FALSE] * (w / sum(w)))
   }, numeric(ncol(Xg))))
@@ -1361,7 +1361,7 @@ rk_predict <- function(fit, classify, levels = NULL, at = NULL,
       v <- tm$name
       if (!v %in% cls || is.null(tm$levels)) next
       if (tm$t != 1L) {
-        warning("rk_predict : terme '", v, "' multi-caractere ignore dans la ",
+        warning("rx_predict : terme '", v, "' multi-caractere ignore dans la ",
                 "part aleatoire (t = ", tm$t, ").")
         next
       }
@@ -1377,29 +1377,29 @@ rk_predict <- function(fit, classify, levels = NULL, at = NULL,
     # Effets fixes seuls : tout se calcule ici, sans repasser par le solveur.
     Vb <- if (vcov == "kenward-roger") fit$vbeta_kr else fit$vbeta
     if (is.null(Vb))
-      stop("rk_predict : la covariance des effets fixes n'est pas dans l'ajustement",
-           if (vcov == "kenward-roger") " (relancer rk_reml(..., kenward_roger = TRUE))" else "",
+      stop("rx_predict : la covariance des effets fixes n'est pas dans l'ajustement",
+           if (vcov == "kenward-roger") " (relancer rx_reml(..., kenward_roger = TRUE))" else "",
            ".")
     val <- as.numeric(L %*% fit$beta)
     Cv  <- L %*% Vb %*% t(L)
   } else {
     if (vcov == "kenward-roger")
-      warning("rk_predict : l'ajustement de Kenward-Roger porte sur les effets ",
+      warning("rx_predict : l'ajustement de Kenward-Roger porte sur les effets ",
               "FIXES ; la part aleatoire garde son erreur de prediction usuelle.")
     dir <- tempfile("rkpred_"); on.exit(unlink(dir, recursive = TRUE))
-    rk_export(fit$model, dir)
+    rx_export(fit$model, dir)
     wbin <- function(nm, x) { con <- file(file.path(dir, nm), "wb")
       writeBin(as.double(as.vector(as.matrix(x))), con, size = 8); close(con) }
     wbin("in_theta.bin", fit$theta); wbin("pred_L.bin", L)
     for (nm in names(M)) wbin(paste0("pred_M_", nm, ".bin"), M[[nm]])
-    py <- rk_python_cmd()
-    a <- c(rk_solver_args(), dir, "--backend", backend, "--only-predict",
+    py <- rx_python_cmd()
+    a <- c(rx_solver_args(), dir, "--backend", backend, "--only-predict",
            if (!verbose) "--quiet" else NULL)
     st <- system2(py[1], shQuote(c(py[-1], as.character(a))),
                   stdout = if (verbose) "" else TRUE, stderr = if (verbose) "" else TRUE)
     if (!is.null(attr(st, "status")) && attr(st, "status") != 0) {
-      cat(st, sep = "\n"); stop("rk_predict : le solveur a echoue") }
-    rr <- rk_read_result(dir)
+      cat(st, sep = "\n"); stop("rx_predict : le solveur a echoue") }
+    rr <- rx_read_result(dir)
     val <- as.numeric(rr$predictions$valeur); Cv <- rr$predictions$cov
   }
   out$predicted.value <- ifelse(estimable, val, NA_real_)
@@ -1412,11 +1412,11 @@ rk_predict <- function(fit, classify, levels = NULL, at = NULL,
     attr(out, "sed") <- S
     attr(out, "sed.moyen") <- sqrt(mean(S[upper.tri(S)]^2, na.rm = TRUE))
   }
-  class(out) <- c("rk_predict", "data.frame")
+  class(out) <- c("rx_predict", "data.frame")
   out
 }
 
-print.rk_predict <- function(x, ...) {
+print.rx_predict <- function(x, ...) {
   cat("Predictions\n")
   print(as.data.frame(x), row.names = FALSE, digits = 6)
   if (!is.null(attr(x, "sed.moyen")))

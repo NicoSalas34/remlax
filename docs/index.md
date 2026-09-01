@@ -1,4 +1,4 @@
-# remlkit documentation
+# remlax documentation
 
 A generic REML solver for linear mixed models, written in JAX, driven from R
 by an asreml-like formula interface. The same model runs on CPU or GPU without
@@ -43,7 +43,7 @@ each fit takes a couple of seconds, so they are quick to replay.
 | [1. Getting started](guide/01-getting-started.md) | one random factor; reading the output and the diagnostic; heritability with `vpredict`; BLUPs; Wald and Kenward-Roger on an unbalanced design; predictions; the same model in Python |
 | [2. Multi-trait models](guide/02-multi-trait.md) | long format; a genomic relationship matrix; `us` genetic and residual covariances; component numbering; heritabilities and genetic correlation; parameter counts of `diag`/`us`/`fa`/`rr`/`chol`/`ante`/`corh`; reduced rank, and an aliasing that looks like a model test |
 | [3. Spatial models](guide/03-spatial.md) | separable AR1 as a residual and as a random term; the nugget that vanishes; metric kernels; Matern and its parameter-declaration convention; the duplicated-cell guard; user-defined correlations with `own()`; two-dimensional splines |
-| [4. Explicit terms](guide/04-explicit-terms.md) | why a formula is not enough; `rk_term` with a list of weighted incidences; a DGE/IGE model with a shared covariance; the same model through `str()`; BLUPs of both effects; functions of the shared covariance |
+| [4. Explicit terms](guide/04-explicit-terms.md) | why a formula is not enough; `rx_term` with a list of weighted incidences; a DGE/IGE model with a shared covariance; the same model through `str()`; BLUPs of both effects; functions of the shared covariance |
 
 ---
 
@@ -51,7 +51,7 @@ each fit takes a couple of seconds, so they are quick to replay.
 
 | | contents |
 |---|---|
-| [api-r.md](api-r.md) | every `rk_*` function; the complete formula grammar for random terms and residuals, as tables with parameter counts; the mapping to asreml names (`idv`, `idh`, `corgh`, `ar1v`, `ar1h`, ...); how to read a fit |
+| [api-r.md](api-r.md) | every `rx_*` function; the complete formula grammar for random terms and residuals, as tables with parameter counts; the mapping to asreml names (`idv`, `idh`, `corgh`, `ar1v`, `ar1h`, ...); how to read a fit |
 | [api-python.md](api-python.md) | every public function of `structures`, `levels`, `model`, `fit`, `inference`, `bundle`, `device`, `core`, `bessel`, `cli`: exact signature, arguments, return value, and the invariants that would silently change the model |
 | [structures.md](structures.md) | the catalogue: covariance structures for `Sigma` and correlation structures between levels, with formulas, parameter counts, positivity constraints and the parametrisation used; the deliberate divergences from the ASReml-R manual |
 
@@ -71,7 +71,7 @@ part of this documentation set.
 
 ## Design note
 
-[note_remlkit_fr.md](note_remlkit_fr.md) (French) is the design note: why the
+[note_remlax_fr.md](note_remlax_fr.md) (French) is the design note: why the
 likelihood is parametrised the way it is, why the gradient is analytic in `V`,
 how each structure was identified against asreml, what the stress sweep found,
 and what is deliberately left out. It is the source of truth for everything
@@ -111,3 +111,22 @@ error or test touching them is void.
 
 `logLik` includes the `(n-p)/2 log(2 pi)` constant, like lme4. Compare with
 asreml using `logLik_asreml`.
+
+---
+
+## Reported scales
+
+`fit$rho` reports, for every structure, the value **actually used** in the
+correlation matrix — never an intermediate `theta`. Three keys tell you which
+scale you are reading: `portee` for the range structures (`sph`, `cir`,
+`lvr`), `borne_inf` alongside a `cor` correlation already rescaled onto its
+positive-definite interval, and `signe_non_identifie` on the metric families,
+whose reported `phi` is always positive because `theta` and `-theta` give the
+same model. The per-family table is in
+[structures.md](structures.md#which-scale-each-family-reports).
+
+Three counters describe the parameter space, and they are not
+interchangeable: `n_at_bound` (at `floor`/`ceil`), `n_fixed_out` (held by
+`fixed_theta`, outside the free subspace without being at a bound), and
+`n_par_free` (what remains). The Newton decrement is computed on the free
+subspace only.

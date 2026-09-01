@@ -1,4 +1,4 @@
-"""remlkit — solveur REML generique, independant du modele IGE.
+"""remlax — solveur REML generique, independant du modele IGE.
 
 Le paquet ne connait que des MATRICES D'INCIDENCE et des STRUCTURES DE
 COVARIANCE. Aucune notion de blé, de luzerne, de voisinage ou de trait n'y

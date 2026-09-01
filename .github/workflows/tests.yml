@@ -29,6 +29,6 @@ jobs:
       - name: unit tests
         run: python -m pytest -q
       - name: algebraic reference suite
-        run: python tests/python/test_remlkit_core.py
+        run: python tests/python/test_remlax_core.py
       - name: random stress sweep (reduced)
-        run: python tests/python/stress_remlkit.py --n 30
+        run: python tests/python/stress_remlax.py --n 30

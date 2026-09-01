@@ -18,7 +18,7 @@ getarg <- function(k, d) { a <- commandArgs(TRUE); i <- grep(paste0("^--", k, "=
   if (length(i)) sub(paste0("^--", k, "="), "", a[i[1]]) else d }
 RACINE <- getarg("racine", ".")
 OUT    <- getarg("out", file.path(RACINE, "output", "tests", "bundles"))
-source(file.path(RACINE, "R", "remlkit.R"))
+source(file.path(RACINE, "R", "remlax.R"))
 dir.create(OUT, recursive = TRUE, showWarnings = FALSE)
 
 set.seed(20260901)
@@ -98,7 +98,7 @@ modeles <- list(
   dsum_ar1   = list(f = y ~ 1, r = ~ iid(gid), res = ~ dsum(~ ar1(col) | site), dat = dsec),
   # str() : DEUX incidences sur les MEMES niveaux (effet direct et pente sur x),
   # avec une covariance libre entre elles. Les colonnes de la seconde doivent
-  # porter les memes noms que les niveaux, sinon rk_term refuse — a raison.
+  # porter les memes noms que les niveaux, sinon rx_term refuse — a raison.
   str_2      = list(f = y ~ 1, r = ~ str(~ gid + mm(Zx, name = "gid_x"), struct = "us"),
                     dat = d)
 )
@@ -113,12 +113,12 @@ for (nm in names(modeles)) {
     X <- model.matrix(m$f, dd)
     asg <- attr(X, "assign")
     attr(X, "termes") <- c("(Intercept)", attr(terms(m$f), "term.labels"))[sort(unique(asg)) + 1L]
-    terms_l <- .rk_parse_random(m$r, dd, trait = tr_)
-    res_o <- .rk_parse_residual(m$res %||% "units", dd,
+    terms_l <- .rx_parse_random(m$r, dd, trait = tr_)
+    res_o <- .rx_parse_residual(m$res %||% "units", dd,
                                 trait = if (!is.null(m$trait)) m$trait else NULL,
                                 unit  = if (!is.null(m$unit))  m$unit  else NULL)
-    mod <- rk_model(model.response(model.frame(m$f, dd)), X, terms_l, res_o, name = nm)
-    rk_export(mod, file.path(OUT, nm))
+    mod <- rx_model(model.response(model.frame(m$f, dd)), X, terms_l, res_o, name = nm)
+    rx_export(mod, file.path(OUT, nm))
     sprintf("%-12s n=%-5d p=%-2d %d parametre(s)", nm, mod$n, ncol(X), mod$n_par)
   }, error = function(e) structure(conditionMessage(e), class = "erreur"))
   if (inherits(res, "erreur")) { ko <- c(ko, sprintf("%-12s %s", nm, res)) }

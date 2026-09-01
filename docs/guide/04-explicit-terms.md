@@ -1,12 +1,12 @@
 # 4. Explicit terms
 
-The `rk_term` / `rk_model` path, for models a formula cannot express:
+The `rx_term` / `rx_model` path, for models a formula cannot express:
 incidences that are not indicator matrices, and covariances shared between
 terms that carry different incidences.
 
 The worked example is a direct/indirect genetic effects (DGE/IGE) model, the
 case that forced the solver to be general in the first place. It is described
-in section 5 of [the design note](../note_remlkit_fr.md).
+in section 5 of [the design note](../note_remlax_fr.md).
 
 All blocks were executed with `backend = "cpu"` and their real output pasted
 underneath.
@@ -30,7 +30,7 @@ W[i, g] = sum over neighbours j of plot i carrying genotype g, of w_ij
 with `w_ij` a distance kernel. `W` is not an indicator matrix, its rows do not
 sum to 1, and no factor produces it.
 
-The `rk_term` path takes the incidence directly. A **list of `t` matrices**
+The `rx_term` path takes the incidence directly. A **list of `t` matrices**
 gives one incidence per column of `Sigma`, which is the general form: each
 column may have its own incidence, and the covariance `Sigma` links them.
 
@@ -41,7 +41,7 @@ column may have its own incidence, and the covariance `Sigma` links them.
 A 20 x 12 field, 240 plots, 60 genotypes, each replicated four times.
 
 ```r
-source("R/remlkit.R")
+source("R/remlax.R")
 set.seed(31)
 nr <- 20; nc <- 12; ngen <- 60
 d <- expand.grid(coln = seq_len(nc), rown = seq_len(nr))
@@ -92,16 +92,16 @@ depresses its neighbours.
 X <- matrix(1, n, 1, dimnames = list(NULL, "(Intercept)"))
 
 ## one term, two columns, two DIFFERENT incidences, one free 2x2 covariance
-tm_g <- rk_term("dge_ige", list(Zd, W), struct = "us",
+tm_g <- rx_term("dge_ige", list(Zd, W), struct = "us",
                 levels = as.character(seq_len(ngen)))
 
 ## the field, as a separable AR1 x AR1 random term
 idx  <- (as.integer(d$row) - 1L) * nc + as.integer(d$col)
 Zf   <- Matrix::sparseMatrix(i = seq_len(n), j = idx, x = 1, dims = c(n, nr * nc))
-tm_f <- rk_term("champ", Zf, t = 1L, struct = "iid",
+tm_f <- rx_term("champ", Zf, t = 1L, struct = "iid",
                 level = "ar1ar1", dims = c(nr, nc))
 
-mod <- rk_model(d$y, X, terms = list(tm_g, tm_f), residual = rk_residual("iid"))
+mod <- rx_model(d$y, X, terms = list(tm_g, tm_f), residual = rx_residual("iid"))
 print(mod)
 ```
 
@@ -127,7 +127,7 @@ grid, and `idx = (row-1)*nc + col` must follow the same convention — row
 slowest, column fastest.
 
 ```r
-fit <- rk_fit(mod, backend = "cpu", verbose = FALSE)
+fit <- rx_fit(mod, backend = "cpu", verbose = FALSE)
 print(fit)
 ```
 
@@ -195,7 +195,7 @@ The formula grammar does reach this model, through `str()`. `mm()` supplies an
 incidence directly, and `str()` puts one covariance over several terms.
 
 ```r
-fit_f <- rk_reml(y ~ 1,
+fit_f <- rx_reml(y ~ 1,
                  random = ~ str(~ gid + mm(W, name = "ige"), struct = "us",
                                 name = "dge_ige") + ar1(row, col),
                  residual = ~ units, data = d,
@@ -212,11 +212,11 @@ ecart de logLik formule vs explicite : 0.000e+00
 ecart max sur Sigma                  : 0.000e+00
 ```
 
-Exactly zero difference. The two paths build the same object; `rk_reml()` is
-a parser in front of `rk_model()`.
+Exactly zero difference. The two paths build the same object; `rx_reml()` is
+a parser in front of `rx_model()`.
 
 The grouped terms must share **exactly** the same levels. That shared indexing
-is what gives a covariance between them any meaning, and remlkit refuses
+is what gives a covariance between them any meaning, and remlax refuses
 otherwise:
 
 ```
@@ -267,7 +267,7 @@ direct-indirect correlation, and the **total heritable variance** available to
 selection, `V1 + 2*V2 + V3` for one neighbour.
 
 ```r
-fv <- rk_fit(mod, backend = "cpu", verbose = FALSE,
+fv <- rx_fit(mod, backend = "cpu", verbose = FALSE,
              vpredict = c(var_dge = "V1", cov_di = "V2", var_ige = "V3",
                           r_di = "V2/sqrt(V1*V3)",
                           T2   = "V1 + 2*V2 + V3"))
@@ -308,9 +308,9 @@ Note that the between-level parameters of the field are components too
 ## Does the indirect effect earn its parameters?
 
 ```r
-tm_d <- rk_term("dge", d$gid)
-mod0 <- rk_model(d$y, X, terms = list(tm_d, tm_f), residual = rk_residual("iid"))
-fit0 <- rk_fit(mod0, backend = "cpu", verbose = FALSE)
+tm_d <- rx_term("dge", d$gid)
+mod0 <- rx_model(d$y, X, terms = list(tm_d, tm_f), residual = rx_residual("iid"))
+fit0 <- rx_fit(mod0, backend = "cpu", verbose = FALSE)
 ```
 
 ```
@@ -337,14 +337,14 @@ matters.
 
 | you need | write |
 |---|---|
-| a term whose incidence you computed | `rk_term(name, Zmatrix, t = 1)` |
-| `t` columns with **different** incidences | `rk_term(name, list(Z1, ..., Zt), struct = "us")` |
-| a stacked `n x (t*q)` incidence | `rk_term(name, Z, t = t)` — order `(a-1)*q + level` |
+| a term whose incidence you computed | `rx_term(name, Zmatrix, t = 1)` |
+| `t` columns with **different** incidences | `rx_term(name, list(Z1, ..., Zt), struct = "us")` |
+| a stacked `n x (t*q)` incidence | `rx_term(name, Z, t = t)` — order `(a-1)*q + level` |
 | a relationship matrix | `K =`, with `dimnames` matching `levels =` |
 | a separable field as a term | `level = "ar1ar1", dims = c(nr, nc)` |
 | a metric structure | `level = "iexp"`, `coord = <q x 2 matrix>` |
-| a residual whose formula the parser refuses | `rk_residual(struct, trait =, unit =, level =, dims =)` |
-| the design on disk for the solver | `rk_export(mod, dir)` |
+| a residual whose formula the parser refuses | `rx_residual(struct, trait =, unit =, level =, dims =)` |
+| the design on disk for the solver | `rx_export(mod, dir)` |
 
 Two invariants apply to everything on this page.
 
@@ -361,7 +361,7 @@ on.
 
 ## Next
 
-- [api-r.md](../api-r.md) — every argument of `rk_term`, `rk_residual`,
-  `rk_model`, `rk_fit`.
+- [api-r.md](../api-r.md) — every argument of `rx_term`, `rx_residual`,
+  `rx_model`, `rx_fit`.
 - [api-python.md](../api-python.md) — the same model as Python dictionaries.
 - [structures.md](../structures.md) — the catalogue.

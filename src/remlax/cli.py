@@ -1,6 +1,6 @@
 """Point d'entree du solveur : lit un dispositif serialise, ajuste, ecrit.
 
-    python3 -m remlkit.cli <repertoire> [--backend auto|gpu|cpu] [--maxiter N]
+    python3 -m remlax.cli <repertoire> [--backend auto|gpu|cpu] [--maxiter N]
                            [--polish N] [--no-hessian] [--no-blups] [--quiet]
 
 Ecrit dans le meme repertoire : result.json (scalaires et dimensions) et des
@@ -18,10 +18,10 @@ import numpy as np
 _HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, os.path.dirname(_HERE))
 
-from remlkit import _x64  # noqa: F401,E402
-from remlkit.bundle import Bundle  # noqa: E402
-from remlkit.device import pick_device, device_report  # noqa: E402
-from remlkit.fit import fit_reml  # noqa: E402
+from remlax import _x64  # noqa: F401,E402
+from remlax.bundle import Bundle  # noqa: E402
+from remlax.device import pick_device, device_report  # noqa: E402
+from remlax.fit import fit_reml  # noqa: E402
 
 
 def main(argv=None):
@@ -64,13 +64,13 @@ def main(argv=None):
     ctx = jax.default_device(dev)
     ctx.__enter__()
     if not a.quiet:
-        print("[remlkit] peripheriques : %s" % device_report(), flush=True)
-        print("[remlkit] backend retenu : %s (%s)" % (plat, dev), flush=True)
+        print("[remlax] peripheriques : %s" % device_report(), flush=True)
+        print("[remlax] backend retenu : %s (%s)" % (plat, dev), flush=True)
 
     b = Bundle(a.bundle)
     terms, res, y, X = b.terms(), b.residual(), b.y, b.X
     if not a.quiet:
-        print("[remlkit] n=%d, %d effet(s) fixe(s), %d terme(s) aleatoire(s)"
+        print("[remlax] n=%d, %d effet(s) fixe(s), %d terme(s) aleatoire(s)"
               % (len(y), X.shape[1], len(terms)), flush=True)
         for t in terms:
             print("          %-14s %-5s t=%-3d q=%-5d %s"
@@ -82,7 +82,7 @@ def main(argv=None):
         fixe = [int(v) - 1 for v in a.fixed_theta.split(",") if v.strip()]
     if a.only_predict:
         # Predire ne demande PAS de reajuster. Sans ce mode, chaque appel a
-        # rk_predict() relancerait l'optimisation complete pour retrouver le
+        # rx_predict() relancerait l'optimisation complete pour retrouver le
         # theta qu'on a deja — et rien ne garantirait qu'il retombe sur le meme
         # optimum.
         r = dict(theta=np.fromfile(os.path.join(a.bundle, "in_theta.bin"),
@@ -101,10 +101,10 @@ def main(argv=None):
                      n_restarts=a.restarts, restart_sd=a.restart_sd, fixed_idx=fixe)
 
     # --- inference ------------------------------------------------------------
-    from remlkit.inference import vpredict as _vp, wald as _wald, component_names
+    from remlax.inference import vpredict as _vp, wald as _wald, component_names
     r["composantes_noms"] = component_names(terms, res)
     if a.only_predict and len(r["theta"]) != len(r["composantes_noms"]) and not a.quiet:
-        print("[remlkit] mode predict seul : %d parametre(s) relus"
+        print("[remlax] mode predict seul : %d parametre(s) relus"
               % len(r["theta"]), flush=True)
     if a.vpredict:
         exprs = []
@@ -118,13 +118,13 @@ def main(argv=None):
             libre[np.array(fixe)] = False
         r["vpredict"] = _vp(r["theta"], r.get("hessian"), terms, res, exprs, free=libre)
     if a.kenward_roger:
-        from remlkit.inference import kenward_roger as _kr
+        from remlax.inference import kenward_roger as _kr
         rk = _kr(r["theta"], terms, res, y, X, termes_fixes=b.fixed_groups())
         if rk.get("vbeta_kr") is not None:
             r["vbeta_kr"] = rk.pop("vbeta_kr")
         r["kenward_roger"] = rk
     if a.predict:
-        from remlkit.inference import predict as _pred
+        from remlax.inference import predict as _pred
         Lp = np.fromfile(os.path.join(a.bundle, "pred_L.bin"),
                          dtype=np.float64).reshape((-1, X.shape[1]), order="F")
         M = {}
@@ -138,7 +138,7 @@ def main(argv=None):
         r["predictions"] = pr
     if a.wald:
         import jax.numpy as _jnp
-        from remlkit.model import assemble_V as _aV, dense_Z as _dZ
+        from remlax.model import assemble_V as _aV, dense_Z as _dZ
         Zs = [_dZ(t, len(y)) for t in terms]
         V = np.asarray(_aV(_jnp.asarray(r["theta"]), terms, Zs, res, len(y)))
         r["wald"] = _wald(y, X, V, termes_fixes=b.fixed_groups())
@@ -188,7 +188,7 @@ def main(argv=None):
     with open(os.path.join(a.bundle, "result.json"), "w") as f:
         json.dump(propre(out), f, indent=2, default=float)
     if not a.quiet and not a.only_predict:
-        print("[remlkit] logLik = %.9f | %d parametres | %.1f s"
+        print("[remlax] logLik = %.9f | %d parametres | %.1f s"
               % (r["logLik"], r["n_par"], r["secondes"]), flush=True)
     ctx.__exit__(None, None, None)
     return 0

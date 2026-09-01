@@ -1,4 +1,4 @@
-# remlkit
+# remlax
 
 A generic REML solver for linear mixed models, written in JAX, driven from R by
 an asreml-like formula interface. The same model runs on CPU or on GPU without
@@ -6,7 +6,7 @@ being rewritten.
 
 ## What it is
 
-remlkit maximises the **restricted likelihood** of
+remlax maximises the **restricted likelihood** of
 
 ```
 y = X b + sum_k Z_k u_k + e,    u_k ~ N(0, Sigma_k (x) K_k),    e ~ N(0, R)
@@ -38,33 +38,33 @@ parametrised, never `Sigma` itself — followed by regularised Newton polishing.
   log-likelihood constant, and the default Wald test type all differ. Those
   differences are documented in [docs/structures.md](docs/structures.md) and
   in the guides.
-- **Not an R package.** `R/remlkit.R` is a single file you `source()`.
+- **Not an R package.** `R/remlax.R` is a single file you `source()`.
 
 ## Installation
 
 ### Python solver
 
 ```sh
-git clone https://github.com/nsalas/remlkit
-cd remlkit
+git clone https://github.com/nsalas/remlax
+cd remlax
 pip install -e .                 # CPU
 pip install -e ".[cuda]"         # CUDA 12 build of JAX
 ```
 
 Requirements: Python >= 3.10, `jax >= 0.4.30`, `numpy >= 1.24`,
 `scipy >= 1.10`. Double precision is enabled at import time by
-`remlkit._x64`; do not disable it.
+`remlax._x64`; do not disable it.
 
 Check what JAX can see:
 
 ```sh
-python -c "import remlkit; print(remlkit.device_report())"
+python -c "import remlax; print(remlax.device_report())"
 ```
 
 ### R interface
 
 ```r
-source("R/remlkit.R")            # needs Matrix and jsonlite
+source("R/remlax.R")            # needs Matrix and jsonlite
 ```
 
 The R side never imports Python. It writes the design to a directory as raw
@@ -74,25 +74,25 @@ call:
 
 | variable | meaning | default |
 |---|---|---|
-| `RK_PY` | how to start Python, space-separated | `python3` |
-| `RK_CLI` | path to `cli.py`, or `-m remlkit.cli` | auto-detected |
-| `IGE_JAX_CMD` | alternative to `RK_PY` | — |
+| `RX_PY` | how to start Python, space-separated | `python3` |
+| `RX_CLI` | path to `cli.py`, or `-m remlax.cli` | auto-detected |
+| `IGE_JAX_CMD` | alternative to `RX_PY` | — |
 | `IGE_JAX_SIF` | Apptainer image; expands to `apptainer exec --nv <sif> python3` | — |
 
-`RK_CLI` is resolved in three steps: the variable if set; then `-m
-remlkit.cli` if `import remlkit` succeeds under `RK_PY`; then
-`src/remlkit/cli.py` relative to `R/remlkit.R`. So an editable install needs
-neither variable, and an uninstalled clone needs only `RK_PY`.
+`RX_CLI` is resolved in three steps: the variable if set; then `-m
+remlax.cli` if `import remlax` succeeds under `RX_PY`; then
+`src/remlax/cli.py` relative to `R/remlax.R`. So an editable install needs
+neither variable, and an uninstalled clone needs only `RX_PY`.
 
 ```sh
-export RK_PY=/path/to/venv/bin/python
-export RK_CLI=/path/to/remlkit/src/remlkit/cli.py    # only if not pip-installed
+export RX_PY=/path/to/venv/bin/python
+export RX_CLI=/path/to/remlax/src/remlax/cli.py    # only if not pip-installed
 ```
 
 ## A minimal R example
 
 ```r
-source("R/remlkit.R")
+source("R/remlax.R")
 
 set.seed(2026)
 n_gen <- 60; n_bloc <- 4
@@ -100,7 +100,7 @@ d <- expand.grid(gid = factor(seq_len(n_gen)), bloc = factor(seq_len(n_bloc)))
 g <- rnorm(n_gen, 0, sqrt(1.5)); b <- rnorm(n_bloc, 0, sqrt(0.4))
 d$y <- 12 + g[as.integer(d$gid)] + b[as.integer(d$bloc)] + rnorm(nrow(d))
 
-fit <- rk_reml(fixed  = y ~ 1,
+fit <- rx_reml(fixed  = y ~ 1,
                random = ~ gid + iid(bloc),
                data   = d,
                vpredict = c(h2 = "V1/(V1+V2+V3)"),
@@ -125,8 +125,8 @@ factors or data frames.
 
 ```python
 import numpy as np
-from remlkit.fit import fit_reml
-from remlkit.inference import component_names, vpredict
+from remlax.fit import fit_reml
+from remlax.inference import component_names, vpredict
 
 rng = np.random.default_rng(1)
 n_gen, n_rep = 40, 5
@@ -161,7 +161,7 @@ print(vp["predictions"][0])
 Covariance structures for `Sigma` (over the `t` columns of a term). `w` is the
 number of columns, `k` the rank or band order.
 
-| remlkit | asreml | Sigma | parameters |
+| remlax | asreml | Sigma | parameters |
 |---|---|---|---|
 | `iid` | `idv` | `s2 I` | 1 |
 | `diag` | `idh` | `diag(s2_j)` | `w` |
@@ -213,18 +213,19 @@ Full definitions, positivity constraints and internal parametrisations:
   **except** the between-level correlation parameters (an AR1 `phi`, a range).
   pbkrtest and SAS make the same choice. The `second_ordre_omis` field says
   whether the model contains parameters for which the omission is not exact.
-- **`rk_predict()` covers fixed effects and single-trait random terms.** A
+- **`rx_predict()` covers fixed effects and single-trait random terms.** A
   `classify` on a multi-trait term is warned about and dropped from the random
   part.
 - **Wald tests are conditional (type III).** asreml's default is sequential
   (type I). The two agree on the last term of the model.
-- **The log-likelihood constant differs from asreml.** remlkit includes
+- **The log-likelihood constant differs from asreml.** remlax includes
   `(n-p)/2 log(2 pi)` (like lme4); asreml omits it. Use `fit$logLik_asreml`
   when comparing.
-- **`us(trait):ar1(row):ar1(col)` cannot be written as a formula.** The
-  residual parser requires at most one observation per (row, col) cell, which
-  long-format multi-trait data violate. The solver supports the structure; use
-  the explicit path (`rk_residual(..., level = "ar1ar1", dims = )`).
+- **The sign of a metric correlation is not identified.** `exp`, `gau`,
+  `iexp`, `igau`, `ieuc`, `aexp` and `agau` raise `abs(tanh(theta))` to a
+  distance, so `theta` and `-theta` give the same model. The reported `phi` is
+  always positive and the report carries `signe_non_identifie`; there is no
+  sign to interpret.
 - **Neighbourhood kernel ranges are not estimated.** Chaining a kernel
   parameter through `Z` into `V` would require rebuilding the incidence at
   every iteration.
@@ -232,7 +233,7 @@ Full definitions, positivity constraints and internal parametrisations:
 
 ## Validation
 
-remlkit is checked against asreml, lme4, sommer, pbkrtest, closed-form REML on
+remlax is checked against asreml, lme4, sommer, pbkrtest, closed-form REML on
 balanced designs, finite-difference gradients, and a random stress sweep; and
 CPU against GPU on a bundle of designs covering every structure. Details and
 measured agreements are in [docs/validation.md](docs/validation.md).
@@ -255,16 +256,16 @@ Timings and memory for CPU and GPU across model sizes are in
 | [docs/guide/02-multi-trait.md](docs/guide/02-multi-trait.md) | several traits, `us` and `fa`, genomic relationship |
 | [docs/guide/03-spatial.md](docs/guide/03-spatial.md) | separable AR1, metric kernels, 2D splines |
 | [docs/guide/04-explicit-terms.md](docs/guide/04-explicit-terms.md) | weighted incidences, DGE/IGE with shared covariance |
-| [docs/api-r.md](docs/api-r.md) | R reference: every `rk_*` function, full formula grammar |
+| [docs/api-r.md](docs/api-r.md) | R reference: every `rx_*` function, full formula grammar |
 | [docs/api-python.md](docs/api-python.md) | Python reference: every public function |
 | [docs/structures.md](docs/structures.md) | structure catalogue with formulas and parametrisations |
-| [docs/note_remlkit_fr.md](docs/note_remlkit_fr.md) | design note (French): why each choice was made |
+| [docs/note_remlax_fr.md](docs/note_remlax_fr.md) | design note (French): why each choice was made |
 
 ## Citation
 
 ```
-Salas, N. (2026). remlkit: a generic, differentiable REML solver for linear
-mixed models. Version 0.1.0. https://github.com/nsalas/remlkit
+Salas, N. (2026). remlax: a generic, differentiable REML solver for linear
+mixed models. Version 0.1.0. https://github.com/nsalas/remlax
 ```
 
 `CITATION.cff` at the repository root carries the machine-readable form.

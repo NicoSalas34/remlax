@@ -36,7 +36,7 @@ CATALOGUE (definitions de l'annexe C du manuel ASReml-R 4.2)
           PAS D'EQUIVALENT 2D ICI. asreml a un `ilv`, mais sa
           formule n'a pas pu etre retrouvee : aucune des neuf
           familles essayees ne reproduit sa courbe de logLik
-          (cf. docs/note_remlkit.md), et la tente euclidienne
+          (cf. docs/note_remlax.md), et la tente euclidienne
           n'est pas definie positive — elle rend des NaN. On
           prefere ne pas la fournir plutot que d'en fournir une
           fausse sous le nom d'asreml.
@@ -46,7 +46,7 @@ CATALOGUE (definitions de l'annexe C du manuel ASReml-R 4.2)
           arithmetique de d/dx/dy/lag et de p1..pk       k
 
 lvr ET mtrn ONT ETE IDENTIFIES CONTRE ASREML, pas lus dans le manuel (leurs
-pages d'aide ne donnent pas les formules). Voir docs/note_remlkit.md pour les
+pages d'aide ne donnent pas les formules). Voir docs/note_remlax.md pour les
 courbes de logLik qui les fixent.
 
 STATIONNARITE GARANTIE PAR CONSTRUCTION pour ar2/ar3. Mettre |phi_i| < 1 ne
@@ -284,7 +284,7 @@ def _distance_anisotrope(dx, dy, delta, alpha, lam):
     transformation preserve les aires, donc delta ne se confond pas avec la
     portee phi. Trois autres conventions plausibles (delta sur un seul axe, ou
     non racine) ont ete essayees et ECARTEES : elles decalent la logLik de 0.5 a
-    4 points sur le meme ajustement (cf. docs/note_remlkit.md). Verifie contre
+    4 points sur le meme ajustement (cf. docs/note_remlax.md). Verifie contre
     asreml a 3e-10 sur (delta=2, alpha=0) et (delta=2, alpha=0.6).
     """
     ca, sa = jnp.cos(alpha), jnp.sin(alpha)

@@ -1,5 +1,5 @@
 # ==============================================================================
-# test_remlkit_ige.R — LE modele du projet, sur donnees simulees de verite connue
+# test_remlax_ige.R — LE modele du projet, sur donnees simulees de verite connue
 # ------------------------------------------------------------------------------
 # Reproduit en petit le modele des scripts 05/06 : effet genetique direct (DGE),
 # effet indirect intraspecifique (IGE intra) porte par un VOISINAGE PONDERE,
@@ -23,14 +23,14 @@
 # COMPARAISON : asreml sur le MEME modele, avec str(~ dge + grp(nb), ~us(2):id(q))
 # qui est sa facon d'ecrire une covariance partagee entre deux termes.
 #
-#   Rscript scripts/tests/test_remlkit_ige.R [--noyau=puissance|exp]
+#   Rscript scripts/tests/test_remlax_ige.R [--noyau=puissance|exp]
 #                       [--nr= --nc=]   taille de la grille (replication)
 #                       [--qa= --qb=]   nombre de genotypes (identifiabilite)
 # ==============================================================================
 suppressPackageStartupMessages({
   library(here); library(Matrix); library(jsonlite)
 })
-source(here::here("R", "remlkit.R"))
+source(here::here("R", "remlax.R"))
 ga <- function(k, d) { a <- commandArgs(TRUE); m <- grep(paste0("^--", k, "="), a, value = TRUE)
   if (length(m)) sub(paste0("^--", k, "="), "", m[1]) else d }
 NOYAU <- ga("noyau", "puissance"); ORD <- as.integer(ga("ord", 6))
@@ -128,32 +128,32 @@ cat(sprintf("         var_IGEinter %.2f | AR1 var %.2f rho %.2f/%.2f | pepite %.
             V_INTER, V_AR1, RHO_R, RHO_C, V_E))
 
 # ==============================================================================
-# 3. remlkit : le modele complet
+# 3. remlax : le modele complet
 # ==============================================================================
 # str(~ dge + voisinage) : UNE covariance us(2) pour les DEUX incidences portees
 # par les memes genotypes. C'est ce qui identifie cov(DGE, IGE).
-mod <- rk_model(
+mod <- rx_model(
   y = d$y, X = matrix(1, nA, 1),
   terms = list(
-    rk_term("dge_ige", list(ZgA, ZnA), struct = "us", levels = gA),
-    rk_term("ige_inter", list(ZxA), struct = "iid", levels = gB),
+    rx_term("dge_ige", list(ZgA, ZnA), struct = "us", levels = gA),
+    rx_term("ige_inter", list(ZxA), struct = "iid", levels = gB),
     # CHAMP AR1 x AR1 SUR LES COLONNES OBSERVEES, pas sur la grille complete.
     # Les especes alternent par colonne : l'espece A n'occupe que les colonnes
     # impaires. Indexer le champ sur la grille entiere ferait de mon decalage 2
-    # le decalage 1 d'asreml, et rho_asreml vaudrait rho_remlkit^2 — le carre
-    # effacant au passage le SIGNE. MESURE avant correction : remlkit -0.4856,
+    # le decalage 1 d'asreml, et rho_asreml vaudrait rho_remlax^2 — le carre
+    # effacant au passage le SIGNE. MESURE avant correction : remlax -0.4856,
     # asreml +0.2358, et (-0.4856)^2 = 0.2358 exactement.
     # C'est le meme piege que sur le vrai dispositif : le pas conspecifique est
     # de deux colonnes, pas d'une.
-    rk_term("champ", Matrix::sparseMatrix(i = seq_len(nA), j = cellA_obs, x = 1,
+    rx_term("champ", Matrix::sparseMatrix(i = seq_len(nA), j = cellA_obs, x = 1,
                                           dims = c(nA, NR * NC_OBS)),
             t = 1L, struct = "iid", level = "ar1ar1", dims = c(NR, NC_OBS))),
-  residual = rk_residual("iid"))
+  residual = rx_residual("iid"))
 print(mod)
 t0 <- Sys.time()
-f <- rk_fit(mod, backend = Sys.getenv("RK_BACKEND", "auto"), n_restarts = 6,
+f <- rx_fit(mod, backend = Sys.getenv("RX_BACKEND", "auto"), n_restarts = 6,
             verbose = FALSE)
-cat(sprintf("\nremlkit (%s) : logLik %.6f | %.1f s | decrement %.2e\n",
+cat(sprintf("\nremlax (%s) : logLik %.6f | %.1f s | decrement %.2e\n",
             f$backend, f$logLik, f$secondes, f$newton_decrement))
 G <- f$sigmas$dge_ige
 cat(sprintf("  var_DGE      %.4f   (vrai %.2f)\n", G[1, 1], SIG[1, 1]))
@@ -208,20 +208,20 @@ if (!ok_asreml) {
     for (i in 1:6) a <- update(a, trace = FALSE)
     vc <- summary(a)$varcomp
     cat("\n--- asreml, meme modele ---\n"); print(vc[, c("component", "std.error")])
-    cat(sprintf("logLik asreml %.9f | remlkit %.9f | ecart %.2e\n",
+    cat(sprintf("logLik asreml %.9f | remlax %.9f | ecart %.2e\n",
                 a$loglik, f$logLik_asreml, abs(a$loglik - f$logLik_asreml)))
     # DEUX exigences distinctes, et une seule est symetrique.
-    #  (a) remlkit ne doit pas etre PIRE qu'asreml. Sur une surface plate les
+    #  (a) remlax ne doit pas etre PIRE qu'asreml. Sur une surface plate les
     #      deux optimiseurs s'arretent a des theta differents pour une meme
     #      vraisemblance ; exiger l'egalite stricte reviendrait a sanctionner
-    #      celui qui converge le mieux. Ici remlkit fait MIEUX de 7.6e-04.
+    #      celui qui converge le mieux. Ici remlax fait MIEUX de 7.6e-04.
     #  (b) les composantes doivent coincider la ou elles sont determinees. La
     #      tolerance est calee sur l'erreur-type d'asreml : deux estimations qui
     #      different de moins d'un dixieme de SE sont le meme resultat.
-    verifier("remlkit n'est pas moins bon qu'asreml",
+    verifier("remlax n'est pas moins bon qu'asreml",
              f$logLik_asreml >= a$loglik - 1e-6,
              sprintf("ecart %+.2e en faveur de %s", f$logLik_asreml - a$loglik,
-                     if (f$logLik_asreml >= a$loglik) "remlkit" else "asreml"))
+                     if (f$logLik_asreml >= a$loglik) "remlax" else "asreml"))
     cmp <- list(
       c("var_DGE",      G[1, 1],                 vc["geno+grp(nb)!us(2)_1:1", "component"],
         vc["geno+grp(nb)!us(2)_1:1", "std.error"]),
@@ -251,7 +251,7 @@ if (!ok_asreml) {
     # 1,92 d'un LRT a 1 ddl — deux optima separes de moins que cela sont le meme
     # resultat. Au-dela, ce sont deux points, et on le dit au lieu de comparer.
     meme_point <- abs(ecart_ll) < 5e-2
-    cat("\n  composante        remlkit     asreml    ecart   (SE asreml)\n")
+    cat("\n  composante        remlax     asreml    ecart   (SE asreml)\n")
     for (z in cmp) {
       rk <- as.numeric(z[2]); as_ <- as.numeric(z[3]); se <- as.numeric(z[4])
       # asreml rend NA comme erreur-type d'un parametre a une borne. Le test
@@ -272,7 +272,7 @@ if (!ok_asreml) {
                          "         differents, leurs composantes ne sont pas comparables.\n",
                          "         A cette taille (%d obs, %d parametres) le bloc us(2) est\n",
                          "         a la frontiere et la surface est plate.\n"),
-                  abs(ecart_ll), if (ecart_ll > 0) "remlkit" else "asreml",
+                  abs(ecart_ll), if (ecart_ll > 0) "remlax" else "asreml",
                   mod$n, mod$n_par))
   }
 }

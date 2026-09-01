@@ -1,4 +1,4 @@
-# remlkit — solveur REML générique, CPU et GPU
+# remlax — solveur REML générique, CPU et GPU
 
 **Projet** : IGE Analysis 2024–2025 · **Écrit le** : 31 août 2026 · **Étendu et validé contre asreml** : 1er septembre 2026 · **Catalogue de structures + modèle IGE complet** : 1er septembre 2026
 
@@ -33,9 +33,9 @@ propre** incidence (voisinage pondéré), pas une indicatrice de caractère.
 Par formule, dans l'esprit d'asreml :
 
 ```r
-source("R/remlkit.R")
+source("R/remlax.R")
 
-fit <- rk_reml(fixed    = y ~ 1 + traitement,
+fit <- rx_reml(fixed    = y ~ 1 + traitement,
                random   = ~ vm(genotype, K = Kmat) + iid(bloc),
                residual = "units",
                data     = df,
@@ -116,7 +116,7 @@ nombre — le nôtre refuse.
 
 `jax.scipy.special` n'expose pas la fonction de Bessel modifiée K_ν, et un
 rappel vers scipy n'aurait pas de dérivée — or ν et φ sont justement des
-paramètres à estimer. `scripts/gpu/remlkit/bessel.py` calcule donc directement
+paramètres à estimer. `scripts/gpu/remlax/bessel.py` calcule donc directement
 
 ```
 M(z,ν) = 2^(1−ν)/Γ(ν) · z^ν · K_ν(z) = ∫₀^∞ exp(ν log z + ν u − z cosh u) du  (symétrisé)
@@ -212,7 +212,7 @@ qui permet de corréler un effet direct et un effet de voisinage portés par les
 mêmes génotypes — le cas qui a motivé tout ceci. Chaque terme garde **son**
 incidence, `mm()` compris.
 
-Splines 2D par `rk_spl2d(x, y, nseg)` : produit tensoriel de P-splines,
+Splines 2D par `rx_spl2d(x, y, nseg)` : produit tensoriel de P-splines,
 décomposition PS-ANOVA en trois blocs aléatoires (`_x`, `_y`, `_xy`) plus une
 partie nulle qui **doit** aller dans les effets fixes. Aucune machinerie
 nouvelle côté solveur — une surface lisse est un effet aléatoire à incidence
@@ -228,10 +228,10 @@ Pour ce qu'une formule ne sait pas dire — incidence **pondérée**, colonnes
 hétérogènes — la voie explicite, même machinerie sans le sucre :
 
 ```r
-mod <- rk_model(y, X,
-                terms = list(rk_term("voisinage", list(W1, W2), K = Kb, struct = "us")),
-                residual = rk_residual("us", trait = d$trait, unit = d$unit))
-fit <- rk_fit(mod, backend = "auto")
+mod <- rx_model(y, X,
+                terms = list(rx_term("voisinage", list(W1, W2), K = Kb, struct = "us")),
+                residual = rx_residual("us", trait = d$trait, unit = d$unit))
+fit <- rx_fit(mod, backend = "auto")
 ```
 
 ## 3. CPU ou GPU
@@ -245,7 +245,7 @@ Le couplage R ↔ Python passe par des **fichiers** (binaire brut + manifeste
 JSON), pas par reticulate. Deux raisons : sur ce cluster R et JAX vivent dans
 deux conteneurs distincts (`ige_pipeline.sif`, `jax_gpu.sif`), et le fichier rend
 la parité vérifiable puisque les deux backends lisent alors strictement la même
-entrée. `RK_PY`, `IGE_JAX_CMD` ou `IGE_JAX_SIF` disent comment appeler Python.
+entrée. `RX_PY`, `IGE_JAX_CMD` ou `IGE_JAX_SIF` disent comment appeler Python.
 
 ## 4. Méthode, et ce qu'elle partage avec asreml
 
@@ -278,7 +278,7 @@ montée de logLik encore disponible, donc comparable au 3,84 d'un LRT à 1 ddl.
 ### Inférence : vpredict et Wald
 
 ```r
-f <- rk_reml(y ~ trt, random = ~ gid, data = d,
+f <- rx_reml(y ~ trt, random = ~ gid, data = d,
              vpredict = c(h2 = "V1/(V1+V2)"), wald = TRUE)
 ```
 
@@ -286,13 +286,13 @@ Les `Vi` sont numérotées dans l'ordre de `f$composantes_noms` — ordre **fixe
 documenté**, parce qu'une renumérotation silencieuse rendrait toute expression
 fausse au run suivant.
 
-| | remlkit | asreml |
+| | remlax | asreml |
 |---|---|---|
 | h² | 0,6685333 | 0,6685333 |
 | SE(h²), delta method | 0,0500972 | 0,0500998 |
 | Wald `trt`, 2 ddl | p = 8,776×10⁻⁹ | p = 8,776×10⁻⁹ |
 
-**Le Wald de remlkit est CONDITIONNEL** (type III : chaque terme sachant tous
+**Le Wald de remlax est CONDITIONNEL** (type III : chaque terme sachant tous
 les autres) ; celui d'asreml est **séquentiel** par défaut (type I). Les deux
 coïncident sur le dernier terme du modèle, seul cas où les notions se
 rejoignent — c'est donc lui que le test compare. Sans `kenward_roger = TRUE`
@@ -302,14 +302,14 @@ celles d'un χ²/ddl, valides asymptotiquement.
 ### Kenward-Roger, et predict
 
 ```r
-f  <- rk_reml(y ~ trt + x, random = ~ iid(bloc), data = d, kenward_roger = TRUE)
-pv <- rk_predict(f, classify = "trt", sed = TRUE)
+f  <- rx_reml(y ~ trt + x, random = ~ iid(bloc), data = d, kenward_roger = TRUE)
+pv <- rx_predict(f, classify = "trt", sed = TRUE)
 ```
 
 Comparé à `pbkrtest::KRmodcomp`, l'implémentation de référence, sur un
 dispositif en blocs **déséquilibré** (n = 27, 5 blocs de 3 à 7 parcelles) :
 
-| | remlkit | pbkrtest |
+| | remlax | pbkrtest |
 |---|---|---|
 | ddl du dénominateur | 21,76897 | 21,76896 |
 | F (`trt`, 2 ddl) | 2,790148 | 2,790148 |
@@ -365,12 +365,12 @@ suites existantes après coup et qui mérite d'être connu :
 
 > **`$` fait de l'appariement PARTIEL sur les listes R.** En ajoutant un champ
 > `sigmas_res` au résultat, l'expression `r$sigmas` — pas encore créée à ce
-> point de `rk_read_result()` — s'est mise à s'apparier sur `sigmas_res`. Les Σ
+> point de `rx_read_result()` — s'est mise à s'apparier sur `sigmas_res`. Les Σ
 > des termes étaient donc ajoutés à la liste des résiduelles, et
 > `fit$sigmas[[1]]` rendait la **résiduelle** au lieu du premier terme. Sept
 > échecs sur trois suites, tous dus à ce décalage d'un cran — et la logLik, elle,
 > restait juste, ce qui rendait le diagnostic contre-intuitif.
-> `rk_read_result()` n'utilise plus que `[[ ]]`, qui apparie exactement.
+> `rx_read_result()` n'utilise plus que `[[ ]]`, qui apparie exactement.
 
 
 1. `own` : `^`, écrit en R, était le XOR de Python
@@ -389,7 +389,7 @@ on paramètre des log-écarts-types — et `U` est le défaut.
 
 ### Le modèle IGE complet, sur données simulées de vérité connue
 
-`scripts/tests/test_remlkit_ige.R` reproduit en petit le modèle des scripts
+`scripts/tests/test_remlax_ige.R` reproduit en petit le modèle des scripts
 05/06 : DGE + IGE intra sur **voisinage pondéré** avec covariance `us(2)` libre,
 IGE inter, champ AR1×AR1, pépite. Huit paramètres de variance.
 
@@ -397,7 +397,7 @@ Dispositif 40×30 avec 90/60 génotypes, espèces alternées par colonne, noyau
 puissance d⁻¹ à l'ordre 6 ou exponentiel exp(−κ(d−δ₀)). asreml ajuste le **même**
 modèle via `str(~ geno + grp(nb), ~us(2):id(q)) + grp(xb) + ar1(row):ar1(col)`.
 
-| composante | remlkit | asreml | écart | (SE asreml) |
+| composante | remlax | asreml | écart | (SE asreml) |
 |---|---|---|---|---|
 | var_DGE | 1,09524 | 1,09592 | 6,7×10⁻⁴ | 0,189 |
 | cov(DGE, IGE intra) | −0,42211 | −0,41939 | 2,7×10⁻³ | 0,180 |
@@ -408,7 +408,7 @@ modèle via `str(~ geno + grp(nb), ~us(2):id(q)) + grp(xb) + ar1(row):ar1(col)`.
 | ρ colonne | 0,11931 | 0,11850 | 8,1×10⁻⁴ | 0,111 |
 | pépite | 0,39824 | 0,39694 | 1,3×10⁻³ | 0,156 |
 
-Les huit composantes coïncident à **moins de 4 % d'une erreur-type**, et remlkit
+Les huit composantes coïncident à **moins de 4 % d'une erreur-type**, et remlax
 s'arrête 0,021 point de logLik au-dessus d'asreml.
 
 #### La taille du dispositif décide de ce que le test prouve
@@ -439,13 +439,13 @@ dit explicitement sinon, au lieu de conclure à un désaccord.
 **Un piège que ce test a exhumé.** Le champ AR1×AR1 doit être indexé sur les
 colonnes **réellement occupées**, pas sur la grille complète : les espèces
 alternent par colonne, donc le décalage 1 d'asreml est le décalage 2 du champ
-sur grille pleine. Avant correction : remlkit ρ_col = −0,4856, asreml +0,2358,
+sur grille pleine. Avant correction : remlax ρ_col = −0,4856, asreml +0,2358,
 et (−0,4856)² = 0,2358 **exactement** — le carré effaçant au passage le signe.
 C'est le même piège que sur le dispositif réel.
 
 ### Contre asreml — la référence du domaine
 
-`scripts/tests/test_remlkit_asreml.R` — 20 vérifications, licence enterprise
+`scripts/tests/test_remlax_asreml.R` — 20 vérifications, licence enterprise
 locale.
 
 | structure | accord |
@@ -456,19 +456,19 @@ locale.
 | `str(~ a + b, us)` vs `str(~ gid + gid:w, ~us(2):id(40))` | les trois éléments de Σ et la **logLik à 1,9×10⁻¹²** |
 
 **Convention de log-vraisemblance** : asreml omet la constante
-`(n−p)/2·log(2π)`, remlkit l'inclut (comme lme4). Le champ `logLik_asreml` fait
+`(n−p)/2·log(2π)`, remlax l'inclut (comme lme4). Le champ `logLik_asreml` fait
 la conversion — vérifiée à 1,3×10⁻⁸. Sans elle l'écart vaut 219,6 sur un jeu à
 n = 240 et ressemble à un désaccord de modèle.
 
-Un cas où **asreml refuse et remlkit converge** : champ AR1×AR1 sans réplication,
+Un cas où **asreml refuse et remlax converge** : champ AR1×AR1 sans réplication,
 où le champ absorbe toute la résiduelle. asreml s'arrête sur « 1 singularities in
-the Average Information matrix » ; remlkit rend un optimum (décrément 1,8×10⁻²⁶)
+the Average Information matrix » ; remlax rend un optimum (décrément 1,8×10⁻²⁶)
 avec la résiduelle à 4×10⁻¹¹ — et le **signale** via
 `composantes_degenerees`. Même diagnostic, exprimé autrement.
 
 ### Contre des implémentations écrites par d'autres
 
-`scripts/tests/test_remlkit.R` — 31 vérifications.
+`scripts/tests/test_remlax.R` — 31 vérifications.
 
 | cas | référence | résultat |
 |---|---|---|
@@ -480,14 +480,14 @@ avec la résiduelle à 4×10⁻¹¹ — et le **signale** via
 
 ### Contre l'algèbre
 
-`scripts/tests/test_remlkit_core.py` — 22 vérifications : REML analytique d'un
+`scripts/tests/test_remlax_core.py` — 22 vérifications : REML analytique d'un
 plan équilibré retrouvée à 10⁻⁹ ; gradient autodiff contre différences finies à
 10⁻⁸ ; `V == Z (Σ ⊗ K) Z' + R` calculé par une voie indépendante à **5×10⁻¹⁵** ;
 `us` représente n'importe quelle matrice PSD à 10⁻¹⁵.
 
 ### Sous balayage aléatoire
 
-`scripts/tests/stress_remlkit.py` tire des centaines de configurations, y compris
+`scripts/tests/stress_remlax.py` tire des centaines de configurations, y compris
 pénibles (variance nulle, incidences dégénérées, forte parenté, plans très
 déséquilibrés), et vérifie des **propriétés** plutôt que des valeurs : pas
 d'exception, logLik finie, décrément négligeable, Σ symétriques et PSD, optimum

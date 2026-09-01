@@ -27,7 +27,7 @@ Two columns matter beyond the response:
 ## A genomic relationship matrix
 
 ```r
-source("R/remlkit.R")
+source("R/remlax.R")
 set.seed(11)
 
 n_gen <- 80; n_mark <- 300
@@ -43,7 +43,7 @@ dimnames(K) <- list(seq_len(n_gen), seq_len(n_gen))
 K : 80 x 80, diagonale moyenne 0.9937
 ```
 
-`K` must carry `dimnames` matching the levels of the grouping factor. remlkit
+`K` must carry `dimnames` matching the levels of the grouping factor. remlax
 reorders it onto those levels, and a missing level is an error, not a silent
 drop. If `K` is not positive definite — which a GRM frequently is not, with
 identical genotypes or more markers than individuals — a bent Cholesky is
@@ -80,7 +80,7 @@ nrow = 160
 ## Unstructured genetic and residual covariances
 
 ```r
-fit <- rk_reml(fixed    = y ~ trait,
+fit <- rx_reml(fixed    = y ~ trait,
                random   = ~ us(gid, K = K),
                residual = ~ us(trait):units,
                data = d, trait = "trait", unit = "unite",
@@ -152,7 +152,7 @@ structurally zero.
 ## Heritabilities and genetic correlation
 
 ```r
-f2 <- rk_reml(y ~ trait, random = ~ us(gid, K = K),
+f2 <- rx_reml(y ~ trait, random = ~ us(gid, K = K),
               residual = ~ us(trait):units, data = d,
               trait = "trait", unit = "unite",
               vpredict = c(h2_t1 = "V1/(V1+V4)",
@@ -190,18 +190,18 @@ That is the honest reading, and it is what the delta method is for. A
 
 ## How many parameters does each structure cost?
 
-`rk_n_params()` answers without fitting anything.
+`rx_n_params()` answers without fitting anything.
 
 ```r
 do.call(rbind, lapply(c(2, 4, 6, 8), function(t)
   data.frame(t = t,
-             diag  = rk_n_params("diag", t),
-             us    = rk_n_params("us", t),
-             fa2   = rk_n_params("fa", t, 2),
-             rr2   = rk_n_params("rr", t, 2),
-             chol1 = rk_n_params("chol", t, 1),
-             ante1 = rk_n_params("ante", t, 1),
-             corh  = rk_n_params("corh", t))))
+             diag  = rx_n_params("diag", t),
+             us    = rx_n_params("us", t),
+             fa2   = rx_n_params("fa", t, 2),
+             rr2   = rx_n_params("rr", t, 2),
+             chol1 = rx_n_params("chol", t, 1),
+             ante1 = rx_n_params("ante", t, 1),
+             corh  = rx_n_params("corh", t))))
 ```
 
 ```
@@ -243,10 +243,10 @@ d4  <- data.frame(unite = factor(rep(seq_len(n_gen), nt)),
                   trait = factor(rep(paste0("t", seq_len(nt)), each = n_gen)),
                   y     = as.numeric(u + e))
 
-f_us <- rk_reml(y ~ trait, random = ~ us(gid), residual = ~ diag(trait):units,
+f_us <- rx_reml(y ~ trait, random = ~ us(gid), residual = ~ diag(trait):units,
                 data = d4, trait = "trait", unit = "unite",
                 backend = "cpu", verbose = FALSE)
-f_rr <- rk_reml(y ~ trait, random = ~ rr(gid, rank = 2), residual = ~ diag(trait):units,
+f_rr <- rx_reml(y ~ trait, random = ~ rr(gid, rank = 2), residual = ~ diag(trait):units,
                 data = d4, trait = "trait", unit = "unite",
                 backend = "cpu", verbose = FALSE)
 ```
@@ -314,7 +314,7 @@ error derived from the Hessian are not. The same constraint applies to `fa`.
 
 ## Correspondence with asreml
 
-| asreml | remlkit |
+| asreml | remlax |
 |---|---|
 | `idv(trait)` | `iid(gid)` with `trait =` |
 | `idh(trait)` | `diag(gid)` |
@@ -327,7 +327,7 @@ error derived from the Hessian are not. The same constraint applies to `fa`.
 | `vm(gid, K)` | `vm(gid, K = K)`, or `K =` on any structure |
 
 asreml writes the structure over traits and the one over genotypes as a
-product, `corgh(trait):vm(gid, K)`. remlkit writes a single term whose `Sigma`
+product, `corgh(trait):vm(gid, K)`. remlax writes a single term whose `Sigma`
 is over traits and whose `K` is over genotypes: `us(gid, K = K)`. It is the
 same model.
 

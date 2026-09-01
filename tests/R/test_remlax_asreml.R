@@ -1,13 +1,13 @@
 # ==============================================================================
-# test_remlkit_asreml.R — validation contre ASREML, la reference du domaine
+# test_remlax_asreml.R — validation contre ASREML, la reference du domaine
 # ------------------------------------------------------------------------------
-# Les autres suites confrontent remlkit a lme4 et sommer. Celle-ci le confronte
+# Les autres suites confrontent remlax a lme4 et sommer. Celle-ci le confronte
 # a asreml, sur les structures qu'asreml sait faire et que les deux autres ne
 # font pas : AR1, AR1 separable, splines 2D, et str() (covariance PARTAGEE entre
 # plusieurs termes).
 #
 # CONVENTION DE LOG-VRAISEMBLANCE. asreml omet la constante (n-p)/2 * log(2*pi),
-# remlkit l'inclut (comme lme4). La comparaison porte donc sur `logLik_asreml`,
+# remlax l'inclut (comme lme4). La comparaison porte donc sur `logLik_asreml`,
 # champ prevu pour ca. Sans cette precaution l'ecart vaut plusieurs centaines et
 # ressemble a un desaccord de modele : il vaut 219,6 sur un jeu a n=240, p=1.
 #
@@ -15,12 +15,12 @@
 # composantes a 1e-3 en relatif, SAUF celles qui sont au plancher des deux cotes,
 # ou le relatif n'a aucun sens (comparer 3e-11 a 2e-10 donne 0,85).
 #
-#   Rscript scripts/tests/test_remlkit_asreml.R
+#   Rscript scripts/tests/test_remlax_asreml.R
 # ==============================================================================
 suppressPackageStartupMessages({
   library(here); library(Matrix); library(jsonlite); library(splines); library(asreml)
 })
-source(here::here("R", "remlkit.R"))
+source(here::here("R", "remlax.R"))
 
 ECHECS <- character(0)
 verifier <- function(nom, cond, detail = "") {
@@ -45,7 +45,7 @@ d <- d[order(d$lev), ]
 a <- stab(asreml(y ~ 1, random = ~ ar1v(lev), data = d, trace = FALSE,
                  maxit = 100, workspace = "2gb"))
 vc <- summary(a)$varcomp
-f <- rk_reml(y ~ 1, random = ~ ar1(lev), data = d, backend = "auto",
+f <- rx_reml(y ~ 1, random = ~ ar1(lev), data = d, backend = "auto",
              n_restarts = 5, verbose = FALSE)
 verifier("AR1 : rho",  relc(f$rho[[1]][1], vc["lev!lev!cor", "component"]) < 1e-3,
          sprintf("%.7f vs %.7f", f$rho[[1]][1], vc["lev!lev!cor", "component"]))
@@ -68,7 +68,7 @@ d$row <- factor(d$row); d$col <- factor(d$col); d <- d[order(d$row, d$col), ]
 a <- stab(asreml(y ~ 1, random = ~ ar1(row):ar1(col), data = d, trace = FALSE,
                  maxit = 100, workspace = "2gb"))
 vc <- summary(a)$varcomp
-f <- rk_reml(y ~ 1, random = ~ ar1(row, col), data = d, backend = "auto",
+f <- rx_reml(y ~ 1, random = ~ ar1(row, col), data = d, backend = "auto",
              n_restarts = 5, verbose = FALSE)
 verifier("AR1xAR1 : variance du champ",
          relc(f$sigmas[[1]][1, 1], vc["row:col", "component"]) < 1e-3,
@@ -90,7 +90,7 @@ set.seed(6); nr <- 20; nc <- 18
 g <- expand.grid(col = 1:nc, row = 1:nr)
 surf <- 2 * sin(g$row / 4) + 1.5 * cos(g$col / 3) + 0.02 * g$row * g$col
 y <- 5 + surf + rnorm(nrow(g), 0, 0.6)
-sp <- rk_spl2d(g$row, g$col, nseg = c(6, 6))
+sp <- rx_spl2d(g$row, g$col, nseg = c(6, 6))
 Zs <- lapply(sp$terms, function(t) as.matrix(t$Zl[[1]]))
 dd <- data.frame(y = y, sp$X, Zs[[1]], Zs[[2]], Zs[[3]])
 colnames(dd) <- c("y", paste0("L", seq_len(ncol(sp$X))),
@@ -102,7 +102,7 @@ a <- stab(asreml(stats::as.formula(paste("y ~", paste(paste0("L", seq_len(ncol(s
                               gC = grep("^C", names(dd))),
                  data = dd, trace = FALSE, maxit = 100, workspace = "2gb"))
 vc <- summary(a)$varcomp
-f <- rk_fit(rk_model(y, cbind(1, sp$X), sp$terms), backend = "auto",
+f <- rx_fit(rx_model(y, cbind(1, sp$X), sp$terms), backend = "auto",
             n_restarts = 3, verbose = FALSE)
 for (i in seq_along(sp$terms)) {
   nm <- sp$terms[[i]]$name; ref <- vc[c("grp(gA)", "grp(gB)", "grp(gC)")[i], "component"]
@@ -132,7 +132,7 @@ Zw <- Matrix::sparseMatrix(i = seq_len(n), j = as.integer(gid), x = w, dims = c(
 a <- stab(asreml(y ~ 1 + w, random = ~ str(~ gid + gid:w, ~ us(2):id(40)),
                  data = d, trace = FALSE, maxit = 100, workspace = "2gb"))
 vc <- summary(a)$varcomp
-f <- rk_reml(y ~ 1 + w, random = ~ str(~ gid + mm(Zw, name = "pente"), struct = "us"),
+f <- rx_reml(y ~ 1 + w, random = ~ str(~ gid + mm(Zw, name = "pente"), struct = "us"),
              data = d, backend = "auto", n_restarts = 3, verbose = FALSE)
 G <- f$sigmas[[1]]
 verifier("str : var terme 1", relc(G[1, 1], vc[1, "component"]) < 1e-3,
@@ -155,7 +155,7 @@ dv$y <- 4 + rep(rnorm(q, 0, 1.3), each = rp) + rnorm(n, 0, 0.9) + as.numeric(dv$
 a <- stab(asreml(y ~ trt, random = ~ gid, data = dv, trace = FALSE, maxit = 100), 4)
 h_a <- asreml::vpredict(a, h2 ~ V1 / (V1 + V2))
 w_a <- asreml::wald(a)
-f <- rk_reml(y ~ trt, random = ~ gid, data = dv, backend = "auto", n_restarts = 3,
+f <- rx_reml(y ~ trt, random = ~ gid, data = dv, backend = "auto", n_restarts = 3,
              verbose = FALSE, vpredict = c(h2 = "V1/(V1+V2)"), wald = TRUE)
 pv <- f$vpredict$predictions
 verifier("vpredict : estimation de h2",
@@ -164,7 +164,7 @@ verifier("vpredict : estimation de h2",
 verifier("vpredict : ERREUR-TYPE de h2 (delta method)",
          abs(pv$se[1] - h_a$SE) < 1e-5,
          sprintf("%.7f vs %.7f", pv$se[1], h_a$SE))
-# asreml donne un Wald SEQUENTIEL (type I) par defaut, remlkit un CONDITIONNEL
+# asreml donne un Wald SEQUENTIEL (type I) par defaut, remlax un CONDITIONNEL
 # (type III). Ils coincident sur le DERNIER terme, seul cas ou les deux notions
 # se rejoignent : c'est donc lui qu'on compare.
 tw <- f$wald$tests
@@ -187,7 +187,7 @@ UU <- matrix(rnorm(qq * TT), qq, TT) %*% chol(GG)
 YY <- sapply(1:TT, function(k) 2 + k * 0.3 + rep(UU[, k], each = rr_) + rnorm(nn, 0, 0.9))
 dsat <- data.frame(y = as.vector(YY), gid = rep(gg, TT),
                    trait = factor(rep(paste0("t", 1:TT), each = nn)), unit = rep(1:nn, TT))
-fsat <- function(r) rk_reml(y ~ 0 + trait, random = stats::as.formula(paste("~", r)),
+fsat <- function(r) rx_reml(y ~ 0 + trait, random = stats::as.formula(paste("~", r)),
                             residual = ~ diag(trait):units, data = dsat, trait = "trait",
                             unit = "unit", backend = "auto", n_restarts = 4, verbose = FALSE)
 fu <- fsat("us(gid)")
@@ -200,5 +200,5 @@ if (length(ECHECS)) {
   cat(sprintf("ECHECS (%d) :\n%s\n", length(ECHECS), paste0("  - ", ECHECS, collapse = "\n")))
   quit(save = "no", status = 1L)
 }
-cat("remlkit reproduit asreml sur AR1, AR1xAR1, splines 2D, str(), vpredict et Wald.\n")
+cat("remlax reproduit asreml sur AR1, AR1xAR1, splines 2D, str(), vpredict et Wald.\n")
 quit(save = "no", status = 0L)

@@ -12,7 +12,7 @@ doivent tenir quoi qu'il arrive :
   4. toutes les Sigma rendues sont symetriques et semi-definies positives ;
   5. relancer d'un autre point de depart retombe sur la meme logLik.
 
-    python3 scripts/tests/stress_remlkit.py [--n 200] [--seed 0]
+    python3 scripts/tests/stress_remlax.py [--n 200] [--seed 0]
 """
 import argparse
 import os
@@ -22,7 +22,7 @@ import traceback
 import numpy as np
 
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "..", "src"))
-from remlkit.fit import fit_reml  # noqa: E402
+from remlax.fit import fit_reml  # noqa: E402
 
 
 def tirage(rng):

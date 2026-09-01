@@ -23,12 +23,12 @@ import time
 _HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(_HERE)), "src"))
 
-from remlkit import _x64  # noqa: F401,E402
+from remlax import _x64  # noqa: F401,E402
 import numpy as np  # noqa: E402
 import jax  # noqa: E402
-from remlkit.bundle import Bundle  # noqa: E402
-from remlkit.device import pick_device, device_report  # noqa: E402
-from remlkit.fit import fit_reml  # noqa: E402
+from remlax.bundle import Bundle  # noqa: E402
+from remlax.device import pick_device, device_report  # noqa: E402
+from remlax.fit import fit_reml  # noqa: E402
 
 
 def ajuste(paquet, backend):

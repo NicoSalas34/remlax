@@ -1,5 +1,5 @@
 # ==============================================================================
-# test_remlkit_asreml2.R — validation des structures et de l'inference AJOUTEES
+# test_remlax_asreml2.R — validation des structures et de l'inference AJOUTEES
 # le 01/09/2026 : lvr, ilv, mtrn anisotrope, own, dsum, predict, Kenward-Roger.
 #
 # TROIS SORTES DE TEMOINS, et il faut les trois :
@@ -11,14 +11,14 @@
 #
 # Les formules de lvr et de l'anisotropie de mtrn ne sont PAS dans le manuel :
 # elles ont ete identifiees en comparant des courbes de logLik a asreml (cf.
-# docs/note_remlkit.md). Ces tests sont ce qui les fige.
+# docs/note_remlax.md). Ces tests sont ce qui les fige.
 #
-#   Rscript scripts/tests/test_remlkit_asreml2.R
+#   Rscript scripts/tests/test_remlax_asreml2.R
 # ==============================================================================
 suppressPackageStartupMessages({ library(Matrix) })
 RACINE <- Sys.getenv("IGE_RACINE", ".")
-source(file.path(RACINE, "R", "remlkit.R"))
-BACKEND <- Sys.getenv("RK_BACKEND", "auto")
+source(file.path(RACINE, "R", "remlax.R"))
+BACKEND <- Sys.getenv("RX_BACKEND", "auto")
 
 .n_ok <- 0L; .n_ko <- 0L
 ok <- function(lbl, cond, det = "") {
@@ -32,7 +32,7 @@ a_pbkr <- requireNamespace("pbkrtest", quietly = TRUE) && requireNamespace("lme4
 
 # --- vraisemblance REML d'une correlation DONNEE, sigma2 profile --------------
 # Temoin totalement independant du solveur : c'est lui qui dit si la structure
-# construite par remlkit est bien celle qu'on croit.
+# construite par remlax est bien celle qu'on croit.
 ll_profil <- function(C, y, X) {
   n <- length(y); p <- qr(X)$rank
   ev <- eigen(C, symmetric = TRUE, only.values = TRUE)$values
@@ -50,7 +50,7 @@ q <- 14
 d1 <- data.frame(pos = 1:q)
 H <- abs(outer(d1$pos, d1$pos, "-"))
 d1$y <- as.numeric(t(chol(pmax(0, 1 - H / 6) + diag(0.25, q))) %*% rnorm(q)) + 5
-f1 <- rk_reml(y ~ 1, random = NULL, residual = ~ lvr(pos), data = d1,
+f1 <- rx_reml(y ~ 1, random = NULL, residual = ~ lvr(pos), data = d1,
               backend = BACKEND, verbose = FALSE, n_restarts = 4)
 portee <- f1$rho[["residuelle!portee"]]
 # GRILLE FINE, pas `optimize`. La vraisemblance d'une tente tronquee n'est pas
@@ -67,7 +67,7 @@ raf <- optimize(.ll_lvr, gr_p[c(max(i0 - 1, 1), min(i0 + 1, length(gr_p)))],
 gr <- if (raf$objective > gr_v[i0]) raf else list(maximum = gr_p[i0], objective = gr_v[i0])
 ok("lvr : logLik = profil R independant",
    abs(f1$logLik_asreml - gr$objective) < 1e-5,
-   sprintf("remlkit %.7f | R %.7f | portee %.4f vs %.4f",
+   sprintf("remlax %.7f | R %.7f | portee %.4f vs %.4f",
            f1$logLik_asreml, gr$objective, portee %||% NA, gr$maximum))
 if (a_asreml) {
   d1$posf <- factor(d1$pos)
@@ -75,7 +75,7 @@ if (a_asreml) {
   ok("lvr : asreml n'atteint pas un meilleur optimum",
      !inherits(fa1, "try-error") && fa1$loglik <= f1$logLik_asreml + 1e-5,
      if (inherits(fa1, "try-error")) "asreml a echoue" else
-       sprintf("asreml %.6f <= remlkit %.6f", fa1$loglik, f1$logLik_asreml))
+       sprintf("asreml %.6f <= remlax %.6f", fa1$loglik, f1$logLik_asreml))
 }
 
 cat("\n=== 2. mtrn : Matern anisotrope, parametres FIXES des deux cotes ===\n")
@@ -106,23 +106,23 @@ for (cas in list(list(lbl = "isotrope nu=0.8", phi = 3, nu = 0.8, de = 1, al = 0
   fml <- stats::as.formula(sprintf(
     "~ mtrn(x, y, phi = '%s F', nu = '%s F', delta = '%s F', alpha = '%s F', lambda = %s)",
     cas$phi, cas$nu, cas$de, cas$al, cas$la))
-  fm <- rk_reml(resp ~ 1, residual = fml, data = g2, backend = BACKEND, verbose = FALSE)
+  fm <- rx_reml(resp ~ 1, residual = fml, data = g2, backend = BACKEND, verbose = FALSE)
   ref <- ll_profil(matern_ref(cas$phi, cas$nu, cas$de, cas$al, cas$la),
                    matrix(g2$resp), matrix(1, nrow(g2), 1))
   ok(sprintf("mtrn %s : logLik = reference besselK", cas$lbl),
      is.finite(ref) && abs(fm$logLik_asreml - ref) < 1e-6,
-     sprintf("remlkit %.7f | R %.7f", fm$logLik_asreml, ref))
+     sprintf("remlax %.7f | R %.7f", fm$logLik_asreml, ref))
   if (a_asreml) {
     fam <- try(asreml(resp ~ 1, residual = fml, data = g2, maxit = 30), silent = TRUE)
     if (!inherits(fam, "try-error") && is.finite(ref))
       ok(sprintf("mtrn %s : logLik = asreml", cas$lbl),
          abs(fam$loglik - fm$logLik_asreml) < 1e-5,
-         sprintf("asreml %.7f | remlkit %.7f", fam$loglik, fm$logLik_asreml))
+         sprintf("asreml %.7f | remlax %.7f", fam$loglik, fm$logLik_asreml))
   }
 }
 
 cat("\n=== 3. mtrn : la portee est bien ESTIMEE quand on la libere ===\n")
-fm2 <- rk_reml(resp ~ 1, residual = ~ mtrn(x, y, phi = 2, nu = "1.5 F"),
+fm2 <- rx_reml(resp ~ 1, residual = ~ mtrn(x, y, phi = 2, nu = "1.5 F"),
                data = g2, backend = BACKEND, verbose = FALSE, n_restarts = 4)
 ph <- fm2$rho[["residuelle!phi"]]   # mtrn : cles prefixees (phi/nu/delta/alpha)
 # Grille fine, pour la meme raison que pour lvr : rien ne garantit que le profil
@@ -146,9 +146,9 @@ cat("\n=== 4. own : une structure ecrite par l'utilisateur reproduit exp() ===\n
 q4 <- 16; d4 <- data.frame(pos = factor(1:q4), posn = 1:q4)
 H4 <- abs(outer(1:q4, 1:q4, "-"))
 d4$y <- as.numeric(t(chol(0.7^H4 + diag(0.3, q4))) %*% rnorm(q4)) + 2
-fe <- rk_reml(y ~ 1, residual = ~ exp(posn), data = d4, backend = BACKEND,
+fe <- rx_reml(y ~ 1, residual = ~ exp(posn), data = d4, backend = BACKEND,
               verbose = FALSE, n_restarts = 3)
-fo <- rk_reml(y ~ 1, residual = ~ own(pos, expr = "exp(-lag*exp(p1))", n_par = 1),
+fo <- rx_reml(y ~ 1, residual = ~ own(pos, expr = "exp(-lag*exp(p1))", n_par = 1),
               data = d4, backend = BACKEND, verbose = FALSE, n_restarts = 3)
 ok("own : phi^d ecrit en exp(-d*exp(p)) donne la meme logLik",
    abs(fe$logLik - fo$logLik) < 1e-6,
@@ -162,9 +162,9 @@ d5 <- data.frame(site = factor(rep(c("A", "B"), each = n5 / 2)),
 u5 <- rnorm(24, 0, 1.1)
 d5$y <- 4 + u5[as.integer(d5$gid)] +
   rnorm(n5, 0, ifelse(d5$site == "A", 0.5, 1.4))          # variances CONTRASTEES
-f5a <- rk_reml(y ~ 1, random = ~ iid(gid), residual = ~ units, data = d5,
+f5a <- rx_reml(y ~ 1, random = ~ iid(gid), residual = ~ units, data = d5,
                backend = BACKEND, verbose = FALSE)
-f5b <- rk_reml(y ~ 1, random = ~ iid(gid), residual = ~ dsum(~ units | site),
+f5b <- rx_reml(y ~ 1, random = ~ iid(gid), residual = ~ dsum(~ units | site),
                data = d5, backend = BACKEND, verbose = FALSE)
 vr <- vapply(f5b$sigmas_res, function(S) S[1, 1], 0)
 ok("dsum : deux sections ameliorent la vraisemblance",
@@ -179,7 +179,7 @@ if (a_asreml) {
                     data = d5, maxit = 60), silent = TRUE)
   if (!inherits(fa5, "try-error"))
     ok("dsum : logLik = asreml", abs(fa5$loglik - f5b$logLik_asreml) < 1e-4,
-       sprintf("asreml %.6f | remlkit %.6f", fa5$loglik, f5b$logLik_asreml))
+       sprintf("asreml %.6f | remlax %.6f", fa5$loglik, f5b$logLik_asreml))
 }
 
 cat("\n=== 5b. dsum : des structures DIFFERENTES selon la section ===\n")
@@ -187,7 +187,7 @@ d5b <- expand.grid(col = 1:8, site = c("A", "B", "C"))
 d5b$col <- factor(d5b$col); d5b$site <- factor(d5b$site)
 d5b$gid <- factor(rep(1:6, length.out = nrow(d5b)))
 d5b$y <- rnorm(nrow(d5b)) + rnorm(6)[as.integer(d5b$gid)]
-f5c <- rk_reml(y ~ 1, random = ~ iid(gid),
+f5c <- rx_reml(y ~ 1, random = ~ iid(gid),
                residual = ~ dsum(~ ar1(col) + ar1(col) + units | site,
                                  levels = list("A", "B", "C")),
                data = d5b, backend = BACKEND, verbose = FALSE)
@@ -199,7 +199,7 @@ ok("dsum : trois sections, deux AR1 et une iid",
 # Une section AR1 dont les unites sont dupliquees rend R singuliere : le solveur
 # doit le REFUSER, pas rendre NaN. C'est le defaut qu'a exhume le balayage de
 # parite.
-mauvais <- try(rk_reml(y ~ 1, random = ~ iid(gid),
+mauvais <- try(rx_reml(y ~ 1, random = ~ iid(gid),
                        residual = ~ dsum(~ ar1(col) + units | site,
                                          levels = list(c("A", "B"), "C")),
                        data = d5b, backend = BACKEND, verbose = FALSE), silent = TRUE)
@@ -214,9 +214,9 @@ d6 <- data.frame(trt = factor(rep(c("A", "B", "C"), each = n6 / 3)),
 ub <- rnorm(6, 0, 0.9)
 d6$y <- 5 + c(A = 0, B = 1.2, C = -0.4)[as.character(d6$trt)] + 0.5 * d6$x +
   ub[as.integer(d6$bloc)] + rnorm(n6, 0, 0.7)
-f6 <- rk_reml(y ~ trt + x, random = ~ iid(bloc), data = d6, backend = BACKEND,
+f6 <- rx_reml(y ~ trt + x, random = ~ iid(bloc), data = d6, backend = BACKEND,
               verbose = FALSE, wald = TRUE)
-pv <- rk_predict(f6, classify = "trt", sed = TRUE)
+pv <- rx_predict(f6, classify = "trt", sed = TRUE)
 if (a_asreml) {
   fa6 <- try(asreml(y ~ trt + x, random = ~ bloc, data = d6, maxit = 60), silent = TRUE)
   if (!inherits(fa6, "try-error")) {
@@ -252,15 +252,15 @@ if (a_pbkr) {
   m0 <- lme4::lmer(y ~ x + (1 | bloc), data = d7, REML = TRUE)
   kr <- pbkrtest::KRmodcomp(m1, m0)$stats
   se_ref <- sqrt(diag(as.matrix(pbkrtest::vcovAdj(m1))))
-  f7 <- rk_reml(y ~ trt + x, random = ~ iid(bloc), data = d7, backend = BACKEND,
+  f7 <- rx_reml(y ~ trt + x, random = ~ iid(bloc), data = d7, backend = BACKEND,
                 verbose = FALSE, kenward_roger = TRUE)
   tw <- f7$kenward_roger$tests
   i <- which(tw$terme == "trt")
   ok("K-R : ddl du denominateur = pbkrtest",
      abs(tw$denDF[i] - kr$ddf) < 1e-3,
-     sprintf("remlkit %.5f | pbkrtest %.5f", tw$denDF[i], kr$ddf))
+     sprintf("remlax %.5f | pbkrtest %.5f", tw$denDF[i], kr$ddf))
   ok("K-R : statistique F = pbkrtest", abs(tw$F[i] - kr$Fstat) < 1e-5,
-     sprintf("remlkit %.6f | pbkrtest %.6f", tw$F[i], kr$Fstat))
+     sprintf("remlax %.6f | pbkrtest %.6f", tw$F[i], kr$Fstat))
   ok("K-R : erreurs-types ajustees = pbkrtest",
      max(abs(f7$kenward_roger$se_beta - se_ref)) < 1e-5,
      sprintf("ecart max %.2e", max(abs(f7$kenward_roger$se_beta - se_ref))))
@@ -271,9 +271,9 @@ if (a_pbkr) {
 } else cat("  (pbkrtest/lme4 absents : section sautee)\n")
 
 cat("\n=== 8. predict avec la part aleatoire (BLUP + erreur de prediction) ===\n")
-f8 <- rk_reml(y ~ 1 + x, random = ~ iid(bloc), data = d6, backend = BACKEND, verbose = FALSE)
-pb <- rk_predict(f8, classify = "bloc", include_random = TRUE, verbose = FALSE)
-pf <- rk_predict(f8, classify = "bloc", include_random = FALSE, verbose = FALSE)
+f8 <- rx_reml(y ~ 1 + x, random = ~ iid(bloc), data = d6, backend = BACKEND, verbose = FALSE)
+pb <- rx_predict(f8, classify = "bloc", include_random = TRUE, verbose = FALSE)
+pf <- rx_predict(f8, classify = "bloc", include_random = FALSE, verbose = FALSE)
 ok("predict : le BLUP entre dans la moyenne par bloc",
    sd(pb$predicted.value) > 1e-6 && sd(pf$predicted.value) < 1e-9,
    sprintf("ecart-type avec BLUP %.5f, sans %.2e",

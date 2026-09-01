@@ -3,7 +3,7 @@ requires = ["setuptools>=68", "wheel"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "remlkit"
+name = "remlax"
 version = "0.1.0"
 description = "Generic REML solver for linear mixed models, differentiable and GPU-capable"
 readme = "README.md"
@@ -28,11 +28,11 @@ bench = ["pandas>=2.0", "matplotlib>=3.7"]
 docs = ["mkdocs-material>=9.5", "mkdocstrings[python]>=0.24"]
 
 [project.scripts]
-remlkit = "remlkit.cli:main"
+remlax = "remlax.cli:main"
 
 [project.urls]
-Homepage = "https://github.com/nsalas/remlkit"
-Issues = "https://github.com/nsalas/remlkit/issues"
+Homepage = "https://github.com/nsalas/remlax"
+Issues = "https://github.com/nsalas/remlax/issues"
 
 [tool.setuptools.packages.find]
 where = ["src"]

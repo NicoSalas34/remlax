@@ -8,14 +8,14 @@ without a GPU; on small models the CPU is also the faster choice, because XLA
 compilation dominates the computation.
 
 ```r
-source("R/remlkit.R")
+source("R/remlax.R")
 ```
 
 If the Python package is not installed, point the interface at it first:
 
 ```sh
-export RK_PY=/path/to/venv/bin/python
-export RK_CLI=/path/to/remlkit/src/remlkit/cli.py
+export RX_PY=/path/to/venv/bin/python
+export RX_CLI=/path/to/remlax/src/remlax/cli.py
 ```
 
 ---
@@ -49,7 +49,7 @@ residual.
 ## The fit
 
 ```r
-fit <- rk_reml(fixed  = y ~ 1,
+fit <- rx_reml(fixed  = y ~ 1,
                random = ~ gid + iid(bloc),
                data   = d,
                backend = "cpu", verbose = FALSE)
@@ -126,7 +126,7 @@ c(logLik = fit$logLik, logLik_asreml = fit$logLik_asreml,
     -388.0888     -168.4625        3.0000      240.0000
 ```
 
-remlkit includes the constant `(n-p)/2 log(2 pi)`, like lme4. asreml and
+remlax includes the constant `(n-p)/2 log(2 pi)`, like lme4. asreml and
 sommer omit it. Here the difference is 219.6 — big enough to look like a
 disagreement between models rather than a convention. Compare
 `logLik_asreml` with asreml, `logLik` with lme4.
@@ -137,17 +137,20 @@ disagreement between models rather than a convention. Compare
 
 ```r
 str(fit[c("max_grad", "newton_decrement", "n_neg_eig", "n_null_dir",
-          "n_at_bound", "cond", "n_polish", "scipy_message",
-          "composantes_degenerees")])
+          "n_at_bound", "n_fixed", "n_fixed_out", "n_par_free",
+          "cond", "n_polish", "scipy_message", "composantes_degenerees")])
 ```
 
 ```
-List of 9
+List of 12
  $ max_grad              : num 3.42e-14
  $ newton_decrement      : num 1.43e-28
  $ n_neg_eig             : num 0
  $ n_null_dir            : num 0
  $ n_at_bound            : num 0
+ $ n_fixed               : num 0
+ $ n_fixed_out           : num 0
+ $ n_par_free            : num 3
  $ cond                  : num 571
  $ n_polish              : num 2
  $ scipy_message         : chr "CONVERGENCE: RELATIVE REDUCTION OF F <= FACTR*EPSMCH"
@@ -170,9 +173,15 @@ means the optimiser stopped at a saddle; a non-zero `n_null_dir` means a
 direction the data do not identify, and every standard error involving it is
 meaningless.
 
-**Which parameters?** `n_at_bound` counts parameters pinned to the global
-bounds (`floor = -12`, `ceil = 12` on the log scale). Those are outside the
-free subspace by the KKT condition and do not take part in the diagnostic.
+**Which parameters?** Three counters, kept separate because they mean three
+different things. `n_at_bound` counts parameters sitting at the global bounds
+(`floor = -12`, `ceil = 12` on the log scale). `n_fixed_out` (and `n_fixed`,
+the same count) counts parameters held by `fixed_theta`: those are outside the
+free subspace **without** being at a bound, since they are pinned to their
+starting value. `n_par_free` is the dimension of the free subspace that
+remains. All three categories are excluded from the diagnostic, by the KKT
+condition for the first and by construction for the second — the Newton
+decrement is computed only along directions the step can actually take.
 
 `composantes_degenerees` names terms with a parameter at the floor. A variance
 at the floor is not "estimated at zero", it is **unidentified**: its standard
@@ -189,7 +198,7 @@ is accepted only if it improves the objective.
 ## Heritability with vpredict
 
 ```r
-fit2 <- rk_reml(y ~ 1, random = ~ gid + iid(bloc), data = d,
+fit2 <- rx_reml(y ~ 1, random = ~ gid + iid(bloc), data = d,
                 vpredict = c(h2  = "V1/(V1+V2+V3)",
                              vg  = "V1",
                              pct = "100*V1/(V1+V2+V3)"),
@@ -274,7 +283,7 @@ table(d$bloc, d$trt)
 ```
 
 ```r
-f <- rk_reml(y ~ trt, random = ~ iid(bloc), data = d,
+f <- rx_reml(y ~ trt, random = ~ iid(bloc), data = d,
              wald = TRUE, kenward_roger = TRUE,
              backend = "cpu", verbose = FALSE)
 print(f)
@@ -352,7 +361,7 @@ parameter, so the omitted second-order term is exactly zero here. It would be
 ## Predictions
 
 ```r
-pv <- rk_predict(f, classify = "trt", sed = TRUE)
+pv <- rx_predict(f, classify = "trt", sed = TRUE)
 print(pv)
 attr(pv, "sed")
 ```
@@ -393,8 +402,8 @@ formulas or data frames reaches it.
 
 ```python
 import numpy as np
-from remlkit.fit import fit_reml
-from remlkit.inference import component_names, vpredict
+from remlax.fit import fit_reml
+from remlax.inference import component_names, vpredict
 
 rng = np.random.default_rng(2026)
 n_gen, n_bloc = 60, 4

@@ -1,10 +1,10 @@
 #!/bin/bash
 # =============================================================================
-# VALIDATION COMPLETE DE remlkit SUR GPU (tranche MIG A100)
+# VALIDATION COMPLETE DE remlax SUR GPU (tranche MIG A100)
 #
 # Tout tourne dans UNE SEULE image, ige_reml.sif, qui contient a la fois R
 # (asreml, lme4, sommer, pbkrtest) et JAX CUDA. C'est ce qui rend ce job
-# possible : remlkit fait appeler le solveur PAR R, et avec deux images il
+# possible : remlax fait appeler le solveur PAR R, et avec deux images il
 # aurait fallu imbriquer apptainer dans apptainer — impossible ici, le binaire
 # de l'hote ne trouvant pas ses bibliotheques dans le conteneur.
 #
@@ -21,9 +21,9 @@
 #
 #   sbatch scripts/tests/slurm_valid_gpu.slurm
 # =============================================================================
-#SBATCH --job-name="remlkit_valid"
-#SBATCH --output="logs/remlkit_valid_%j.out"
-#SBATCH --error="logs/remlkit_valid_%j.out"
+#SBATCH --job-name="remlax_valid"
+#SBATCH --output="logs/remlax_valid_%j.out"
+#SBATCH --error="logs/remlax_valid_%j.out"
 #SBATCH --partition=gpu-cirad-dedicated
 #SBATCH --account=dedicated-gpu@cirad-long
 #SBATCH --qos=dedicated
@@ -57,13 +57,13 @@ etape() {                       # etape <numero> <titre> <commande...>
 }
 
 # 1-5 : les suites, telles quelles, mais avec le backend GPU.
-etape 1 "noyau (Python)"            RUN python3 scripts/tests/test_remlkit_core.py
+etape 1 "noyau (Python)"            RUN python3 scripts/tests/test_remlax_core.py
 etape 2 "croisee lme4/sommer (GPU)" env APPTAINERENV_RK_BACKEND=gpu \
-        apptainer exec --nv "$SIF" Rscript scripts/tests/test_remlkit.R
-etape 3 "asreml : catalogue"        RUN Rscript scripts/tests/test_remlkit_asreml.R
+        apptainer exec --nv "$SIF" Rscript scripts/tests/test_remlax.R
+etape 3 "asreml : catalogue"        RUN Rscript scripts/tests/test_remlax_asreml.R
 etape 4 "asreml : ajouts 09/2026"   env APPTAINERENV_RK_BACKEND=gpu \
-        apptainer exec --nv "$SIF" Rscript scripts/tests/test_remlkit_asreml2.R
-etape 5 "modele IGE complet"        RUN Rscript scripts/tests/test_remlkit_ige.R
+        apptainer exec --nv "$SIF" Rscript scripts/tests/test_remlax_asreml2.R
+etape 5 "modele IGE complet"        RUN Rscript scripts/tests/test_remlax_ige.R
 
 # 6 : parite. L'export est R, l'ajustement Python : les deux backends lisent
 # STRICTEMENT le meme paquet, ce qui est tout l'interet du format sur fichier.

@@ -6,7 +6,7 @@ model-specific is built on the R side and serialised, or built by hand as
 plain dictionaries.
 
 ```
-remlkit/
+remlax/
   _x64.py        enables float64 at import time
   core.py        V -> -2 logL, with the analytic VJP
   structures.py  theta -> Sigma
@@ -20,7 +20,7 @@ remlkit/
   cli.py         command-line entry point
 ```
 
-`import remlkit` re-exports `STRUCTURES`, `n_params`, `build_sigma`,
+`import remlax` re-exports `STRUCTURES`, `n_params`, `build_sigma`,
 `chol_sigma`, `Bundle`, `assemble_V`, `neg2_reml`, `make_objective`,
 `pick_device`, `device_report`, `fit_reml`.
 
@@ -38,7 +38,7 @@ column of Z = (col - 1) * q + level          -> level varies FASTEST
 
 `Z` is `n x (t*q)`: the `t` incidence matrices of a term are stacked
 horizontally, each `n x q`. `Sigma (x) K` follows the same order, with `Sigma`
-on the slow index. `R/remlkit.R` builds `Z` with this convention. If one side
+on the slow index. `R/remlax.R` builds `Z` with this convention. If one side
 changes and the other does not, the model silently becomes a different one.
 
 ### Order of theta
@@ -86,7 +86,7 @@ optionally `sections`, a list of per-section dictionaries each carrying `rows`.
 
 ---
 
-## 1. `remlkit.structures`
+## 1. `remlax.structures`
 
 ### `STRUCTURES`
 
@@ -104,7 +104,7 @@ Number of free parameters of a structure. Returns `int`. Raises `ValueError`
 on an unknown name.
 
 ```python
->>> from remlkit.structures import n_params
+>>> from remlax.structures import n_params
 >>> [n_params(s, 4, 2) for s in ("iid","diag","us","fa","rr","chol","ante","corh")]
 [1, 4, 10, 11, 7, 9, 9, 5]
 ```
@@ -125,7 +125,7 @@ itself.
 
 ```python
 >>> import numpy as np, jax.numpy as jnp
->>> from remlkit.structures import chol_sigma
+>>> from remlax.structures import chol_sigma
 >>> np.asarray(chol_sigma(jnp.array([np.log(1.2), 0.5, np.log(0.9)]), "us", 2))
 array([[1.2, 0. ],
        [0.5, 0.9]])
@@ -136,7 +136,7 @@ array([[1.2, 0. ],
 `L L'` from the above. Shape `(t, t)`.
 
 ```python
->>> from remlkit.structures import build_sigma
+>>> from remlax.structures import build_sigma
 >>> np.asarray(build_sigma(jnp.array([np.log(1.2), 0.5, np.log(0.9)]), "us", 2))
 array([[1.44, 0.6 ],
        [0.6 , 1.06]])
@@ -148,7 +148,7 @@ Starting point such that `Sigma ~ var * I`. Returns a numpy array of length
 `n_params(struct, t, rank)`.
 
 ```python
->>> from remlkit.structures import theta0
+>>> from remlax.structures import theta0
 >>> theta0("us", 2, var=3.0)
 array([0.549306, 0.      , 0.549306])
 ```
@@ -158,7 +158,7 @@ starting values are graded (`linspace(0.6, 0.3, nl)`) to start from full rank.
 
 ---
 
-## 2. `remlkit.levels`
+## 2. `remlax.levels`
 
 ### `LEVEL_STRUCTURES`
 
@@ -194,7 +194,7 @@ of the four are estimated (only `phi` defaults to estimated); for `own`,
 `n_par`.
 
 ```python
->>> from remlkit.levels import n_level_params
+>>> from remlax.levels import n_level_params
 >>> n_level_params("ar2"), n_level_params("corb", 3), n_level_params("corg", 5)
 (2, 3, 10)
 >>> n_level_params("mtrn", opts={"est_phi": 1.0, "est_nu": 1.0})
@@ -209,7 +209,7 @@ The `q x q` correlation matrix. Unit diagonal by contract — the variance lives
 in `Sigma`.
 
 ```python
->>> from remlkit.levels import level_corr
+>>> from remlax.levels import level_corr
 >>> np.round(np.asarray(level_corr(jnp.array([np.arctanh(0.7)]), "ar1", 4)), 6)
 array([[1.   , 0.7  , 0.49 , 0.343],
        [0.7  , 1.   , 0.7  , 0.49 ],
@@ -233,26 +233,66 @@ Closed-form Cholesky factor of an AR(1) correlation:
 differentiable, no `n x n` factorisation.
 
 ```python
->>> from remlkit.levels import ar1_chol
+>>> from remlax.levels import ar1_chol
 >>> L = np.asarray(ar1_chol(0.7, 4)); float(np.max(np.abs(L @ L.T - C)))
 1.11e-16
 ```
 
-### `level_params_report(theta_lv, kind, order=0, opts=None)`
+### `level_params_report(theta_lv, kind, order=0, opts=None, q=None)`
 
-Parameters on the asreml scale, for reporting. Returns a dict whose keys are
-`"phi"`, `"pacf"` (`ar2`/`ar3`), `"portee"` (range: `sph`, `cir`, `lvr`),
-`"own"`, or the Matern parameter names. Values are lists of floats.
+Parameters on the asreml scale, for reporting. Returns a dict of lists of
+floats. The contract is that **the value returned is the value actually used in
+`C`**, never an intermediate `theta`.
 
-Two reported values are not the ones used internally — see
-[structures.md](structures.md#two-reported-values-that-are-not-the-ones-used):
-`cor` reports `tanh(theta)` while the correlation is rescaled onto the
-positive-definite interval, and the metric families use `|tanh(theta)|`, so
-the sign of their reported `phi` is not identified.
+`q` is **required for `kind="cor"`** and ignored otherwise. The uniform
+correlation is positive definite only on `(-1/(q-1), 1)`, so `tanh(theta)` is
+not the correlation of the model; without `q` the function refuses rather than
+reporting the wrong scale:
+
+```python
+>>> level_params_report(np.array([1.0]), "cor")
+ValueError: level_params_report(kind='cor') exige q : la correlation uniforme est
+remise a l'echelle sur (-1/(q-1), 1), donc tanh(theta) n'est pas la valeur du modele.
+```
+
+Keys by family:
+
+```
+ar1     -> {'phi': [0.664037]}
+sar     -> {'phi': [0.664037]}
+ma1     -> {'phi': [0.664037]}
+ma2     -> {'phi': [0.462117, -0.291313]}
+arma    -> {'phi': [0.462117, 0.53705]}
+ar2     -> {'phi': [0.444141, 0.379949], 'pacf': [0.716298, 0.379949]}
+ar3     -> {'phi': [0.519134, 0.467611, -0.197375], 'pacf': [0.716298, 0.379949, -0.197375]}
+corb    -> {'phi': [0.462117, -0.197375]}
+corg    -> {}
+cor     -> {'phi': [0.850996], 'borne_inf': [-0.25]}
+exp     -> {'phi': [0.761594], 'signe_non_identifie': [1.0]}
+gau     -> {'phi': [0.761594], 'signe_non_identifie': [1.0]}
+iexp    -> {'phi': [0.761594], 'signe_non_identifie': [1.0]}
+igau    -> {'phi': [0.761594], 'signe_non_identifie': [1.0]}
+ieuc    -> {'phi': [0.761594], 'signe_non_identifie': [1.0]}
+aexp    -> {'phi': [0.761594, 0.462117], 'signe_non_identifie': [1.0]}
+agau    -> {'phi': [0.761594, 0.462117], 'signe_non_identifie': [1.0]}
+sph     -> {'portee': [4.481689]}
+cir     -> {'portee': [4.481689]}
+lvr     -> {'portee': [4.481689]}
+mtrn    -> {'phi': [1.349859], 'nu': [1.105171]}
+own     -> {'own': [0.4]}
+ar1ar1  -> {'phi': [0.664037, 0.197375]}
+```
+
+`borne_inf` is `-1/(q-1)`, the exact positivity bound of `cor`.
+`signe_non_identifie` marks the metric families, which raise `abs(tanh(theta))`
+to a distance: `theta` and `-theta` give the same `C`, so the reported `phi` is
+always positive and floored at `1e-12`. `own` returns the raw unconstrained
+parameters, since only the expression knows what they mean. Full table with the
+reasoning: [structures.md](structures.md#which-scale-each-family-reports).
 
 ---
 
-## 3. `remlkit.model`
+## 3. `remlax.model`
 
 ### `term_n_params(tm)`
 
@@ -323,7 +363,7 @@ space. Measured on a one-factor model without effective scaling: it stopped at
 
 ---
 
-## 4. `remlkit.fit`
+## 4. `remlax.fit`
 
 ### `initial_theta(terms, res, y)`
 
@@ -380,8 +420,9 @@ Returns a `dict`. Keys, on a two-term model:
 | `newton_decrement` | `g' H^+ g`, the ascent still available — the stopping criterion that matters |
 | `leak` | gradient component in the null space of `H` |
 | `n_neg_eig`, `n_null_dir`, `lambda_min`, `lambda_max`, `cond` | spectrum of the free-subspace Hessian |
-| `n_at_bound` | parameters at `floor`/`ceil` |
-| `n_fixed` | parameters held by `fixed_idx` |
+| `n_at_bound` | parameters at `floor`/`ceil`, **excluding** fixed ones |
+| `n_fixed`, `n_fixed_out` | parameters held by `fixed_idx` (same count, two keys) |
+| `n_par_free` | dimension of the actual free subspace |
 | `composantes_degenerees` | names of terms with a parameter at the floor |
 | `n_polish`, `n_iter`, `scipy_success`, `scipy_message`, `secondes` | optimiser trace |
 | `sigmas` | dict name -> `Sigma` matrix |
@@ -429,16 +470,45 @@ variance that reaches the floor is not "estimated at zero", it is
 **unidentified**, and its standard error, its variance share and any test
 touching it are meaningless. The typical case is AR1/nugget aliasing, where
 the field absorbs the whole residual; asreml refuses to converge there, and
-remlkit converges, so it has to say so.
+remlax converges, so it has to say so.
 
 **Restarts are the only way to detect a local optimum.** The Newton decrement
 measures the ascent available *locally* and is zero at the top of a secondary
 hill. `n_restarts > 0` perturbs the retained point and keeps the best; the
 gain is reported in `restart_gain`.
 
+**`fixed_idx` removes a parameter from the free subspace without putting it at
+a bound.** The diagnostic receives `fixed_idx` and excludes those coordinates,
+so the Newton decrement is computed on the directions the step can actually
+take. Measured on the model above, with and without the first parameter fixed:
+
+```
+libre          n_par 3 | n_at_bound 0 | n_fixed 0 | n_fixed_out 0 | n_par_free 3
+               max_grad 5.888076e-13 | newton_decrement 5.471e-28 | logLik -411.005314
+fixed_idx=[0]  n_par 3 | n_at_bound 0 | n_fixed 1 | n_fixed_out 1 | n_par_free 2
+               max_grad 5.117183e+01 | newton_decrement 4.510e-14 | logLik -414.682675
+```
+
+`max_grad` is 51.2 in the fixed case: that is the gradient along the pinned
+direction, large and irrelevant. The decrement stays at `4.5e-14` and correctly
+reports the two free parameters as converged. A pinned coordinate left inside
+the free subspace would have made the decrement announce an optimum not
+reached where it was.
+
+The full key list:
+
+```
+['Py', 'V_singuliere', 'Vi', 'beta', 'blups', 'composantes_degenerees', 'cond',
+ 'const_2pi', 'hessian', 'k_eff', 'lambda_max', 'lambda_min', 'leak', 'logLik',
+ 'logLik_asreml', 'max_grad', 'n_at_bound', 'n_fixed', 'n_fixed_out', 'n_iter',
+ 'n_neg_eig', 'n_null_dir', 'n_obs', 'n_par', 'n_par_free', 'n_polish',
+ 'neg2_reml', 'newton_decrement', 'rho', 'scipy_message', 'scipy_success',
+ 'secondes', 'sigma_res', 'sigmas', 'sigmas_res', 'theta', 'vbeta']
+```
+
 ---
 
-## 5. `remlkit.inference`
+## 5. `remlax.inference`
 
 ### `component_names(terms, res)`
 
@@ -572,11 +642,11 @@ action on `M`.
 
 ---
 
-## 6. `remlkit.bundle`
+## 6. `remlax.bundle`
 
 ### `Bundle(path)`
 
-Reader for a design serialised by `rk_export()`: a directory containing
+Reader for a design serialised by `rx_export()`: a directory containing
 `manifest.json` plus one `<name>.bin` (raw binary, column-major) or
 `<name>.txt` (one string per line) per array. Raw binary rather than `.npz` so
 that the R side needs no Python dependency; column-major because that is R's
@@ -599,7 +669,7 @@ twice.
 
 ---
 
-## 7. `remlkit.device`
+## 7. `remlax.device`
 
 ### `pick_device(prefer="auto")`
 
@@ -625,7 +695,7 @@ Every device, CPU included, as `[{"platform", "kind"}, ...]`.
 
 ---
 
-## 8. `remlkit.core`
+## 8. `remlax.core`
 
 ### `reml_from_V(V, y, X)`
 
@@ -651,7 +721,7 @@ the blocks. Leave it at 0.
 
 ---
 
-## 9. `remlkit.bessel`
+## 9. `remlax.bessel`
 
 ### `matern(z, nu)`
 
@@ -674,11 +744,11 @@ control.
 
 ---
 
-## 10. `remlkit.cli`
+## 10. `remlax.cli`
 
 ```
-python -m remlkit.cli <bundle_dir> [options]
-remlkit <bundle_dir> [options]          # console script from pyproject.toml
+python -m remlax.cli <bundle_dir> [options]
+remlax <bundle_dir> [options]          # console script from pyproject.toml
 ```
 
 Reads a serialised design, fits, and writes results back into the **same**
@@ -704,17 +774,17 @@ R needs no Python dependency and Python needs no R dependency.
 | `--only-predict` | off | **no fit**: read `in_theta.bin` and predict only |
 | `--fixed-theta i,j` | — | 1-based indices held at their starting value |
 
-`--only-predict` exists so that `rk_predict()` does not relaunch the whole
+`--only-predict` exists so that `rx_predict()` does not relaunch the whole
 optimisation to recover a `theta` that is already known — and so that nothing
 depends on the optimiser landing on the same optimum twice.
 
 ```
-$ python -m remlkit.cli bundle_demo --backend cpu --vpredict 'h2=V1/(V1+V2)'
-[remlkit] peripheriques : [{'platform': 'cpu', 'kind': 'cpu'}, {'platform': 'gpu', 'kind': 'NVIDIA RTX A1000 6GB Laptop GPU'}]
-[remlkit] backend retenu : cpu (cpu:0)
-[remlkit] n=120, 1 effet(s) fixe(s), 1 terme(s) aleatoire(s)
+$ python -m remlax.cli bundle_demo --backend cpu --vpredict 'h2=V1/(V1+V2)'
+[remlax] peripheriques : [{'platform': 'cpu', 'kind': 'cpu'}, {'platform': 'gpu', 'kind': 'NVIDIA RTX A1000 6GB Laptop GPU'}]
+[remlax] backend retenu : cpu (cpu:0)
+[remlax] n=120, 1 effet(s) fixe(s), 1 terme(s) aleatoire(s)
           gid            iid   t=1   q=30    K=I
-[remlkit] logLik = -199.430646551 | 2 parametres | 1.4 s
+[remlax] logLik = -199.430646551 | 2 parametres | 1.4 s
 ```
 
 Files written:

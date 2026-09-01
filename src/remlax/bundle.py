@@ -1,4 +1,4 @@
-"""Lecture d'un dispositif serialise par R (R/remlkit.R).
+"""Lecture d'un dispositif serialise par R (R/remlax.R).
 
 FORMAT (repertoire) : manifest.json + <nom>.bin (binaire brut) / <nom>.txt.
 C'est la convention deja utilisee par export_06f_design.R, reprise telle quelle :
