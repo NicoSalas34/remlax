@@ -89,6 +89,15 @@ for (cl in CELL) {
             else unlist(lapply(NS, function(n) lapply(QS, function(q) list(n = n, q = q))), recursive = FALSE)
   for (g in grille) {
     set.seed(1000L + g$n + (if (is.na(g$q)) 0L else g$q))
+    # q >= n : plus d'effets que d'observations. Le facteur porte alors des
+    # niveaux NON OBSERVES, que rx_term ne compte pas — d'ou une K de taille q
+    # face a un terme de taille inferieure. Le cas est degenere (la variance
+    # n'est pas identifiee) : on le saute en le DISANT, plutot que de le laisser
+    # interrompre le balayage.
+    if (!is.na(g$q) && g$q >= g$n) {
+      note(sprintf("[%s] n=%d q=%d IGNORE : q >= n, cas degenere", cl, g$n, g$q))
+      next
+    }
     d <- if (cas == "creux") cas_creux(g$n) else cas_dense(g$n, g$q)
     tms <- if (mot == "dense") d$terms_d else d$terms_s
     m <- rx_model(d$y, d$X, terms = tms, residual = d$residual, name = cl)

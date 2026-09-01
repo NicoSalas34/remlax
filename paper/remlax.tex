@@ -247,10 +247,51 @@ and it is why \pkg{asreml} parameterises the ratio of variances instead.
 
 \section{Performance}\label{sec:performance}
 
-% ATTENTION — toute mesure GPU obtenue sur une tranche MIG est une BORNE
-% PESSIMISTE : une tranche expose 7 des 108 unités de calcul de la carte. Le
-% facteur tranche vers carte entière se mesure, il ne s'extrapole pas ; une
-% extrapolation linéaire dépasse le pic annoncé de la carte.
+\subsection{Measurement protocol}\label{sec:protocol}
+
+Three points of protocol are stated here because each of them changed a
+conclusion during development.
+
+Every GPU figure reported below is measured on a \emph{whole} A100. Earlier
+sweeps used a one-seventh MIG slice, and we had assumed the slice figures
+could be treated as a fixed pessimistic bound. They cannot: measured on the
+same script, the slice-to-card ratio is not constant.
+
+\begin{table}[h]\centering
+\begin{tabular}{rrrr}
+\toprule
+$n$ & Slice (s) & Whole card (s) & Ratio \\
+\midrule
+\phantom{0}\phantom{0}250 & \phantom{00}0.32 & \phantom{0}0.28 & 1.16 \\
+\phantom{0}1000 & \phantom{00}0.40 & \phantom{0}0.32 & 1.23 \\
+\phantom{0}2000 & \phantom{00}1.26 & \phantom{0}0.65 & 1.94 \\
+\phantom{0}4000 & \phantom{00}6.39 & \phantom{0}1.73 & 3.69 \\
+\phantom{0}8000 & \phantom{0}94.19 & 15.49 & 6.08 \\
+12000 & 294.75 & 41.88 & 7.04 \\
+\bottomrule
+\end{tabular}
+\caption{\label{tab:slice}A one-seventh slice against the whole card, same
+script. The ratio rises from $1.16$ to $7.04$ and never approaches the
+compute-unit ratio of $15.4$: below $n \approx 2000$ the fixed costs dominate
+and a bigger card buys almost nothing, while above $n = 8000$ the
+factorisation is bandwidth-bound rather than unit-bound.}
+\end{table}
+
+One practical consequence is worth stating for users of shared hardware: for
+several independent models of moderate size, seven slices beat one whole
+card, and the reverse holds beyond $n = 8000$.
+
+Second, each grid cell is measured in a \emph{fresh process}. A sweep that
+measures all cells in one process reuses compiled programs across cells, so
+execution order influences the result---in an earlier sweep the compilation
+column fell from $79$\,s to $2.7$\,s on the late cells for that reason.
+
+Third, cell names below are written out rather than abbreviated: a
+\emph{case} is the structure of the data (a separable \code{ar1} field, or a
+full genomic kinship), and an \emph{engine} is what fits it. The two are
+crossed, so a structurally dense case can be forced onto the sparse engine---a
+cell its declared scope excludes, measured here to price the wrong choice
+rather than assert it.
 
 \subsection{Fixed costs, and an unfavourable comparison}\label{sec:fixed}
 
