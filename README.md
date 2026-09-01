@@ -272,4 +272,11 @@ mixed models. Version 0.1.0. https://github.com/nsalas/remlax
 
 ## Licence
 
-MIT. See `LICENSE`.
+GNU General Public License, version 3 or later. See `LICENSE`.
+
+The choice follows the company remlax keeps: lme4, sommer, breedR and TMB are
+all GPL, and the sparse engine calls RTMB, so a permissive licence would have
+required keeping that engine at arm's length. It also matches the point of the
+project - a free alternative to a licensed solver stays free, and cannot be
+taken into a closed product. The corresponding cost is real and worth stating:
+a permissively licensed package cannot depend on remlax.

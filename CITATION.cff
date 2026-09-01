@@ -9,7 +9,7 @@ authors:
     email: nicolas.salas@supagro.fr
 version: 0.1.0
 date-released: "2026-09-01"
-license: MIT
+license: GPL-3.0-or-later
 repository-code: "https://github.com/nsalas/remlax"
 keywords:
   - REML
