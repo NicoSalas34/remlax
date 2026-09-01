@@ -357,12 +357,32 @@ rx_fit_sparse <- function(model, theta_init = NULL, maxiter = 200L, verbose = TR
   # explicite. La version precedente stockait 1..t PUIS ajoutait 1 : la
   # residuelle du premier caractere n'etait jamais utilisee et celle du dernier
   # sortait du vecteur.
+  # log|K| D'UNE PRECISION FOURNIE EST UNE CONSTANTE : Kinv ne depend d'aucun
+  # parametre, donc son determinant sort de l'optimisation. On le calcule ICI,
+  # une fois, hors du ruban de derivation — et surtout on le calcule, ce que
+  # l'objectif ne faisait pas : il lisait tm$Kinv_logdet et retombait sur ZERO
+  # quand l'utilisateur ne l'avait pas fourni. La vraisemblance etait alors
+  # decalee de 0,5 * log|K|, soit 21,17 sur un cas a 60 niveaux — un decalage
+  # CONSTANT, donc invisible sur les estimations de theta, qui etaient identiques
+  # au cinquieme chiffre pres, mais faux sur toute comparaison de modeles.
+  ldK_fixe <- vector("list", length(terms))
+  for (k in seq_along(terms)) {
+    tm <- terms[[k]]
+    if (identical(rx_level_of(tm), "prec")) {
+      ldK_fixe[[k]] <- if (!is.null(tm$Kinv_logdet)) as.numeric(tm$Kinv_logdet) else
+        -as.numeric(Matrix::determinant(tm$Kinv, logarithm = TRUE)$modulus)
+      if (!is.finite(ldK_fixe[[k]]))
+        stop("terme '", tm$name, "' : log|K| non fini. Kinv est-elle definie positive ?")
+    }
+  }
+
   trait_res <- if (is.null(residual$trait)) rep(0L, n)
                else as.integer(factor(residual$trait)) - 1L
   stopifnot(min(trait_res) == 0L, max(trait_res) + 1L <= t_res)
 
   dat <- list(y = as.numeric(y), X = X, Zs = Zs, terms = terms,
-              residual = residual, trait_res = trait_res, np = np, n_res = n_res)
+              residual = residual, trait_res = trait_res, np = np, n_res = n_res,
+              ldK_fixe = ldK_fixe)
 
   nll <- function(par) {
     .rx_ad()                   # sans ceci, matrix() degrade u en numerique
@@ -409,7 +429,7 @@ rx_fit_sparse <- function(model, theta_init = NULL, maxiter = 200L, verbose = TR
         Ki <- tm$Kinv
         qf <- 0
         for (j in seq_len(t_)) qf <- qf + sum(W[, j] * as.vector(Ki %*% W[, j]))
-        logdet_K <- tm$Kinv_logdet %||% 0
+        logdet_K <- dat$ldK_fixe[[k]]
       }
       # log|G| = q log|Sigma| + t log|K|
       pen <- pen + 0.5 * (q_ * logdet_sig + t_ * logdet_K) + 0.5 * qf

@@ -332,7 +332,10 @@ def suite_structures(rows, args, meta):
         n = len(y)
         try:
             t_first, t_run, v = timed_objective(terms, res, y, X, args.reps)
-            med, lo, hi, out = timed_fit(terms, res, y, X, 1, hessian=False)
+            if args.no_fit:
+                med, out = float("nan"), {"n_par": -1, "logLik": float("nan")}
+            else:
+                med, lo, hi, out = timed_fit(terms, res, y, X, 1, hessian=False)
             ok, err = "ok", ""
         except Exception as e:
             t_first = t_run = v = med = float("nan")
@@ -359,7 +362,15 @@ def suite_genomic(rows, args, meta):
         terms, res, y, X = design_genomic(n, q, t=1, seed=7)
         try:
             t_first, t_run, v = timed_objective(terms, res, y, X, args.reps)
-            med, lo, hi, out = timed_fit(terms, res, y, X, 1, hessian=False)
+            if args.no_fit:
+                # Sur parente dense un ajustement complet demande des CENTAINES
+                # d'evaluations — 435 s mesurees pour 0,247 s l'evaluation a
+                # q = 2000. On chronometre donc l'evaluation, qui porte la
+                # comparaison entre backends, et le nombre d'iterations est
+                # mesure par les suites qui le peuvent.
+                med, out = float('nan'), {'n_par': -1, 'logLik': float('nan')}
+            else:
+                med, lo, hi, out = timed_fit(terms, res, y, X, 1, hessian=False)
             ok, err, ni = "ok", "", int(out.get("n_iter") or -1)
         except Exception as e:
             t_first = t_run = med = float("nan")
@@ -393,7 +404,15 @@ def suite_crossterm(rows, args, meta):
             nom = "us(%d)+K%s" % (t, " [DGE/IGE]" if ige else "")
             try:
                 t_first, t_run, v = timed_objective(terms, res, y, X, args.reps)
-                med, lo, hi, out = timed_fit(terms, res, y, X, 1, hessian=True)
+                if args.no_fit:
+                    # Sur parente dense un ajustement complet demande des CENTAINES
+                    # d'evaluations — 435 s mesurees pour 0,247 s l'evaluation a
+                    # q = 2000. On chronometre donc l'evaluation, qui porte la
+                    # comparaison entre backends, et le nombre d'iterations est
+                    # mesure par les suites qui le peuvent.
+                    med, out = float('nan'), {'n_par': -1, 'logLik': float('nan')}
+                else:
+                    med, lo, hi, out = timed_fit(terms, res, y, X, 1, hessian=True)
                 ok, err, ni = "ok", "", int(out.get("n_iter") or -1)
             except Exception as e:
                 t_first = t_run = med = float("nan")
@@ -434,6 +453,12 @@ def main(argv=None):
                     help="n fixe des suites genomic et crossterm")
     ap.add_argument("--q-gen", dest="q_gen", type=int, default=2000,
                     help="q fixe de la suite crossterm")
+    ap.add_argument("--no-fit", dest="no_fit", action="store_true",
+                    help="ne chronometrer que les EVALUATIONS, pas les ajustements. "
+                         "Sur parente dense un ajustement coute 100 a 900 s alors que "
+                         "l'evaluation coute 0,05 a 1,3 s : c'est l'evaluation qui porte "
+                         "la comparaison de cout entre backends, l'ajustement y ajoutant "
+                         "surtout le nombre d'iterations, mesure separement.")
     ap.add_argument("--n-unit", dest="n_unit", type=int, default=600)
     ap.add_argument("--grid-rows", dest="grid_rows", type=int, default=40)
     ap.add_argument("--grid-cols", dest="grid_cols", type=int, default=30)

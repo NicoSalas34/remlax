@@ -159,10 +159,30 @@ rx_n_level <- function(level, order = 0L, opts = NULL) {
   o
 }
 
+#' @param Kinv PRECISION entre niveaux, K^-1, en matrice creuse (dgCMatrix).
+#'   Alternative a `K` et destinee au moteur CREUX, qui n'a jamais besoin de K
+#'   ni de sa Cholesky : les equations du modele mixte contiennent G^-1, donc
+#'   K^-1. C'est ce qui permet de fournir une parente genealogique par les regles
+#'   de Henderson, ou A^-1 est creuse — environ cinq non-nuls par individu — sans
+#'   jamais former A ni la factoriser. Fournir `K` ne permet pas cela : `LK` est
+#'   un facteur DENSE, et l'inverse d'une matrice creuse est generalement plein.
+#'
+#'   `Kinv_logdet` permet de passer log|K| quand il est connu (Henderson le donne
+#'   en somme de termes locaux) ; sinon il est calcule une fois par une Cholesky
+#'   creuse. Il ne depend d'aucun parametre, donc c'est une constante de
+#'   l'optimisation.
+#'
+#'   Le moteur DENSE ignore `Kinv` : il lui faudrait inverser pour retrouver K,
+#'   ce qui annulerait tout l'interet. Un terme ainsi declare n'est donc ajustable
+#'   que par le moteur creux, et rx_model le signale.
 rx_term <- function(name, Z, K = NULL, struct = "iid", rank = 0L,
                     t = NULL, levels = NULL, level = "auto",
                     dims = NULL, order = 0L, coord = NULL,
-                    opts = NULL, expr = NULL) {
+                    opts = NULL, expr = NULL,
+                    Kinv = NULL, Kinv_logdet = NULL) {
+  if (!is.null(Kinv) && !is.null(K))
+    stop("terme '", name, "' : fournir K OU Kinv, pas les deux. K sert au moteur ",
+         "dense (facteur de Cholesky), Kinv au moteur creux (precision).")
   struct <- match.arg(struct, RX_STRUCTURES)
   level  <- match.arg(level, c("auto", RX_LEVEL_STRUCTURES))
   if (is.factor(Z) || is.character(Z)) {
@@ -251,8 +271,24 @@ rx_term <- function(name, Z, K = NULL, struct = "iid", rank = 0L,
     stop("terme '", name, "' : level='own' exige `expr`, l'expression de la ",
          "correlation (variables : d, dx, dy, lag, I, J, p1..pk).")
   n_lvl <- rx_n_level(level, order, opts)
+  # Validation de Kinv : c'est une matrice CREUSE q x q symetrique. On verifie la
+  # taille et la symetrie du MOTIF, pas les valeurs — une precision fournie par
+  # l'utilisateur peut legitimement etre stockee en triangle.
+  if (!is.null(Kinv)) {
+    Kinv <- methods::as(methods::as(Kinv, "CsparseMatrix"), "generalMatrix")
+    if (nrow(Kinv) != q || ncol(Kinv) != q)
+      stop("terme '", name, "' : Kinv est ", nrow(Kinv), "x", ncol(Kinv),
+           " mais il y a ", q, " niveaux.")
+    dens <- Kinv@x |> length() / (as.numeric(q) * q)
+    if (dens > 0.5)
+      message("terme '", name, "' : Kinv est remplie a ",
+              sprintf("%.0f %%", 100 * dens), ". Le moteur creux n'y gagnera ",
+              "rien — c'est le cas d'une parente genomique, dont l'inverse est ",
+              "plein. Voir remlax.sparsity pour le diagnostic.")
+  }
   structure(list(name = name, Zl = Zl, t = as.integer(t), q = as.integer(q),
                  struct = struct, rank = as.integer(rank), LK = LK,
+                 Kinv = Kinv, Kinv_logdet = Kinv_logdet,
                  level = level, dims = dims, order = as.integer(order), coord = coord,
                  opts = opts, expr = expr,
                  levels = levels, n_par = rx_n_params(struct, t, rank) + n_lvl),
@@ -568,6 +604,12 @@ rx_model <- function(y, X, terms, residual = rx_residual(), name = "modele") {
     stop("aucun terme aleatoire et residuelle iid : il n'y a rien a estimer.")
   for (tm in terms) {
     if (!inherits(tm, "rx_term")) stop("terms doit contenir des objets rx_term.")
+    # Un terme declare par sa PRECISION n'est pas ajustable par le moteur dense :
+    # celui-ci a besoin d'un facteur de K, et le retrouver depuis K^-1 demanderait
+    # une inversion dense — exactement ce que la voie creuse evite. On le dit ici
+    # plutot que de laisser le solveur echouer plus loin sur un LK manquant.
+    if (!is.null(tm$Kinv) && is.null(tm$LK))
+      attr(terms, "creux_seulement") <- TRUE
     if (nrow(tm$Zl[[1]]) != n)
       stop("terme '", tm$name, "' : incidence a ", nrow(tm$Zl[[1]]), " lignes pour ", n, " obs.")
   }
