@@ -45,6 +45,9 @@ def main(argv=None):
                     help="tests de Wald sur les effets fixes")
     ap.add_argument("--kenward-roger", action="store_true",
                     help="ddl du denominateur et covariance ajustee de beta (K&R 1997)")
+    ap.add_argument("--theta-in", action="store_true",
+                    help="depart a chaud : lit in_theta.bin comme point initial "
+                         "(avec --maxiter 0, evalue simplement la vraisemblance)")
     ap.add_argument("--only-predict", action="store_true",
                     help="AUCUN ajustement : relit in_theta.bin et ne fait que predire")
     ap.add_argument("--predict", action="store_true",
@@ -88,7 +91,11 @@ def main(argv=None):
                  only_predict=True)
         a.predict = True
     else:
-        r = fit_reml(terms, res, y, X, maxiter=a.maxiter, polish=a.polish,
+        th0 = None
+        if a.theta_in:
+            th0 = np.fromfile(os.path.join(a.bundle, "in_theta.bin"), dtype=np.float64)
+        r = fit_reml(terms, res, y, X, theta_init=th0,
+                     maxiter=a.maxiter, polish=a.polish,
                      floor=a.floor, ceil=a.ceil, verbose=not a.quiet,
                      hessian=not a.no_hessian, blups=not a.no_blups,
                      n_restarts=a.restarts, restart_sd=a.restart_sd, fixed_idx=fixe)

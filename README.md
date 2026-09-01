@@ -1,0 +1,274 @@
+# remlkit
+
+A generic REML solver for linear mixed models, written in JAX, driven from R by
+an asreml-like formula interface. The same model runs on CPU or on GPU without
+being rewritten.
+
+## What it is
+
+remlkit maximises the **restricted likelihood** of
+
+```
+y = X b + sum_k Z_k u_k + e,    u_k ~ N(0, Sigma_k (x) K_k),    e ~ N(0, R)
+```
+
+A **term** is a set of `t` incidence matrices (n x q) sharing the same `q`
+levels, a covariance structure `Sigma` over those `t` columns, and a
+relationship matrix `K` between levels. That single object covers a simple
+random factor (`t = 1, K = I`), a genomic effect (`t = 1, K = GRM`), a
+multi-trait `us`/`fa` model (`t` = number of traits), and models where every
+column has its **own** weighted incidence, such as indirect genetic effects.
+
+The likelihood is differentiated by automatic differentiation, with an
+analytic vector-Jacobian product for `d(-2 logL)/dV`. Optimisation is L-BFGS-B
+on an **unconstrained** parametrisation — positive definiteness of every
+`Sigma` is guaranteed by construction, because a Cholesky factor is
+parametrised, never `Sigma` itself — followed by regularised Newton polishing.
+
+## What it is not
+
+- **Not a sparse solver.** `V` is formed explicitly and densely (n x n). At
+  n = 16 000 that is 2.1 GB in float64. Beyond that regime you need a sparse
+  factorisation or Henderson's mixed model equations; `dense_Z()` and
+  `assemble_V()` are the two functions that would have to change.
+- **Not a generalised linear mixed model package.** Non-Gaussian responses
+  would need an IRLS/Laplace layer above the solver.
+- **Not a drop-in replacement for asreml.** The objective is the same and the
+  estimates agree, but the algorithm, the reported iteration counts, the
+  log-likelihood constant, and the default Wald test type all differ. Those
+  differences are documented in [docs/structures.md](docs/structures.md) and
+  in the guides.
+- **Not an R package.** `R/remlkit.R` is a single file you `source()`.
+
+## Installation
+
+### Python solver
+
+```sh
+git clone https://github.com/nsalas/remlkit
+cd remlkit
+pip install -e .                 # CPU
+pip install -e ".[cuda]"         # CUDA 12 build of JAX
+```
+
+Requirements: Python >= 3.10, `jax >= 0.4.30`, `numpy >= 1.24`,
+`scipy >= 1.10`. Double precision is enabled at import time by
+`remlkit._x64`; do not disable it.
+
+Check what JAX can see:
+
+```sh
+python -c "import remlkit; print(remlkit.device_report())"
+```
+
+### R interface
+
+```r
+source("R/remlkit.R")            # needs Matrix and jsonlite
+```
+
+The R side never imports Python. It writes the design to a directory as raw
+binary plus a JSON manifest, calls the solver as a subprocess, and reads the
+results back from the same directory. Two environment variables control that
+call:
+
+| variable | meaning | default |
+|---|---|---|
+| `RK_PY` | how to start Python, space-separated | `python3` |
+| `RK_CLI` | path to `cli.py`, or `-m remlkit.cli` | auto-detected |
+| `IGE_JAX_CMD` | alternative to `RK_PY` | — |
+| `IGE_JAX_SIF` | Apptainer image; expands to `apptainer exec --nv <sif> python3` | — |
+
+`RK_CLI` is resolved in three steps: the variable if set; then `-m
+remlkit.cli` if `import remlkit` succeeds under `RK_PY`; then
+`src/remlkit/cli.py` relative to `R/remlkit.R`. So an editable install needs
+neither variable, and an uninstalled clone needs only `RK_PY`.
+
+```sh
+export RK_PY=/path/to/venv/bin/python
+export RK_CLI=/path/to/remlkit/src/remlkit/cli.py    # only if not pip-installed
+```
+
+## A minimal R example
+
+```r
+source("R/remlkit.R")
+
+set.seed(2026)
+n_gen <- 60; n_bloc <- 4
+d <- expand.grid(gid = factor(seq_len(n_gen)), bloc = factor(seq_len(n_bloc)))
+g <- rnorm(n_gen, 0, sqrt(1.5)); b <- rnorm(n_bloc, 0, sqrt(0.4))
+d$y <- 12 + g[as.integer(d$gid)] + b[as.integer(d$bloc)] + rnorm(nrow(d))
+
+fit <- rk_reml(fixed  = y ~ 1,
+               random = ~ gid + iid(bloc),
+               data   = d,
+               vpredict = c(h2 = "V1/(V1+V2+V3)"),
+               backend = "cpu")
+print(fit)
+```
+
+```
+Ajustement REML (cpu) : logLik -388.088838 | 3 parametres | 240 obs | 1.6 s
+  max|grad| 3.42e-14 | decrement de Newton 1.43e-28 | 0 valeur(s) propre(s) negative(s)
+  Sigma[gid] 1x1, diagonale : 1.401
+  Sigma[bloc] 1x1, diagonale : 0.00722
+  residuelle : 0.8988
+  vpredict :
+    h2            0.60735   SE  0.05871   [V1/(V1+V2+V3)]
+```
+
+## A minimal Python example
+
+The Python API takes plain dictionaries; it knows nothing about formulas,
+factors or data frames.
+
+```python
+import numpy as np
+from remlkit.fit import fit_reml
+from remlkit.inference import component_names, vpredict
+
+rng = np.random.default_rng(1)
+n_gen, n_rep = 40, 5
+n = n_gen * n_rep
+gid = np.repeat(np.arange(n_gen), n_rep)
+u = rng.normal(0, np.sqrt(2.0), n_gen)
+y = 10.0 + u[gid] + rng.normal(0, 1.0, n)
+X = np.ones((n, 1))
+
+term = dict(name="genotype", struct="iid", t=1, rank=0, q=n_gen,
+            zi=np.arange(n), zj=gid, zx=np.ones(n), LK=None)
+res = dict(struct="iid", t=1, rank=0,
+           trait=np.zeros(n, dtype=int), unit=np.arange(n))
+
+fit = fit_reml([term], res, y, X, verbose=False)
+print(component_names([term], res))
+print(fit["sigmas"]["genotype"][0, 0], fit["sigma_res"][0, 0])
+
+vp = vpredict(fit["theta"], fit["hessian"], [term], res, [("h2", "V1/(V1+V2)")])
+print(vp["predictions"][0])
+```
+
+```
+['genotype', 'residuelle']
+1.5153589929029908 0.8959200739880405
+{'nom': 'h2', 'expression': 'V1/(V1+V2)', 'valeur': 0.6284461...,
+ 'se': 0.0659438...}
+```
+
+## Structure catalogue
+
+Covariance structures for `Sigma` (over the `t` columns of a term). `w` is the
+number of columns, `k` the rank or band order.
+
+| remlkit | asreml | Sigma | parameters |
+|---|---|---|---|
+| `iid` | `idv` | `s2 I` | 1 |
+| `diag` | `idh` | `diag(s2_j)` | `w` |
+| `us` | `corgh` | free symmetric PD | `w(w+1)/2` |
+| `fa(k)` | `fa(k)` | `L L' + diag(psi)` | `n_loadings(w,k) + w` |
+| `rr(k)` | `rr(k)` | `G G'`, rank `k` | `n_loadings(w,k)` |
+| `chol(k)` | `chol(k)` | `L D L'`, band `k` | `(k+1)(w - k/2)` |
+| `ante(k)` | `ante(k)` | `Sigma^-1 = U D U'`, band `k` | `(k+1)(w - k/2)` |
+| `corh` | `corh` | heterogeneous variances, uniform correlation | `w + 1` |
+| `fixed` | — | supplied matrix | 0 |
+
+Correlation structures between the `q` levels of a term. The variance lives in
+`Sigma`; these contribute a correlation matrix only, which is the `Sigma_h = D C D`
+decomposition of the ASReml-R manual. An asreml `ar1v` is written here
+`ar1(f)`, an `ar1h` is `ar1(f, struct = "diag")`.
+
+| family | structures | parameters each |
+|---|---|---|
+| none / supplied | `id`, `fixed` | 0 |
+| uniform | `cor` | 1 |
+| stationary 1D | `ar1`, `sar`, `ma1` | 1 |
+| | `ar2`, `ma2`, `arma` | 2 |
+| | `ar3` | 3 |
+| | `corb(order = b)` | `b` |
+| general | `corg` | `q(q-1)/2` |
+| metric 1D | `exp`, `gau`, `lvr` | 1 |
+| metric 2D isotropic | `iexp`, `igau`, `ieuc`, `sph`, `cir` | 1 |
+| metric 2D anisotropic | `aexp`, `agau` | 2 |
+| Matern | `mtrn` | 0 to 4 (declared ones only) |
+| user-defined | `own(expr =, n_par = k)` | `k` |
+| separable | `ar1(row, col)` | 2 |
+
+Full definitions, positivity constraints and internal parametrisations:
+[docs/structures.md](docs/structures.md).
+
+## Known limitations
+
+- **`V` is dense.** See "What it is not" above.
+- **Restarts are off by default** (`n_restarts = 0`). The Newton decrement
+  cannot detect a local optimum — it measures the ascent available *locally*,
+  so it is zero at the top of a secondary hill. Turn restarts on for any fit
+  you intend to publish.
+- **No `ilv`.** asreml has one; its formula could not be recovered, and the
+  natural candidate (a Euclidean tent) is not positive definite in two
+  dimensions. An absent structure is preferred to a wrong one carrying an
+  asreml name.
+- **Kenward-Roger omits the second-order term.** It vanishes when `V` is
+  linear in the variance parameters, which is true of every structure here
+  **except** the between-level correlation parameters (an AR1 `phi`, a range).
+  pbkrtest and SAS make the same choice. The `second_ordre_omis` field says
+  whether the model contains parameters for which the omission is not exact.
+- **`rk_predict()` covers fixed effects and single-trait random terms.** A
+  `classify` on a multi-trait term is warned about and dropped from the random
+  part.
+- **Wald tests are conditional (type III).** asreml's default is sequential
+  (type I). The two agree on the last term of the model.
+- **The log-likelihood constant differs from asreml.** remlkit includes
+  `(n-p)/2 log(2 pi)` (like lme4); asreml omits it. Use `fit$logLik_asreml`
+  when comparing.
+- **`us(trait):ar1(row):ar1(col)` cannot be written as a formula.** The
+  residual parser requires at most one observation per (row, col) cell, which
+  long-format multi-trait data violate. The solver supports the structure; use
+  the explicit path (`rk_residual(..., level = "ar1ar1", dims = )`).
+- **Neighbourhood kernel ranges are not estimated.** Chaining a kernel
+  parameter through `Z` into `V` would require rebuilding the incidence at
+  every iteration.
+- **No non-Gaussian responses.**
+
+## Validation
+
+remlkit is checked against asreml, lme4, sommer, pbkrtest, closed-form REML on
+balanced designs, finite-difference gradients, and a random stress sweep; and
+CPU against GPU on a bundle of designs covering every structure. Details and
+measured agreements are in [docs/validation.md](docs/validation.md).
+
+<!-- VALIDATION-SUMMARY -->
+
+## Benchmarks
+
+Timings and memory for CPU and GPU across model sizes are in
+[docs/benchmarks.md](docs/benchmarks.md), produced by `benchmarks/bench.py`.
+
+<!-- BENCHMARK-SUMMARY -->
+
+## Documentation
+
+| page | contents |
+|---|---|
+| [docs/index.md](docs/index.md) | entry point and reading order |
+| [docs/guide/01-getting-started.md](docs/guide/01-getting-started.md) | one random factor, reading the output, heritability |
+| [docs/guide/02-multi-trait.md](docs/guide/02-multi-trait.md) | several traits, `us` and `fa`, genomic relationship |
+| [docs/guide/03-spatial.md](docs/guide/03-spatial.md) | separable AR1, metric kernels, 2D splines |
+| [docs/guide/04-explicit-terms.md](docs/guide/04-explicit-terms.md) | weighted incidences, DGE/IGE with shared covariance |
+| [docs/api-r.md](docs/api-r.md) | R reference: every `rk_*` function, full formula grammar |
+| [docs/api-python.md](docs/api-python.md) | Python reference: every public function |
+| [docs/structures.md](docs/structures.md) | structure catalogue with formulas and parametrisations |
+| [docs/note_remlkit_fr.md](docs/note_remlkit_fr.md) | design note (French): why each choice was made |
+
+## Citation
+
+```
+Salas, N. (2026). remlkit: a generic, differentiable REML solver for linear
+mixed models. Version 0.1.0. https://github.com/nsalas/remlkit
+```
+
+`CITATION.cff` at the repository root carries the machine-readable form.
+
+## Licence
+
+MIT. See `LICENSE`.

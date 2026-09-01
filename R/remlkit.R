@@ -715,7 +715,7 @@ rk_export <- function(model, dir) {
 rk_fit <- function(model, backend = c("auto", "gpu", "cpu"), dir = NULL,
                    maxiter = 3000L, polish = 25L, n_restarts = 0L,
                    hessian = TRUE, blups = TRUE, vpredict = NULL, wald = FALSE,
-                   kenward_roger = FALSE, predict = NULL,
+                   kenward_roger = FALSE, predict = NULL, theta_init = NULL,
                    fixed_theta = NULL, verbose = TRUE, keep = FALSE) {
   backend <- match.arg(backend)
   if (is.null(dir)) { dir <- tempfile("rk_"); on.exit(if (!keep) unlink(dir, recursive = TRUE)) }
@@ -728,6 +728,14 @@ rk_fit <- function(model, backend = c("auto", "gpu", "cpu"), dir = NULL,
     wbin("pred_L.bin", predict$L)
     for (nm in names(predict$M %||% list())) wbin(paste0("pred_M_", nm, ".bin"), predict$M[[nm]])
   }
+  # Depart a chaud. Avec maxiter = 0 et polish = 0, c'est une simple EVALUATION
+  # de la vraisemblance au theta fourni : le seul moyen de savoir si deux
+  # solveurs calculent la meme fonction ou s'arretent seulement a des endroits
+  # differents.
+  if (!is.null(theta_init)) {
+    con <- file(file.path(dir, "in_theta.bin"), "wb")
+    writeBin(as.double(theta_init), con, size = 8); close(con)
+  }
   py <- rk_python_cmd()
   a <- c(rk_solver_args(), dir, "--backend", backend, "--maxiter", maxiter, "--polish", polish,
          "--restarts", n_restarts,
@@ -736,6 +744,7 @@ rk_fit <- function(model, backend = c("auto", "gpu", "cpu"), dir = NULL,
          if (isTRUE(wald)) "--wald" else NULL,
          if (isTRUE(kenward_roger)) "--kenward-roger" else NULL,
          if (!is.null(predict)) "--predict" else NULL,
+         if (!is.null(theta_init)) "--theta-in" else NULL,
          if (!is.null(fixed_theta)) c("--fixed-theta",
            paste(as.integer(fixed_theta), collapse = ",")) else NULL,
          if (!hessian) "--no-hessian" else NULL, if (!blups) "--no-blups" else NULL,
