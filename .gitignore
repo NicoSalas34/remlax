@@ -9,11 +9,14 @@ dist/
 .RData
 .Rproj.user/
 site/
-# sorties de benchmarks et de tests : regenerables, non versionnees
-benchmarks/results/*.csv
-benchmarks/results/*.json
-benchmarks/figures/*.png
-benchmarks/figures/*.pdf
+# Les mesures et figures PUBLIEES sont versionnees, volontairement. Elles sont
+# citees par docs/benchmarks.md et docs/validation.md : les exclure rendait
+# l'image de la page cassee dans un clone, et laissait les tableaux invérifiables.
+# Un lecteur doit pouvoir confronter une affirmation de la documentation au
+# fichier qui la porte, sans relancer une heure de calcul sur un cluster.
+# Ne sont exclues que les sorties de travail, sous un chemin explicite.
+benchmarks/results/scratch/
+benchmarks/figures/scratch/
 tests/bundles/*/
 # artefacts LaTeX
 paper/*.aux
