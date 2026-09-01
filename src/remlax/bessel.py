@@ -28,8 +28,8 @@ preferer aux series :
      4e-08 a nu = 3.7. L'integrale, elle, est analytique en nu.
   2. CONVERGENCE SPECTRALE. Pour cet integrande, l'erreur du trapeze de pas h
      se comporte en exp(-pi^2/h) (les coefficients de Poisson valent K_{i xi}(z),
-     qui decroit en exp(-pi xi/2)). A h = 0.15 cela fait exp(-66), soit trois
-     ordres de grandeur sous la precision machine : la grille est fixe, sans
+     qui decroit en exp(-pi xi/2)). A h = 0.15 cela fait exp(-65,8) = 2,7e-29,
+     soit treize ordres de grandeur sous eps = 2,2e-16 : la grille est fixe, sans
      controle d'erreur a faire.
   3. UN SEUL CHEMIN DE CODE, donc une seule chose a verifier, et un noyau qui se
      reduit a une somme ponderee — ce qu'un GPU fait bien.

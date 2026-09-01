@@ -738,9 +738,10 @@ correlation matrix.
 floored at `Z_MIN = 1e-12`.
 
 Constants: `U_MAX = 30.0`, `H_PAS = 0.15`, `Z_MIN = 1e-12`. The trapezoidal
-error behaves like `exp(-pi^2/h) = exp(-66)` at that step, three orders of
-magnitude below machine precision, so the grid is fixed and needs no error
-control.
+error behaves like `exp(-pi^2/h)`, which at that step is `exp(-65.8)` =
+2.7e-29 - thirteen orders of magnitude below `eps` = 2.2e-16, not three as
+the source docstring said before this was checked. The grid is therefore
+fixed and needs no error control.
 
 ---
 
