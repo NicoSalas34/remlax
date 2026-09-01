@@ -84,7 +84,7 @@ import numpy as np
 # ==============================================================================
 # Dispositif : UN seul jeu de donnees par (n, q, t), reutilise pour tous les p
 # ==============================================================================
-def design(n_unit, t, q, seed=7):
+def design(n_unit, t, q, seed=7, LK=None):
     """Multi-caracteres a q genotypes. Les donnees ne dependent PAS de la
     structure ajustee : c'est ce qui permet de faire varier p a donnees egales.
 
@@ -106,6 +106,13 @@ def design(n_unit, t, q, seed=7):
     A = rng.normal(0, 1.0, (t, t)) / np.sqrt(t)
     G = A @ A.T + 0.5 * np.eye(t)
     u = rng.multivariate_normal(np.zeros(t), G, size=q)
+    # La parente doit servir A LA GENERATION autant qu'a l'ajustement : ajuster
+    # une K sur des donnees qui n'en portent pas ne change pas le COUT, le
+    # travail arithmetique etant le meme, mais rend les vraisemblances et le
+    # nombre d'iterations peu representatifs. Les deux autres fabriques le
+    # faisaient deja ; celle-ci ne le faisait pas.
+    if LK is not None:
+        u = np.asarray(LK) @ u
     y = 1.5 + u[lev, trait] + rng.normal(0, 0.8, n)
     X = np.zeros((n, t))
     X[np.arange(n), trait] = 1.0                       # une moyenne par caractere
@@ -124,10 +131,110 @@ def design(n_unit, t, q, seed=7):
                 trait=trait.astype(np.int64), unit=unit)
 
 
-def modele(d, struct, rank=0, res_struct="diag"):
+
+# ==============================================================================
+# PARENTE : le meme dispositif, avec ou sans K dense
+# ==============================================================================
+def kinship_chol(q, n_marq=1500, graine=11):
+    """Facteur de Cholesky d'une parente genomique de VanRaden, DENSE.
+
+    C'est l'axe structurel : le meme modele avec K = I est structurellement
+    creux (precision diagonale), avec K genomique il est structurellement dense
+    (K^-1 pleine). Le terme le recoit par le champ LK, que term_factor traite
+    comme un niveau 'fixed'. ATTENTION, le code de model.py le signale : une K
+    fournie SANS cle 'lvl' est traitee comme fixed, et faire retomber sur 'id'
+    ferait ignorer la parente en silence — panne deja survenue sur le portage
+    GPU du modele IGE, ou deux runs etiquetes 'kinship' etaient des doublons
+    exacts des runs sans.
+    """
+    rng = np.random.default_rng(graine)
+    fr = rng.uniform(0.05, 0.95, n_marq)
+    M = rng.binomial(2, fr, size=(q, n_marq)).astype(np.float64)
+    Zc = M - 2.0 * fr
+    K = Zc @ Zc.T / (2.0 * np.sum(fr * (1.0 - fr)))
+    K += np.eye(q) * 1e-6                      # regularisation minimale
+    return np.linalg.cholesky(K)
+
+
+# ==============================================================================
+# Dispositif spatial : essai au champ en lignes x colonnes, residuelle ar1 x ar1
+# ==============================================================================
+def design_spatial(nr, nc, q, seed=13, LK=None):
+    """L'essai au champ classique : une parcelle par cellule d'une grille.
+
+    La residuelle porte ar1(row) x ar1(col), qui est LA structure des essais
+    agronomiques depuis Gilmour et Cullis. Elle est separable, donc ses deux
+    parametres de correlation s'ajoutent aux parametres de variance.
+    """
+    rng = np.random.default_rng(seed)
+    n = nr * nc
+    if n < 2 * q:
+        raise ValueError("grille %dx%d = %d parcelles < 2q = %d" % (nr, nc, n, 2 * q))
+    row = np.repeat(np.arange(nr), nc)
+    col = np.tile(np.arange(nc), nr)
+    lev = rng.permutation(np.repeat(np.arange(q), int(np.ceil(n / q)))[:n])
+    u = rng.normal(0, 1.0, q) if LK is None else LK @ rng.normal(0, 1.0, q)
+    y = 2.0 + u[lev] + rng.normal(0, 0.7, n)
+    return dict(n=n, n_unit=n, t=1, q=q, y=y, X=np.ones((n, 1)),
+                zi=np.arange(n), zj=lev.astype(np.int64), zx=np.ones(n),
+                trait=np.zeros(n, np.int64), unit=np.arange(n),
+                row=row, col=col, dims=(nr, nc), LK=LK)
+
+
+# ==============================================================================
+# Effets genetiques directs et indirects : deux incidences, une us(2)
+# ==============================================================================
+def design_ige(n_unit, q, voisins=4, seed=17, LK=None):
+    """DGE et IGE : l'effet d'un genotype sur lui-meme et sur ses voisins.
+
+    Un SEUL terme a t = 2, dont les deux 'caracteres' sont l'effet direct et
+    l'effet indirect, avec une us(2) entre eux — c'est la parametrisation
+    classique, et la correlation entre les deux est la quantite d'interet. Les
+    deux colonnes de Z different : identite du genotype de la parcelle pour le
+    direct, somme des voisins pour l'indirect. L'incidence indirecte est DENSE
+    en colonnes meme quand la precision est diagonale, ce qui remplit le bloc
+    des produits croises — le second mecanisme de remplissage identifie dans la
+    session, distinct de la densite de K.
+    """
+    rng = np.random.default_rng(seed)
+    if n_unit < 2 * q:
+        raise ValueError("n_unit = %d < 2q = %d" % (n_unit, 2 * q))
+    gen = rng.permutation(np.repeat(np.arange(q), int(np.ceil(n_unit / q)))[:n_unit])
+    # voisinage : `voisins` parcelles tirees au hasard, ponderation 1/voisins
+    vz_i, vz_j, vz_x = [], [], []
+    for i in range(n_unit):
+        vs = rng.choice(n_unit, size=voisins, replace=False)
+        for v in vs:
+            vz_i.append(i); vz_j.append(q + gen[v]); vz_x.append(1.0 / voisins)
+    zi = np.concatenate([np.arange(n_unit), np.asarray(vz_i)])
+    zj = np.concatenate([gen, np.asarray(vz_j)]).astype(np.int64)   # direct : 0..q-1
+    zx = np.concatenate([np.ones(n_unit), np.asarray(vz_x)])        # indirect : q..2q-1
+    ud = rng.normal(0, 1.0, q); ui = 0.6 * ud + 0.8 * rng.normal(0, 0.6, q)
+    if LK is not None:
+        ud, ui = LK @ ud, LK @ ui
+    y = np.full(n_unit, 2.0)
+    np.add.at(y, np.arange(n_unit), ud[gen])
+    for i, j, x in zip(vz_i, vz_j, vz_x):
+        y[i] += x * ui[j - q]
+    y += rng.normal(0, 0.7, n_unit)
+    return dict(n=n_unit, n_unit=n_unit, t=2, q=q, y=y, X=np.ones((n_unit, 1)),
+                zi=zi, zj=zj, zx=zx,
+                trait=np.zeros(n_unit, np.int64), unit=np.arange(n_unit), LK=LK)
+
+
+def modele(d, struct, rank=0, res_struct="diag", res_lvl=None):
+    """LK est propage DEPUIS le dispositif : c'est le seul endroit ou l'axe
+    'avec ou sans parente' se decide, pour qu'il ne puisse pas etre perdu en
+    route. Une K fournie sans cle 'lvl' est traitee comme un niveau fixe par
+    term_factor, ce qui est le comportement voulu.
+    """
     terms = [dict(name="g", struct=struct, t=d["t"], rank=rank, q=d["q"],
-                  zi=d["zi"], zj=d["zj"], zx=d["zx"], LK=None)]
-    res = dict(struct=res_struct, t=d["t"], rank=0, trait=d["trait"], unit=d["unit"])
+                  zi=d["zi"], zj=d["zj"], zx=d["zx"], LK=d.get("LK"))]
+    res = dict(struct=res_struct, t=d["t"], rank=0,
+               trait=d["trait"], unit=d["unit"])
+    if res_lvl == "ar1ar1":
+        # residuelle spatiale separable : C_unite = AR1(lignes) x AR1(colonnes)
+        res.update(lvl="ar1ar1", lvl_parts=("ar1", "ar1"), dims=d["dims"])
     return terms, res
 
 
