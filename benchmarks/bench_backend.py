@@ -306,7 +306,12 @@ def main(argv=None):
     # seraient non repliques — le defaut qui a fausse la grille precedente.
     ap.add_argument("--q", type=int, default=200)
     ap.add_argument("--ts", default="2,4,8")
-    ap.add_argument("--familles", default="iid,diag,fa1,fa2,fa4,us")
+    ap.add_argument("--familles", default="iid,diag,fa1,fa2,fa4,us",
+                    help="structures de covariance pour la famille multi-caracteres")
+    ap.add_argument("--modeles", default="multi,spatial,ige",
+                    help="familles de MODELES : multi, spatial, ige")
+    ap.add_argument("--kinship", default="both", choices=["both", "oui", "non"],
+                    help="avec parente genomique dense, sans, ou les deux")
     ap.add_argument("--reps", type=int, default=5)
     ap.add_argument("--maxiter", type=int, default=3000)
     ap.add_argument("--no-fit", action="store_true",
@@ -343,18 +348,44 @@ def main(argv=None):
              blups=False, verbose=False)
 
     lignes = []
+    # ---- catalogue des familles, chacune declinee AVEC et SANS parente -------
+    # Ce sont les modeles reellement ajustes en amelioration des plantes, et non
+    # des dispositifs synthetiques : GBLUP de base, multi-caracteres et
+    # multi-lieux, facteurs de rang reduit, essai au champ, effets indirects.
+    def cellules(a):
+        ts = [int(v) for v in a.ts.split(",")]
+        fam = a.modeles.split(",")
+        for kin in ([False, True] if a.kinship == "both" else [a.kinship == "oui"]):
+            LK = kinship_chol(a.q) if kin else None
+            eti = "K_genomique" if kin else "K_identite"
+            if "multi" in fam:
+                for t in ts:
+                    d = design(a.n // t, t, a.q, LK=LK)
+                    for nom, st, rk in structures(t, a.familles.split(",")):
+                        yield ("multi/%s(t=%d)" % (nom, t), eti, d,
+                               dict(struct=st, rank=rk))
+            if "spatial" in fam:
+                nr = int(round(a.n ** 0.5 * 1.25)); nc = max(1, a.n // nr)
+                d = design_spatial(nr, nc, a.q, LK=LK)
+                yield ("spatial/ar1xar1", eti, d,
+                       dict(struct="iid", rank=0, res_struct="iid", res_lvl="ar1ar1"))
+            if "ige" in fam:
+                d = design_ige(a.n, a.q, LK=LK)
+                yield ("ige/us(2)", eti, d, dict(struct="us", rank=0, res_struct="iid"))
+
     ts = [int(v) for v in a.ts.split(",")]
     n_unit_min = a.n // max(ts)
     if n_unit_min < 2 * a.q:
         raise SystemExit("q = %d trop grand : au plus grand t = %d il ne reste que %d unites, "
                          "il en faut au moins 2q = %d. Baisser --q ou monter --n."
                          % (a.q, max(ts), n_unit_min, 2 * a.q))
-    for t in ts:
-        d = design(a.n // t, t, a.q)
-        for nom, struct, rank in structures(t, a.familles.split(",")):
-            terms, res = modele(d, struct, rank)
+    for nom, eti, d, kw in cellules(a):
+        t = d["t"]
+        if True:
+            terms, res = modele(d, **kw)
             base = dict(meta, n=d["n"], n_unit=d["n_unit"], t=t, q=a.q,
-                        structure=nom, famille=struct, rang=rank)
+                        structure=nom, parente=eti,
+                        famille=kw["struct"], rang=kw.get("rank", 0))
             # --- 1. ajustement de reference : donne le theta commun ET le total
             try:
                 out, paroi = chrono_fit(fit_reml, terms, res, d, a.maxiter,
@@ -362,7 +393,7 @@ def main(argv=None):
             except Exception as e:
                 lignes.append(dict(base, phase="fit", statut="echec",
                                    erreur=type(e).__name__ + ": " + str(e)[:180]))
-                print("[fit ] %-6s t=%d ECHEC %s" % (nom, t, type(e).__name__), flush=True)
+                print("[fit ] %-22s %-12s ECHEC %s" % (nom, eti, type(e).__name__), flush=True)
                 continue
             p = int(out["n_par"])
             lignes.append(dict(base, phase="fit", statut="ok", p=p,
@@ -376,8 +407,8 @@ def main(argv=None):
                                conv_decrement=out.get("conv_decrement"),
                                tronque=bool(out.get("n_iter", 0) >= a.maxiter),
                                n_eval_predit=int(out.get("n_iter", 0)) + 2 * p * (0 if a.no_fit else 1)))
-            print("[fit ] %-6s t=%d p=%-3d iter=%-4d interne %8.2f s (compil %6.2f s)"
-                  % (nom, t, p, out.get("n_iter", -1), out["secondes"],
+            print("[fit ] %-22s %-12s p=%-3d iter=%-4d interne %8.2f s (compil %6.2f s)"
+                  % (nom, eti, p, out.get("n_iter", -1), out["secondes"],
                      out.get("compile_s", float("nan"))), flush=True)
 
             # --- 2. evaluations A THETA IMPOSE : la mesure appariee
@@ -399,8 +430,8 @@ def main(argv=None):
                                # elle differe, ce n'est pas le meme calcul et le
                                # rapport de temps ne veut rien dire.
                                theta_impose=" ".join("%.10g" % v for v in th)))
-            print("[eval] %-6s t=%d p=%-3d compil %7.3f s | evaluation %8.5f s | logLik %.9f"
-                  % (nom, t, p, oe.get("compile_s", float("nan")),
+            print("[eval] %-22s %-12s p=%-3d compil %7.3f s | evaluation %8.5f s | logLik %.9f"
+                  % (nom, eti, p, oe.get("compile_s", float("nan")),
                      oe.get("eval_s", float("nan")), oe["logLik"]), flush=True)
 
     champs = []
