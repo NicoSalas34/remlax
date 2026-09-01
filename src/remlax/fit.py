@@ -549,6 +549,45 @@ def _hessian_fd(fun_jac, theta, eps=1e-5, floor=None, ceil=None):
     return 0.5 * (H + H.T)
 
 
+# Seuils des criteres de convergence. Ils sont RAPPORTES, pas imposes : le
+# critere d'arret reste celui de L-BFGS-B suivi du polissage de Newton. Les
+# changer en criteres d'arret modifierait tous les ajustements, donc cela se
+# fera apres validation contre une reference a tolerance tres serree.
+#
+# DECREMENT : g' H^+ g est le double du gain de vraisemblance restant dans le
+# modele quadratique local. Il est invariant par reparametrisation et s'exprime
+# dans l'unite du chi-deux, donc 1e-4 signifie qu'il reste un dix-milliemme
+# d'unite a gagner — tres au-dessous de toute pertinence inferentielle, et assez
+# serre pour des tests de rapport de vraisemblance ou les modeles compares
+# different de plusieurs unites.
+#
+# GRADIENT RELATIF PROJETE : second test, car le decrement suppose un Hessien
+# utilisable. Quand H est mal conditionne ou a des directions nulles, le
+# decrement devient ininterpretable et c'est le gradient qui tranche. C'est la
+# meme division du travail que dans les logiciels etablis, ou un critere de
+# gradient sert de repli quand le Hessien n'est pas defini positif.
+SEUIL_DECREMENT = 1e-4
+SEUIL_GRAD_REL = 1e-6
+
+
+def _verdict(d):
+    """Trois reponses distinctes, jamais fusionnees : chacune peut manquer."""
+    dec, gr = d.get("newton_decrement"), d.get("grad_rel")
+    v = {}
+    v["conv_decrement"] = (None if dec is None or not np.isfinite(dec)
+                           else bool(dec < SEUIL_DECREMENT))
+    v["conv_grad_rel"] = (None if gr is None or not np.isfinite(gr)
+                          else bool(gr < SEUIL_GRAD_REL))
+    # Un Hessien a valeur propre negative dit que le point n'est PAS un maximum,
+    # quelle que soit la petitesse du gradient : c'est un test de nature, pas de
+    # proximite, et il ne se remplace pas par un seuil.
+    v["conv_hessien_ok"] = (None if d.get("n_neg_eig", -1) < 0
+                            else bool(d["n_neg_eig"] == 0 and d.get("n_null_dir", 0) == 0))
+    v["seuil_decrement"] = SEUIL_DECREMENT
+    v["seuil_grad_rel"] = SEUIL_GRAD_REL
+    return v
+
+
 def _diagnostic(H, g, theta, floor, ceil, tol_bound=1e-7, fixed_idx=None):
     """Trois questions distinctes, jamais fusionnees en un booleen.
 
@@ -576,7 +615,10 @@ def _diagnostic(H, g, theta, floor, ceil, tol_bound=1e-7, fixed_idx=None):
                n_fixed_out=int(fixed.sum()),
                n_par_free=int(free.sum()))
     if free.sum() == 0:
-        return dict(out, newton_decrement=np.nan, n_neg_eig=0, n_null_dir=0, cond=np.nan)
+        return dict(out, newton_decrement=np.nan, grad_proj_max=np.nan,
+                    grad_rel=np.nan, n_neg_eig=0, n_null_dir=0,
+                    cond=np.nan, conv_decrement=None, conv_grad_rel=None,
+                    conv_hessien_ok=None)
     Hf, gf = H[np.ix_(free, free)], g[free]
     if not np.all(np.isfinite(Hf)) or not np.all(np.isfinite(gf)):
         return dict(out, newton_decrement=np.nan, leak=np.nan, n_neg_eig=-1,
@@ -594,8 +636,41 @@ def _diagnostic(H, g, theta, floor, ceil, tol_bound=1e-7, fixed_idx=None):
     keep = w > tol
     dec = float(gf @ (Vv[:, keep] @ ((Vv[:, keep].T @ gf) / w[keep]))) if keep.any() else np.nan
     leak = float(np.max(np.abs(Vv[:, ~keep].T @ gf))) if (~keep).any() else 0.0
-    return dict(out, newton_decrement=dec, leak=leak,
+
+    # ------------------------------------------------------------------
+    # GRADIENT PROJETE, ET SA VERSION RELATIVE
+    # ------------------------------------------------------------------
+    # PROJETE. Sous contraintes de bornes, la condition d'optimalite n'est pas
+    # g = 0 mais g = 0 dans les directions LIBRES et g pointant vers l'exterieur
+    # aux bornes actives. On projette donc le gradient sur le cone admissible :
+    # a une borne inferieure seule une composante NEGATIVE (qui pousserait vers
+    # l'interieur) temoigne d'une non-optimalite ; une composante positive est
+    # retenue par la contrainte et vaut zero apres projection. Sans cela, un
+    # sigma^2 a zero laisse un gradient non nul indefiniment et aucun critere de
+    # gradient ne peut jamais etre satisfait.
+    g_proj = np.array(g, dtype=np.float64, copy=True)
+    lo = theta <= floor + tol_bound
+    hi = theta >= ceil - tol_bound
+    g_proj[lo] = np.minimum(g_proj[lo], 0.0)
+    g_proj[hi] = np.maximum(g_proj[hi], 0.0)
+    if fixed_idx:
+        g_proj[fixed] = 0.0          # direction interdite au pas : ne compte pas
+    gpm = float(np.max(np.abs(g_proj))) if p else np.nan
+
+    # RELATIF. Une norme de gradient brute depend de l'echelle des parametres et
+    # de n : sur un modele a 16 000 observations, -2logL vaut des dizaines de
+    # milliers et un gradient de 37 est petit en relatif. On rapporte donc chaque
+    # composante a l'echelle de SON parametre et a celle de l'objectif, dans
+    # l'esprit du critere de Dennis et Schnabel. Le facteur max(|theta_i|, 1)
+    # evite de diviser par un parametre proche de zero.
+    ech = np.maximum(np.abs(np.asarray(theta, dtype=np.float64)), 1.0)
+    f_ech = max(abs(out.get("_f", 1.0)) if "_f" in out else 1.0, 1.0)
+    grad_rel = float(np.max(np.abs(g_proj) * ech) / f_ech) if p else np.nan
+
+    res = dict(out, newton_decrement=dec, leak=leak,
+                grad_proj_max=gpm, grad_rel=grad_rel,
                 n_neg_eig=int((w < -tol).sum()), n_null_dir=int((np.abs(w) <= tol).sum()),
                 lambda_min=float(w.min()), lambda_max=float(w.max()),
                 cond=float(abs(w).max() / max(abs(w).min(), 1e-300)),
                 k_eff=int(keep.sum()) + int(at_bound.sum() == 0) * 0)
+    return dict(res, **_verdict(res))
