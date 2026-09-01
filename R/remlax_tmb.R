@@ -67,6 +67,22 @@ RX_SPARSE_LEVEL <- c("id", "iid", "ar1", "ar1ar1", "prec")   # "prec" = A^-1 fou
 #'
 #' Rend une liste (ok, reason). La raison est destinee a l'utilisateur : elle
 #' nomme la structure qui sort du perimetre plutot que de dire « non ».
+#' Structure de niveaux effective d'un terme rx_term.
+#'
+#' `level = "auto"` est la valeur par defaut de rx_term : elle signifie « pas de
+#' structure entre niveaux », sauf si une parente est fournie. Une parente en
+#' `LK` est un facteur de Cholesky DENSE, donc hors perimetre creux ; une parente
+#' en `Kinv` est une precision creuse, donc dedans. Cette resolution est faite
+#' ici et nulle part ailleurs, pour que le perimetre et l'objectif ne puissent
+#' pas en avoir deux lectures differentes.
+rx_level_of <- function(tm) {
+  lv <- tm$level %||% "auto"
+  if (!is.null(tm$Kinv)) return("prec")
+  if (!is.null(tm$LK)) return("fixed")
+  if (lv %in% c("auto", "id", "iid")) return("id")
+  lv
+}
+
 rx_sparse_scope <- function(terms, residual = NULL) {
   for (tm in terms) {
     st <- tm$struct %||% "iid"
@@ -74,13 +90,13 @@ rx_sparse_scope <- function(terms, residual = NULL) {
       return(list(ok = FALSE, reason = sprintf(
         "terme '%s' : structure entre caracteres '%s' hors perimetre creux (retenues : %s)",
         tm$name %||% "?", st, paste(RX_SPARSE_SIGMA, collapse = ", "))))
-    lv <- tm$lvl %||% (if (!is.null(tm$Kinv)) "prec" else if (!is.null(tm$LK)) "fixed" else "id")
+    lv <- rx_level_of(tm)
     if (!lv %in% RX_SPARSE_LEVEL)
       return(list(ok = FALSE, reason = sprintf(
         "terme '%s' : structure entre niveaux '%s' a un inverse plein, le creux n'y gagne rien%s",
         tm$name %||% "?", lv,
         if (identical(lv, "fixed"))
-          " (une parente fournie en LK dense : fournir Kinv creuse pour passer au creux)" else "")))
+          " (parente fournie en LK, facteur de Cholesky dense : fournir Kinv creuse pour le creux)" else "")))
   }
   rs <- residual$struct %||% "iid"
   if (!rs %in% c("iid", "diag"))
@@ -251,34 +267,55 @@ rx_quad_ar1ar1 <- function(u, phi_r, phi_c, nr, nc) {
 #' EXACTE pour un modele lineaire gaussien, et integrer beta en plus de u donne
 #' la vraisemblance REML plutot que le maximum de vraisemblance.
 #'
-#' @param terms liste de termes, format du moteur dense, avec zi/zj/zx, t, q,
-#'   struct, lvl, dims, et pour une parente creuse `Kinv` (dgCMatrix).
+#' @param model objet rendu par rx_model ou rx_reml — LE MEME que celui que
+#'   prend rx_fit. Les deux moteurs sont ainsi interchangeables sur une meme
+#'   specification, ce qui est la condition pour pouvoir les comparer.
 #' @param theta_init depart a chaud. Avec maxiter = 0 l'objectif est simplement
 #'   EVALUE au theta fourni : c'est ainsi qu'on compare les deux moteurs sur la
 #'   meme fonction plutot que sur leurs points d'arret respectifs.
-rx_fit_sparse <- function(terms, residual, y, X, theta_init = NULL,
-                          maxiter = 200L, verbose = TRUE) {
+rx_fit_sparse <- function(model, theta_init = NULL, maxiter = 200L, verbose = TRUE) {
   stopifnot(rx_tmb_available())
+  terms <- model$terms; residual <- model$residual
+  y <- model$y; X <- as.matrix(model$X)
   sc <- rx_sparse_scope(terms, residual)
   if (!sc$ok) stop("hors perimetre du moteur creux : ", sc$reason)
   n <- length(y)
-  X <- as.matrix(X)
   p <- ncol(X)
 
   # --- decoupage de theta, DANS L'ORDRE DU MOTEUR DENSE
   np <- integer(0)
   for (tm in terms) {
-    lv <- tm$lvl %||% (if (!is.null(tm$Kinv)) "prec" else "id")
-    np <- c(np, rx_n_sigma_params(tm$struct %||% "iid", tm$t) + rx_n_level_params(lv))
+    np <- c(np, rx_n_sigma_params(tm$struct %||% "iid", tm$t) +
+                rx_n_level_params(rx_level_of(tm)))
   }
+  # rx_residual ne porte PAS de champ $t : le nombre de caracteres residuels est
+  # calcule par rx_model, sous $t_res. Lire residual$t rendait NULL, et
+  # rx_n_sigma_params aurait recu un t vide.
+  t_res <- as.integer(model$t_res %||% 1L)
   n_res <- rx_n_sigma_params(residual$struct %||% "iid",
-                             if (identical(residual$struct, "diag")) residual$t else 1L)
+                             if (identical(residual$struct, "diag")) t_res else 1L)
   n_theta <- sum(np) + n_res
 
-  Zs <- lapply(terms, function(tm)
-    Matrix::sparseMatrix(i = tm$zi + 1L, j = tm$zj + 1L, x = tm$zx,
-                         dims = c(n, tm$t * tm$q)))
-  trait_res <- if (is.null(residual$trait)) rep(0L, n) else as.integer(residual$trait)
+  # rx_term porte Zl : une liste de t incidences creuses n x q, une par
+  # caractere. Les concatener par colonnes donne l'ordre colonne =
+  # caractere * q + niveau, exactement celui du cote Python (zj = trait*q+lev).
+  # C'est cet ordre qui rend G = Sigma (x) K avec le caractere en facteur
+  # EXTERIEUR, et il est load-bearing : l'inverser transposerait Sigma.
+  Zs <- lapply(terms, function(tm) {
+    Zl <- tm$Zl
+    if (length(Zl) != tm$t)
+      stop("terme '", tm$name, "' : ", length(Zl), " incidence(s) pour t = ", tm$t)
+    methods::as(do.call(cbind, Zl), "dgCMatrix")
+  })
+  # ATTENTION AU DECALAGE. as.integer(factor(x)) rend 1..t cote R, alors que le
+  # cote Python numerote les caracteres 0..t-1. On stocke en base 0, comme
+  # Python, et l'indexation ajoute 1 la ou R l'exige — une seule convention,
+  # explicite. La version precedente stockait 1..t PUIS ajoutait 1 : la
+  # residuelle du premier caractere n'etait jamais utilisee et celle du dernier
+  # sortait du vecteur.
+  trait_res <- if (is.null(residual$trait)) rep(0L, n)
+               else as.integer(factor(residual$trait)) - 1L
+  stopifnot(min(trait_res) == 0L, max(trait_res) + 1L <= t_res)
 
   dat <- list(y = as.numeric(y), X = X, Zs = Zs, terms = terms,
               residual = residual, trait_res = trait_res, np = np, n_res = n_res)
@@ -293,7 +330,7 @@ rx_fit_sparse <- function(terms, residual, y, X, theta_init = NULL,
     for (k in seq_along(dat$terms)) {
       tm <- dat$terms[[k]]
       t_ <- as.integer(tm$t); q_ <- as.integer(tm$q)
-      lv <- tm$lvl %||% (if (!is.null(tm$Kinv)) "prec" else "id")
+      lv <- rx_level_of(tm)
       ns <- rx_n_sigma_params(tm$struct %||% "iid", t_)
       th_s <- theta[(off + 1L):(off + ns)]
       th_l <- if (rx_n_level_params(lv) > 0) theta[(off + ns + 1L):(off + np[k])] else numeric(0)
@@ -352,8 +389,8 @@ rx_fit_sparse <- function(terms, residual, y, X, theta_init = NULL,
     v <- log(sqrt(max(stats::var(y), 1e-8) / 2))
     rep(v, n_theta)
   }
-  par <- list(theta = th0, beta = rep(0, p),
-              u = rep(0, sum(vapply(terms, function(tm) tm$t * tm$q, 1L))))
+  q_total <- sum(vapply(terms, function(tm) as.integer(tm$t) * as.integer(tm$q), 1L))
+  par <- list(theta = th0, beta = rep(0, p), u = rep(0, q_total))
   obj <- RTMB::MakeADFun(nll, par, random = c("beta", "u"), silent = !verbose)
 
   if (maxiter <= 0L) {
