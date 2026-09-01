@@ -198,6 +198,10 @@ def suite_scaling(rows, args, meta):
         rows.append(dict(meta, suite="scaling", case="iid", n=n, q=terms[0]["q"],
                          n_par=int(out["n_par"]), status="ok",
                          fit_s_median=med, fit_s_min=lo, fit_s_max=hi,
+                         # SANS n_iter, un ecart de temps d'ajustement entre deux
+                         # backends est inexploitable : on ne sait pas s'il vient
+                         # du cout d'une evaluation ou de leur nombre.
+                         n_iter=int(out.get("n_iter") or -1),
                          logLik=float(out["logLik"]),
                          newton_decrement=float(out.get("newton_decrement") or float("nan")),
                          rss_mb=rss_mb(), gpu_mb=gpu_mem_mb()))
@@ -321,6 +325,15 @@ def main(argv=None):
                 n_cpu=os.cpu_count(),
                 xla_flags=os.environ.get("XLA_FLAGS", ""),
                 omp=os.environ.get("OMP_NUM_THREADS", ""),
+                # os.cpu_count() rend les coeurs de la MACHINE, pas ceux que le
+                # cgroup alloue : sur un noeud de 192 coeurs alloue a 8, JAX
+                # dimensionnerait son pool sur 192 et sur-souscrirait d'un facteur
+                # 24. Les deux comptes sont donc journalises separement, et le
+                # debit obtenu (mesure) dit lequel a servi.
+                n_cpu_affinity=(len(os.sched_getaffinity(0))
+                                if hasattr(os, "sched_getaffinity") else -1),
+                mkl=os.environ.get("MKL_NUM_THREADS", ""),
+                openblas=os.environ.get("OPENBLAS_NUM_THREADS", ""),
                 utc=time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()))
     print("[bench] %s" % json.dumps(meta), flush=True)
     print("[bench] peripheriques : %s" % device_report(), flush=True)
