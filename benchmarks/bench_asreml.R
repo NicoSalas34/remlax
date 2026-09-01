@@ -123,20 +123,43 @@ for (q in QS) {
         next
       }
       a <- z$r
+      # QUE PORTE L'OBJET ? Je lisais length(a$loglik) comme un compte
+      # d'iterations et cela rendait 1 partout : ce n'est manifestement pas
+      # l'historique. On imprime les champs UNE fois plutot que de deviner, et
+      # on extrait le compte de facon robuste.
+      if (!exists(".champs_imprimes")) {
+        cat("  [champs de l'objet asreml] ",
+            paste(names(a), collapse = " "), "\n")
+        .champs_imprimes <<- TRUE
+      }
+      n_it <- suppressWarnings(as.integer(
+        if (!is.null(a$nit)) a$nit[1]
+        else if (!is.null(a$monitor)) ncol(a$monitor)
+        else if (length(a$loglik) > 1) length(a$loglik)
+        else NA_integer_))
       # La variance d'erreur de prediction n'est disponible QUE pour la partie
       # dense (manuel A.1). C'est le second resultat de ce test, et il se
       # verifie plutot qu'il ne se suppose.
       pev <- tryCatch({
         pv <- predict(a, classify = "vm(gen, Ki)", only = "vm(gen, Ki)",
                       sed = FALSE, trace = FALSE)
-        !is.null(pv$pvals) && any(is.finite(pv$pvals$std.error))
+        # Contredit ma lecture de l'annexe A.1, qui dit la variance des BLUP
+        # disponible seulement pour la partie dense : predict() la rendait des
+        # DEUX cotes. Soit il la recalcule a la demande independamment de la
+        # partition, soit le terme n'etait pas reellement bascule. On enregistre
+        # donc la valeur mediane de l'erreur type, pour voir si les deux voies
+        # rendent la MEME chose ou seulement quelque chose.
+        se <- pv$pvals$std.error
+        if (is.null(se) || !any(is.finite(se))) FALSE else median(se, na.rm = TRUE)
       }, error = function(e) FALSE)
       lignes[[length(lignes) + 1L]] <- data.frame(
         tag = TAG, q = q, n = dd$n, voie = voie, rep = rep, statut = "ok",
-        secondes = z$s, n_iter = length(a$loglik), logLik = tail(a$loglik, 1),
-        converge = isTRUE(a$converge), pev_dispo = pev, erreur = "")
-      cat(sprintf("  %-6s rep %d : %7.2f s | %2d iter | logLik %.6f | PEV %s\n",
-                  voie, rep, z$s, length(a$loglik), tail(a$loglik, 1), pev))
+        secondes = z$s, n_iter = n_it, logLik = tail(a$loglik, 1),
+        converge = isTRUE(a$converge), pev_dispo = !identical(pev, FALSE),
+        pev_se_mediane = if (is.numeric(pev)) pev else NA_real_, erreur = "")
+      cat(sprintf("  %-6s rep %d : %7.2f s | %3s iter | logLik %.6f | PEV %s\n",
+                  voie, rep, z$s, ifelse(is.na(n_it), "?", n_it),
+                  tail(a$loglik, 1), pev))
     }
   }
 }
