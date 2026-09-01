@@ -84,6 +84,65 @@ def design_traits(n_unit, t, seed=0, struct="us"):
     return [term], res, y, X
 
 
+def design_genomic(n, q, t=1, seed=0, n_marq=None, ige=False):
+    """Parente GENOMIQUE dense : le cas qui domine reellement le temps de calcul.
+
+    POURQUOI CETTE SUITE EXISTE. Avec K = I, term_factor prend la branche
+    `LK is None` et ne forme AUCUN produit : (L_Sigma (x) I) agit bloc par bloc.
+    Un balayage a K = I mesure donc l'assemblage de V le moins cher possible, et
+    sous-estime le cout du cas qui interesse un selectionneur. Avec une K dense,
+    une evaluation paie en plus
+
+        ZL = Z (I (x) L_K)      n t q^2
+        B  = ZL (L_Sigma (x) I) n t m q
+        V += B B'               n^2 m q
+
+    A n = q = 2000 cela fait environ 16 Gflop contre 2,7 Gflop pour la Cholesky :
+    l'assemblage domine. Et ce sont des produits matriciels denses, la ou un GPU
+    est le plus favorise — d'ou l'interet de mesurer cet axe separement.
+
+    ige=True donne la forme du modele a effets genetiques directs et indirects :
+    UN terme a t = 2 dont la covariance 2x2 est libre, la premiere colonne de
+    traits portant l'incidence directe et la seconde une incidence de voisinage
+    PONDEREE. C'est ainsi qu'une covariance entre deux termes genetiques
+    s'exprime ici, et cela multiplie par t^2 le cout du produit ci-dessus.
+    """
+    rng = np.random.default_rng(seed)
+    n_marq = n_marq or max(200, q // 2)
+    # K = W W' / m sur des marqueurs bialleliques, centree-reduite, plus une
+    # ride minuscule : c'est la construction de VanRaden, celle qu'un
+    # selectionneur fournit reellement, et elle est PLEINE.
+    p = rng.uniform(0.05, 0.95, n_marq)
+    W = rng.binomial(2, p, size=(q, n_marq)).astype(np.float64)
+    W -= 2.0 * p
+    W /= np.sqrt(2.0 * np.sum(p * (1.0 - p)))
+    K = W @ W.T
+    K[np.diag_indices(q)] += 1e-6 * np.trace(K) / q
+    LK = np.linalg.cholesky(K)
+
+    lev = rng.integers(0, q, n)                      # replications par genotype
+    struct = "us" if t > 1 else "iid"
+    if ige and t == 2:
+        # trait 0 : effet direct du genotype de la plante
+        # trait 1 : effet indirect, somme ponderee des voisins
+        zi = np.concatenate([np.arange(n), np.arange(n)])
+        vois = rng.integers(0, q, n)
+        zj = np.concatenate([lev, q + vois]).astype(np.int64)
+        w = rng.uniform(0.3, 1.0, n)                 # poids de voisinage
+        zx = np.concatenate([np.ones(n), w])
+    else:
+        zi = np.concatenate([np.arange(n)] * t)
+        zj = np.concatenate([k * q + lev for k in range(t)]).astype(np.int64)
+        zx = np.ones(n * t)
+    U = rng.normal(size=(q, t))
+    y = 1.0 + U[lev, 0] + rng.normal(size=n, scale=0.8)
+    term = dict(name="g", struct=struct, t=t, rank=0, q=q,
+                zi=zi, zj=zj, zx=zx, LK=LK)
+    res = dict(struct="iid", t=1, rank=0,
+               trait=np.zeros(n, np.int64), unit=np.arange(n))
+    return [term], res, y, np.ones((n, 1))
+
+
 def design_level(n_row, n_col, kind, seed=0):
     """Champ structure entre NIVEAUX sur une grille n_row x n_col : ar1, produit
     separable, ou noyau metrique a coordonnees. Un niveau par cellule."""
@@ -290,8 +349,71 @@ def suite_structures(rows, args, meta):
                  t_run, med, err), flush=True)
 
 
+def suite_genomic(rows, args, meta):
+    """Parente dense : q croissant a n fixe, puis n croissant a q/n fixe."""
+    qs = [int(v) for v in (args.qs or "250,500,1000,1500,2000,3000,4000").split(",")]
+    for q in qs:
+        n = args.n_gen
+        if q > n:
+            continue
+        terms, res, y, X = design_genomic(n, q, t=1, seed=7)
+        try:
+            t_first, t_run, v = timed_objective(terms, res, y, X, args.reps)
+            med, lo, hi, out = timed_fit(terms, res, y, X, 1, hessian=False)
+            ok, err, ni = "ok", "", int(out.get("n_iter") or -1)
+        except Exception as e:
+            t_first = t_run = med = float("nan")
+            out = {"n_par": -1, "logLik": float("nan")}
+            ok, err, ni = "failed", type(e).__name__ + ": " + str(e)[:200], -1
+        # Gflop d'assemblage attendus par evaluation, pour rapporter le temps
+        # a la quantite d'arithmetique et non a la seule taille.
+        gflop = (n * q * q + n * n * q) / 1e9
+        rows.append(dict(meta, suite="genomic", case="iid+K(q=%d)" % q, n=n, q=q,
+                         status=ok, error=err, first_call_s=t_first, run_call_s=t_run,
+                         compile_s=(t_first - t_run) if t_first == t_first else float("nan"),
+                         fit_s_median=med, n_iter=ni, n_par=int(out["n_par"]),
+                         logLik=float(out["logLik"]), assembly_gflop=gflop,
+                         rss_mb=rss_mb(), gpu_mb=gpu_mem_mb()))
+        print("[genomic] q=%-5d n=%-5d assemblage %7.1f Gflop | evaluation %8.4f s "
+              "| ajustement %8.2f s %s" % (q, n, gflop, t_run, med, err), flush=True)
+
+
+def suite_crossterm(rows, args, meta):
+    """Covariance entre termes genetiques, avec parente dense.
+
+    t = 1 : un seul terme genetique
+    t = 2 : deux termes correles, forme du modele direct/indirect (incidence de
+            voisinage ponderee sur le second)
+    t = 3 : trois termes correles, covariance 3x3 libre
+    """
+    n, q = args.n_gen, args.q_gen
+    for t in [int(v) for v in (args.ts or "1,2,3").split(",")]:
+        for ige in ([False, True] if t == 2 else [False]):
+            terms, res, y, X = design_genomic(n, q, t=t, seed=8, ige=ige)
+            nom = "us(%d)+K%s" % (t, " [DGE/IGE]" if ige else "")
+            try:
+                t_first, t_run, v = timed_objective(terms, res, y, X, args.reps)
+                med, lo, hi, out = timed_fit(terms, res, y, X, 1, hessian=True)
+                ok, err, ni = "ok", "", int(out.get("n_iter") or -1)
+            except Exception as e:
+                t_first = t_run = med = float("nan")
+                out = {"n_par": -1, "logLik": float("nan")}
+                ok, err, ni = "failed", type(e).__name__ + ": " + str(e)[:200], -1
+            gflop = (n * t * q * q + n * n * t * q) / 1e9
+            rows.append(dict(meta, suite="crossterm", case=nom, n=n, q=q, n_traits=t,
+                             status=ok, error=err, first_call_s=t_first, run_call_s=t_run,
+                             compile_s=(t_first - t_run) if t_first == t_first else float("nan"),
+                             fit_s_median=med, n_iter=ni, n_par=int(out["n_par"]),
+                             logLik=float(out["logLik"]), assembly_gflop=gflop,
+                             rss_mb=rss_mb(), gpu_mb=gpu_mem_mb()))
+            print("[crossterm] %-18s p=%-3d assemblage %7.1f Gflop | evaluation %8.4f s "
+                  "| ajustement %8.2f s %s"
+                  % (nom, out["n_par"], gflop, t_run, med, err), flush=True)
+
+
 SUITES = {"scaling": suite_scaling, "compile": suite_compile,
-          "params": suite_params, "structures": suite_structures}
+          "params": suite_params, "structures": suite_structures,
+          "genomic": suite_genomic, "crossterm": suite_crossterm}
 
 
 def main(argv=None):
@@ -307,6 +429,11 @@ def main(argv=None):
                     help="borne superieure sur n (memoire du peripherique)")
     ap.add_argument("--ns", default=None, help="liste explicite de n")
     ap.add_argument("--ts", default=None, help="liste de nombres de caracteres")
+    ap.add_argument("--qs", default=None, help="liste de tailles de parente (suite genomic)")
+    ap.add_argument("--n-gen", dest="n_gen", type=int, default=4000,
+                    help="n fixe des suites genomic et crossterm")
+    ap.add_argument("--q-gen", dest="q_gen", type=int, default=2000,
+                    help="q fixe de la suite crossterm")
     ap.add_argument("--n-unit", dest="n_unit", type=int, default=600)
     ap.add_argument("--grid-rows", dest="grid_rows", type=int, default=40)
     ap.add_argument("--grid-cols", dest="grid_cols", type=int, default=30)

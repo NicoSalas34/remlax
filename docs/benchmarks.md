@@ -116,19 +116,42 @@ can give. They fit without difficulty on the CPU, and CPU/GPU parity does hold
 for both at 160 levels (see [validation.md](validation.md)). This is a limit of
 the slice, measured.
 
-![Benchmarks]({/home/salas/.claude-science/orgs/272a30aa-a064-49b2-85e7-6680deef4d83/artifacts/proj_ff10b1313946/eee8f524-c58d-4484-a43d-44816c17f8c0/v79a0c968_bench_remlax.png})
+![Growth in n, compilation against execution, and cost per structure](../benchmarks/figures/bench_remlax.png)
 
 ## What this means in practice
+
+**These conclusions hold for models whose relationship matrix is the identity.**
+Both suites above use a single genetic term with `LK=None`, and in that case
+`term_factor` takes a branch that forms no product at all: `(L_Sigma (x) I)`
+acts block by block. What is measured is therefore the Cholesky of V and the
+*cheapest possible* assembly of V.
+
+That is not the case that dominates runtime in practice. With a dense genomic
+relationship matrix, each evaluation additionally pays
+
+    ZL = Z (I (x) L_K)        n t q^2
+    V += B B'                 n^2 m q
+
+which at n = q = 4000 is about 80 Gflop of assembly against 21 Gflop for the
+factorisation - the assembly dominates by roughly a factor of four. A covariance
+shared between genetic terms (the direct/indirect shape, expressed here as one
+term with t = 2 and a weighted neighbourhood incidence) multiplies that by t^2.
+Both are dense matrix products, which is where a GPU is most favoured, so the
+CPU/GPU balance below is expected to move - and the two suites `genomic` and
+`crossterm` measure exactly that. **Until those numbers are in, read the guidance
+below as applying to K = I only.**
 
 1. **Below a few hundred observations, use the CPU.** A fit is a fraction of a
    second either way and the GPU adds a compilation to every new model shape.
 2. **Between roughly 300 and a few thousand, the choice barely matters** on a
-   MIG slice. It would matter on a full card, which was not measurable here.
+   MIG slice, for a model with K = I. It would matter on a full card, which was
+   not measurable here.
 3. **Above a few thousand, the GPU wins on arithmetic** - 5.9x per evaluation at
    n = 8000 - but only 1.65x on a whole fit on a slice, because of per-iteration
    overhead outside the objective.
-4. **A one-seventh slice is close to not worth the detour** for a single fit.
-   Its right use is running seven independent models, or seven restarts, at once.
+4. **A one-seventh slice is close to not worth the detour** for a single fit
+   with K = I. Its right use is running seven independent models, or seven
+   restarts, at once - which is also how the `genomic` suite was measured.
 5. **Avoid the Matern kernels on a small slice** and fit them on the CPU, or on
    a card with enough memory for the quadrature.
 
