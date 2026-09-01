@@ -1,0 +1,19 @@
+cff-version: 1.2.0
+title: "remlkit: a generic, differentiable REML solver for linear mixed models"
+message: "If you use this software, please cite it as below."
+type: software
+authors:
+  - family-names: Salas
+    given-names: Nicolas
+    affiliation: "Institut Agro Montpellier, UMR AGAP, GE2POP"
+    email: nicolas.salas@supagro.fr
+version: 0.1.0
+date-released: "2026-09-01"
+license: MIT
+repository-code: "https://github.com/nsalas/remlkit"
+keywords:
+  - REML
+  - linear mixed model
+  - variance components
+  - quantitative genetics
+  - JAX

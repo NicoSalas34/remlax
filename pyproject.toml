@@ -1,0 +1,42 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "remlkit"
+version = "0.1.0"
+description = "Generic REML solver for linear mixed models, differentiable and GPU-capable"
+readme = "README.md"
+requires-python = ">=3.10"
+license = { file = "LICENSE" }
+authors = [{ name = "Nicolas Salas", email = "nicolas.salas@supagro.fr" }]
+keywords = ["REML", "linear mixed model", "variance components",
+            "quantitative genetics", "JAX", "GPU"]
+classifiers = [
+  "Development Status :: 4 - Beta",
+  "Intended Audience :: Science/Research",
+  "License :: OSI Approved :: MIT License",
+  "Programming Language :: Python :: 3",
+  "Topic :: Scientific/Engineering :: Mathematics",
+]
+dependencies = ["jax>=0.4.30", "numpy>=1.24", "scipy>=1.10"]
+
+[project.optional-dependencies]
+cuda = ["jax[cuda12]>=0.4.30"]
+test = ["pytest>=7"]
+bench = ["pandas>=2.0", "matplotlib>=3.7"]
+docs = ["mkdocs-material>=9.5", "mkdocstrings[python]>=0.24"]
+
+[project.scripts]
+remlkit = "remlkit.cli:main"
+
+[project.urls]
+Homepage = "https://github.com/nsalas/remlkit"
+Issues = "https://github.com/nsalas/remlkit/issues"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests/python"]
+python_files = ["test_*.py"]

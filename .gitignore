@@ -1,0 +1,27 @@
+__pycache__/
+*.py[cod]
+*.egg-info/
+build/
+dist/
+.pytest_cache/
+.ipynb_checkpoints/
+.Rhistory
+.RData
+.Rproj.user/
+site/
+# sorties de benchmarks et de tests : regenerables, non versionnees
+benchmarks/results/*.csv
+benchmarks/results/*.json
+benchmarks/figures/*.png
+benchmarks/figures/*.pdf
+tests/bundles/*/
+# artefacts LaTeX
+paper/*.aux
+paper/*.log
+paper/*.out
+paper/*.bbl
+paper/*.blg
+paper/*.toc
+paper/*.synctex.gz
+paper/*.fls
+paper/*.fdb_latexmk
