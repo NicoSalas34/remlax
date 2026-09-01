@@ -259,7 +259,26 @@ def fit_reml(terms, res, y, X, theta_init=None, maxiter=3000,
     _t_eval = time.time() - _t
     _t_compil = max(_t_premier - _t_eval, 0.0)
 
-    hist = {"n": 0, "t0": time.time()}
+    hist = {"n": 0, "t0": time.time(), "n_eval": 0}
+
+    # COMPTER LES EVALUATIONS PLUTOT QUE LES PREDIRE. La reconstruction
+    # compilation + n_eval x cout_unitaire = total echouait d'un facteur deux
+    # (rapport median 0,48 sur 32 cellules) parce que je predisais le nombre
+    # d'evaluations par n_iter + 2p. Or L-BFGS-B en fait PLUSIEURS par iteration
+    # dans sa recherche lineaire, et chaque pas de polissage ajoute un Hessien
+    # complet, soit 2p de plus. Le compte reel est la seule facon honnete de
+    # fermer le bilan : un facteur d'ajustement masquerait le poste manquant.
+    _fun_jac_brut = fun_jac
+
+    def fun_jac(th):
+        hist["n_eval"] += 1
+        return _fun_jac_brut(th)
+
+    _fun_sc_brut = fun_sc
+
+    def fun_sc(th):
+        hist["n_eval"] += 1
+        return _fun_sc_brut(th)
 
     def cb(_):
         hist["n"] += 1
@@ -370,7 +389,8 @@ def fit_reml(terms, res, y, X, theta_init=None, maxiter=3000,
                # Mesures separees : la compilation est payee UNE fois, une
                # evaluation autant de fois qu'il y a d'iterations. Les melanger
                # attribue a l'algebre du temps de compilateur.
-               compile_s=_t_compil, eval_s=_t_eval, first_call_s=_t_premier)
+               compile_s=_t_compil, eval_s=_t_eval, first_call_s=_t_premier,
+               n_eval=int(hist["n_eval"]))
 
     th_terms, th_res, _ = split_theta(theta, terms, res)
 
