@@ -92,8 +92,14 @@ def _n_niv(tm):
 # dont le premier est une PORTEE (exp). vpredict doit rendre l'echelle
 # naturelle : une expression comme "V3" designe la correlation phi, pas le
 # theta interne qui la produit.
-_NIV_TANH = ("cor", "ar1", "ar2", "ar3", "sar", "ma1", "ma2", "arma", "corb",
-             "exp", "gau", "iexp", "igau", "ieuc", "aexp", "agau", "ar1ar1")
+# Correlations rendues DIRECTEMENT par tanh(theta).
+_NIV_TANH = ("ar1", "ar2", "ar3", "sar", "ma1", "ma2", "arma", "corb", "ar1ar1")
+# Familles metriques : C utilise |tanh(theta)| eleve a une distance, donc le
+# SIGNE de theta n'est pas identifie. Rendre tanh(theta) ici affichait un signe
+# arbitraire, et une expression vpredict portant sur ce parametre differentiait
+# la mauvaise fonction du cote ou tanh est negatif.
+_NIV_ABS_TANH = ("exp", "gau", "iexp", "igau", "ieuc", "aexp", "agau")
+# Portees : le parametre est une DISTANCE, prise en exp(theta).
 _NIV_PORTEE = ("sph", "cir", "lvr", "ilv")
 
 
@@ -109,6 +115,13 @@ def _niv_naturel(th_niv, tm):
         return []
     if kind in _NIV_TANH:
         return [jnp.tanh(th_niv[j]) for j in range(nl)]
+    if kind in _NIV_ABS_TANH:
+        return [jnp.abs(jnp.tanh(th_niv[j])) for j in range(nl)]
+    if kind == "cor":
+        # Meme remise a l'echelle que _acf : (-1,1) -> (-1/(q-1), 1).
+        q = int(tm.get("q") or tm.get("n_unit") or 1)
+        lo = -1.0 / max(q - 1, 1)
+        return [lo + (jnp.tanh(th_niv[0]) + 1.0) * 0.5 * (1.0 - lo)]
     if kind in _NIV_PORTEE:
         return [jnp.exp(th_niv[j]) for j in range(nl)]
     if kind == "mtrn":

@@ -433,10 +433,21 @@ rk_residual <- function(struct = "iid", trait = NULL, unit = NULL, rank = 0L,
     # niveau = (ligne-1)*n_colonnes + colonne : LIGNE lente, COLONNE rapide,
     # exactement l'ordre du produit de Kronecker cote solveur.
     un <- (as.integer(fr) - 1L) * nlevels(fc) + as.integer(fc)
-    if (anyDuplicated(un))
+    # Le controle porte sur le couple (cellule, CARACTERE), pas sur la cellule
+    # seule. Sur donnees longues a t caracteres, chaque cellule du champ apparait
+    # t fois PAR CONSTRUCTION : R = Sigma_caractere (x) C_cellule est parfaitement
+    # reguliere, et le solveur l'accepte (fit.py:_valider_section teste bien le
+    # couple). Tester la cellule seule refusait donc us(trait):ar1(row):ar1(col),
+    # c'est-a-dire le modele multi-caractere spatial le plus courant, alors que
+    # seule la repetition d'un MEME caractere dans une MEME cellule rend R
+    # singuliere.
+    cle_dup <- if (!is.null(nom_trait)) paste(un, as.integer(factor(data[[nom_trait]])),
+                                             sep = "\r") else un
+    if (anyDuplicated(cle_dup))
       stop("residual = ~ ar1(", cols[1], "):ar1(", cols[2], ") : ",
-           sum(duplicated(un)), " cellule(s) en double. Un champ residuel ",
-           "structure exige au plus une observation par cellule.")
+           sum(duplicated(cle_dup)), " couple(s) (cellule, caractere) en double. ",
+           "Un champ residuel structure exige au plus une observation par cellule ",
+           "et par caractere.")
     st2 <- "iid"
     for (fx in facteurs[!ar1f]) {
       if (fx %in% c("units", "id(units)")) next

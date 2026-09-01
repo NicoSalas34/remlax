@@ -502,23 +502,51 @@ def ar1_chol(rho, n):
     return L.at[:, 0].set(rho ** i)
 
 
-def level_params_report(theta_lv, kind, order=0, opts=None):
-    """Parametres sur l'echelle d'asreml (phi, theta), pour les sorties."""
+def level_params_report(theta_lv, kind, order=0, opts=None, q=None):
+    """Parametres sur l'echelle d'asreml (phi, theta), pour les sorties.
+
+    REGLE : cette fonction rend la valeur EFFECTIVEMENT UTILISEE dans C, jamais
+    le theta intermediaire. Deux familles ne se contentent donc pas de tanh, et
+    l'oubli faisait rapporter un nombre absent du modele ajuste :
+
+      cor            la correlation uniforme n'est definie positive que sur
+                     (-1/(q-1), 1) ; _acf envoie tanh(theta) sur cet intervalle.
+                     Rapporter tanh(theta) donnait une valeur hors du modele
+                     des que q etait petit (a q = 3, tanh = -0,9 devient -0,45).
+                     `q` est donc REQUIS ici ; sans lui on refuse plutot que de
+                     rapporter la mauvaise echelle.
+      familles       exp, gau, iexp, igau, ieuc, aexp, agau elevent |tanh(theta)|
+      metriques      a une distance : le SIGNE de theta n'est pas identifie
+                     (theta et -theta donnent le meme C). On rapporte donc la
+                     valeur absolue, et le champ `signe_non_identifie` le dit.
+    """
     th = np.asarray(theta_lv, dtype=float)
+    absta = lambda j: float(np.clip(np.abs(np.tanh(th[j])), 1e-12, 1 - 1e-12))  # noqa: E731
     if kind == "ar1ar1":
         return {"phi": [float(np.tanh(th[0])), float(np.tanh(th[1]))]}
     if kind == "cor":
-        return {"phi": [float(np.tanh(th[0]))]}   # borne appliquee dans _acf
-    if kind in ("ar1", "sar", "ma1", "exp", "gau"):
+        if q is None:
+            raise ValueError(
+                "level_params_report(kind='cor') exige q : la correlation uniforme "
+                "est remise a l'echelle sur (-1/(q-1), 1), donc tanh(theta) n'est "
+                "pas la valeur du modele.")
+        lo = -1.0 / max(int(q) - 1, 1)
+        return {"phi": [float(lo + (np.tanh(th[0]) + 1.0) * 0.5 * (1.0 - lo))],
+                "borne_inf": [float(lo)]}
+    if kind in ("ar1", "sar", "ma1"):
         return {"phi": [float(np.tanh(th[0]))]}
+    if kind in ("exp", "gau"):
+        return {"phi": [absta(0)], "signe_non_identifie": [1.0]}
     if kind in ("ar2", "ar3"):
         p = 2 if kind == "ar2" else 3
         return {"phi": [float(v) for v in np.asarray(_levinson_phi(jnp.tanh(jnp.asarray(th[:p]))))],
                 "pacf": [float(np.tanh(v)) for v in th[:p]]}
-    if kind in ("ma2", "arma", "aexp", "agau"):
+    if kind in ("ma2", "arma"):
         return {"phi": [float(np.tanh(v)) for v in th[:2]]}
+    if kind in ("aexp", "agau"):
+        return {"phi": [absta(0), absta(1)], "signe_non_identifie": [1.0]}
     if kind in ("iexp", "igau", "ieuc"):
-        return {"phi": [float(np.tanh(th[0]))]}
+        return {"phi": [absta(0)], "signe_non_identifie": [1.0]}
     if kind in ("sph", "cir", "lvr"):
         return {"portee": [float(np.exp(th[0]))]}
     if kind == "mtrn":

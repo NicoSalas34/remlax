@@ -347,7 +347,8 @@ def fit_reml(terms, res, y, X, theta_init=None, maxiter=3000,
             jnp.asarray(th_terms[k][:ns]), tm["struct"], tm["t"], tm["rank"]))
         kind_ = tm.get("lvl") or ("fixed" if tm.get("LK") is not None else "id")
         r_ = level_params_report(np.asarray(th_terms[k][ns:]), kind_,
-                                 tm.get("lvl_order", 0), opts=tm.get("lvl_opts"))
+                                 tm.get("lvl_order", 0), opts=tm.get("lvl_opts"),
+                                 q=tm.get("q"))
         if r_.get("pacf"):
             out.setdefault("pacf", {})[tm["name"]] = r_["pacf"]
         _ranger_niveaux(out, tm["name"], kind_, r_)
@@ -364,7 +365,8 @@ def fit_reml(terms, res, y, X, theta_init=None, maxiter=3000,
              else np.array([[float(np.exp(2 * th_s[0]))]]))
         out["sigmas_res"][nom] = S
         r_res = level_params_report(np.asarray(th_s[ns_r:]), sec.get("lvl", "id"),
-                                    sec.get("lvl_order", 0), opts=sec.get("lvl_opts"))
+                                    sec.get("lvl_order", 0), opts=sec.get("lvl_opts"),
+                                    q=sec.get("n_unit", len(np.unique(np.asarray(sec["unit"])))))
         _ranger_niveaux(out, nom, sec.get("lvl", "id"), r_res)
         o_s += p_s
     out["sigma_res"] = out["sigmas_res"][list(out["sigmas_res"])[0]]
@@ -428,7 +430,7 @@ def fit_reml(terms, res, y, X, theta_init=None, maxiter=3000,
     if hessian:
         H = _hessian_fd(fun_jac, theta, floor=floor, ceil=ceil)
         out["hessian"] = H
-        out.update(_diagnostic(H, g_end, theta, floor, ceil))
+        out.update(_diagnostic(H, g_end, theta, floor, ceil, fixed_idx=fixed_idx))
     return out
 
 
@@ -489,18 +491,32 @@ def _hessian_fd(fun_jac, theta, eps=1e-5, floor=None, ceil=None):
     return 0.5 * (H + H.T)
 
 
-def _diagnostic(H, g, theta, floor, ceil, tol_bound=1e-7):
+def _diagnostic(H, g, theta, floor, ceil, tol_bound=1e-7, fixed_idx=None):
     """Trois questions distinctes, jamais fusionnees en un booleen.
 
       1. suis-je au sommet ?   decrement de Newton g' H^+ g, en unites de logLik
       2. est-ce un pic ?       spectre de H (valeurs propres nulles / negatives)
       3. quels parametres ?    ceux a une borne active sont hors du sous-espace
                                libre (condition KKT) et n'y participent pas
+
+    UN PARAMETRE TENU PAR fixed_theta EST AUSSI HORS DU SOUS-ESPACE LIBRE, et il
+    n'apparait PAS dans n_at_bound : il est pince a sa valeur de depart, qui n'a
+    aucune raison d'etre floor ou ceil. Sans le retirer ici, le decrement de
+    Newton comptait la pente disponible le long d'une direction interdite au pas,
+    et annoncait donc un optimum moins bon qu'il ne l'est ; le spectre melangeait
+    de meme des directions gelees aux directions reelles. Les deux comptes sont
+    rendus separement (n_at_bound, n_fixed_out) plutot que fusionnes : ils ne
+    veulent pas dire la meme chose, seul leur total definit le sous-espace libre.
     """
     p = len(theta)
     at_bound = (theta <= floor + tol_bound) | (theta >= ceil - tol_bound)
-    free = ~at_bound
-    out = dict(n_at_bound=int(at_bound.sum()))
+    fixed = np.zeros(p, bool)
+    if fixed_idx:
+        fixed[np.asarray(list(fixed_idx), dtype=int)] = True
+    free = ~at_bound & ~fixed
+    out = dict(n_at_bound=int((at_bound & ~fixed).sum()),
+               n_fixed_out=int(fixed.sum()),
+               n_par_free=int(free.sum()))
     if free.sum() == 0:
         return dict(out, newton_decrement=np.nan, n_neg_eig=0, n_null_dir=0, cond=np.nan)
     Hf, gf = H[np.ix_(free, free)], g[free]
