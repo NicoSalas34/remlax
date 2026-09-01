@@ -60,21 +60,40 @@ initial theta and the BLUPs.
 Counting rather than fitting a correction factor was deliberate: a factor of
 1.70 would have closed the budget while hiding the missing item.
 
+## The external test, and its negative result
+
+ASReml's own sparse/dense partition produces **no measurable difference** on a
+dense genomic relationship matrix, at any size tested. 24 valid measurements,
+q from 500 to 4000 at n = 8000, three repetitions:
+
+| q | sparse | dense | ratio | iterations | same logLik |
+|---:|---:|---:|---:|:--:|:--:|
+| 500 | 14.25 s | 14.71 s | 0.97 | 10 / 10 | yes |
+| 1000 | 16.20 s | 16.07 s | 1.01 | 10 / 10 | yes |
+| 2000 | 26.42 s | 25.31 s | 1.04 | 10 / 10 | yes |
+| 4000 | 76.73 s | 74.86 s | 1.02 | 7 / 7 | yes |
+
+This does **not** independently replicate our central claim, and the paper must
+say so. What it does establish is that the partition changes only the solve
+path: identical log-likelihoods and identical iteration counts throughout.
+
+One caveat we cannot fully close: "the partition has no effect" and "the option
+was not applied" would look the same here. The evidence that it did apply is
+thin but real — the median prediction error variances are bit-identical at
+q = 500 and 1000 but differ in the tenth digit at q = 2000 and 4000
+(0.3489389175584 against 0.3489389176814), which is the signature of a
+different arithmetic path rather than a no-op.
+
+**Appendix A.1 does not explain remlax's missing PEVs.** The appendix says the
+coefficient matrix inverse is only partially formed for sparse terms, so BLUP
+variances are available only for the dense portion. Measured: prediction error
+variances come back from BOTH paths, with the same median standard error to ten
+digits. `predict()` evidently recomputes what it needs regardless of the
+partition. The partial inverse must therefore NOT be offered as the structural
+reason remlax does not expose PEVs — that absence is an implementation gap, and
+should be written as one.
+
 ## Not established — do not cite
 
-**ASReml's sparse/dense partition.** The first run showed no dense advantage at
-q <= 1000 (ratios 0.61, 1.03, 1.10) and the fits were 0.07 to 1.7 s, too small
-for the manual's claim, which concerns relationship matrices "of the order of
-several thousand". Rerunning to q = 4000.
-
-**Prediction error variances.** Appendix A.1 says the coefficient matrix inverse
-is only partially formed for sparse terms, so BLUP variances are available only
-for the dense portion. The measurement contradicts this: the sparse path
-returned a finite median standard error of 0.2002. Either `predict()` recomputes
-on demand independently of the partition, or the term was not actually moved.
-Until this is settled, the partial inverse must NOT be offered as the structural
-explanation for remlax not exposing PEVs.
-
-**ASReml iteration counts.** The first run read 1 everywhere because the length
-of the log-likelihood vector was taken for an iteration history. The history is
-in the object's `trace` field, one column per iteration.
+Nothing outstanding on the external test. The CPU/card paired comparison is
+still running at the largest sizes.
