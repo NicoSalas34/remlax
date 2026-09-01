@@ -430,8 +430,113 @@ def suite_crossterm(rows, args, meta):
                   % (nom, out["n_par"], gflop, t_run, med, err), flush=True)
 
 
+# ==============================================================================
+# Ou vit la densite : dans G ou dans R ?
+# ==============================================================================
+def design_gr(n_unit, t, seed=0, g_dense=False, r_dense=False, q_gen=None,
+              n_marq=400):
+    """Le meme modele, le meme nombre de parametres, la densite DEPLACEE.
+
+    LA QUESTION. Les equations du modele mixte contiennent Z' R^-1 Z + G^-1. Une
+    densite dans G ne remplit que son propre bloc, d'ou elle se propage par
+    l'elimination. Une densite dans R remplit Z' R^-1 Z pour TOUS les termes a la
+    fois, y compris ceux dont la precision est diagonale. La prediction est donc
+    que l'EMPLACEMENT de la densite compte plus que sa quantite, et qu'une
+    residuelle us disqualifie la voie creuse quand une parente genomique dense ne
+    la disqualifie pas.
+
+    POURQUOI IL FAUT DEUX CHEMINS POUR MONTER EN PARAMETRES. Le nombre de
+    parametres n'est pas un reglage libre : une us sur t caracteres en impose
+    t(t+1)/2. Faire croitre p PAR LA RESIDUELLE confond donc p avec la structure
+    de R, et toute conclusion sur p serait une conclusion sur R. On offre les
+    deux chemins a p egal :
+
+        g_dense=True, r_dense=False   us sur le terme GENETIQUE, R diagonale
+        g_dense=False, r_dense=True   G diagonal, us sur la RESIDUELLE
+
+    A t egal, ces deux cas ont le MEME nombre de parametres de covariance et la
+    meme taille de probleme. Ils ne different que par le cote ou la densite se
+    trouve, ce qui est exactement la comparaison demandee.
+    """
+    rng = np.random.default_rng(seed)
+    n = n_unit * t
+    unit = np.tile(np.arange(n_unit), t)
+    trait = np.repeat(np.arange(t), n_unit)
+    q = q_gen or max(6, n_unit // 4)
+
+    # --- cote G : us si dense, DIAG sinon --------------------------------------
+    # Il faut `diag` et non `iid` : iid ne porte qu'UN parametre quel que soit t,
+    # face a une residuelle diag qui en porte t. Le nombre de parametres ne
+    # serait alors pas apparie entre les deux cotes, et l'ecart de temps se
+    # confondrait avec un ecart de p — ce qui detruirait la comparaison que cette
+    # suite existe pour faire. Avec diag des deux cotes, "us sur G" et "us sur R"
+    # ont exactement t + t(t+1)/2 parametres.
+    struct_g = "us" if g_dense else "diag"
+    LK = None
+    if g_dense:
+        # parente genomique dense, construite selon VanRaden sur des marqueurs
+        M = rng.binomial(2, 0.3, size=(q, n_marq)).astype(np.float64)
+        pf = M.mean(0) / 2
+        W = M - 2 * pf
+        K = W @ W.T / (2 * np.sum(pf * (1 - pf)))
+        K += np.eye(q) * 1e-6 * float(np.mean(np.diag(K)))
+        LK = np.linalg.cholesky(K)
+
+    zj = np.tile(rng.integers(0, q, size=n_unit), t)
+    terms = [dict(name="g", struct=struct_g, t=t, rank=0, q=q,
+                  zi=np.arange(n), zj=zj.astype(np.int64),
+                  zx=np.ones(n), LK=LK)]
+
+    # --- cote R : us entre caracteres si dense, diag sinon --------------------
+    res = dict(struct=("us" if r_dense else "diag"), t=t, rank=0,
+               trait=trait.astype(np.int64), unit=unit)
+
+    y = 2.0 + rng.normal(size=n)
+    X = np.ones((n, 1))
+    return terms, res, y, X
+
+
+def suite_gr(rows, args, meta):
+    """Les quatre cellules G x R, a p, q et n apparies."""
+    ts = [int(v) for v in (args.ts or "2,4,8").split(",")]
+    for t in ts:
+        n_unit = max(50, args.n_gen // t)
+        for g_dense, r_dense in ((False, False), (True, False),
+                                 (False, True), (True, True)):
+            nom = "G%s/R%s" % ("dense" if g_dense else "creux",
+                               "dense" if r_dense else "creux")
+            terms, res, y, X = design_gr(n_unit, t, seed=11, g_dense=g_dense,
+                                         r_dense=r_dense, q_gen=args.q_gen)
+            n = len(y)
+            if n > args.nmax:
+                continue
+            try:
+                t_first, t_run, v = timed_objective(terms, res, y, X, args.reps)
+                if args.no_fit:
+                    med, out = float("nan"), {"n_par": -1, "logLik": float("nan"),
+                                              "n_iter": -1}
+                else:
+                    med, lo, hi, out = timed_fit(terms, res, y, X, 1, hessian=False)
+                ok, err = "ok", ""
+            except Exception as e:
+                t_first = t_run = v = med = float("nan")
+                out = {"n_par": -1, "logLik": float("nan"), "n_iter": -1}
+                ok, err = "failed", type(e).__name__ + ": " + str(e)[:200]
+            rows.append(dict(meta, suite="gr", case=nom, n=n, q=terms[0]["q"],
+                             n_traits=t, g_dense=int(g_dense), r_dense=int(r_dense),
+                             status=ok, error=err,
+                             first_call_s=t_first, run_call_s=t_run,
+                             compile_s=(t_first - t_run) if t_first == t_first else float("nan"),
+                             fit_s_median=med, n_par=int(out["n_par"]),
+                             n_iter=int(out.get("n_iter") or -1),
+                             logLik=float(out["logLik"]),
+                             rss_mb=rss_mb(), gpu_mb=gpu_mem_mb()))
+            print("[gr] %-14s t=%-2d n=%-6d q=%-5d p=%-4s eval %8.4f s | ajust %9.2f s %s"
+                  % (nom, t, n, terms[0]["q"], out["n_par"], t_run, med, err), flush=True)
+
+
 SUITES = {"scaling": suite_scaling, "compile": suite_compile,
-          "params": suite_params, "structures": suite_structures,
+          "params": suite_params, "structures": suite_structures, "gr": suite_gr,
           "genomic": suite_genomic, "crossterm": suite_crossterm}
 
 

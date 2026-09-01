@@ -1,0 +1,330 @@
+\documentclass[article]{jss}
+\usepackage{amsmath,amssymb,booktabs}
+
+\author{Nicolas Salas\\INRAE}
+\title{\pkg{remlax}: Automatic Differentiation for Restricted Maximum
+       Likelihood, with a Structure Catalogue and a Choice of Engine}
+\Plainauthor{Nicolas Salas}
+\Plaintitle{remlax: Automatic Differentiation for REML}
+\Abstract{
+Fitting linear mixed models by restricted maximum likelihood is routine in
+plant and animal breeding, but the software that covers the structures
+breeders need---separable spatial fields, unstructured multi-trait
+covariances, reduced-rank factor analytic models---is either proprietary or
+requires the user to derive and code a likelihood by hand. \pkg{remlax} is a
+free implementation that forms the marginal covariance explicitly and
+differentiates it automatically, so that any structure added to its catalogue
+receives its gradient for free. The same model specification is fitted by
+either of two engines: a dense engine that differentiates $V$ and runs
+unchanged on CPU or GPU, and a sparse engine built on the mixed model
+equations for the subset of structures whose inverse is sparse and known in
+closed form. Which engine is faster is not a matter of problem size: we show
+that it is decided by where the density sits, and we give a structural
+criterion that can be evaluated before any numerical work.
+}
+\Keywords{REML, mixed models, automatic differentiation, \proglang{JAX},
+          variance components, spatial models, \proglang{R}, \proglang{Python}}
+\Address{Nicolas Salas\\ E-mail: \email{nicolas.salas@supagro.fr}}
+
+\begin{document}
+\maketitle
+
+\section{Introduction}\label{sec:intro}
+
+% TODO(intro) — a rédiger en dernier, une fois les mesures complètes, pour que
+% les promesses de l'introduction soient exactement celles que les sections
+% suivantes tiennent.
+
+\section{Model and parameterisation}\label{sec:model}
+
+We consider the linear mixed model
+%
+\begin{equation}\label{eq:lmm}
+  y = X\beta + \sum_{k=1}^{K} Z_k u_k + e,
+  \qquad u_k \sim \mathcal{N}(0, G_k), \qquad e \sim \mathcal{N}(0, R),
+\end{equation}
+%
+with marginal covariance $V = \sum_k Z_k G_k Z_k' + R$. The restricted
+log-likelihood, up to an additive constant,
+%
+\begin{equation}\label{eq:reml}
+  -2\log L_R(\theta) = \log|V| + \log|X'V^{-1}X| + y'Py,
+  \qquad
+  P = V^{-1} - V^{-1}X(X'V^{-1}X)^{-1}X'V^{-1},
+\end{equation}
+%
+is a function of the variance parameters $\theta$ alone.
+
+\subsection{One hand-written derivative rule}
+
+The design decision from which everything else follows is that
+\pkg{remlax} does not differentiate through the Cholesky factorisation of
+$V$. It supplies the derivative of \eqref{eq:reml} with respect to $V$ in
+closed form,
+%
+\begin{equation}\label{eq:vjp}
+  \frac{\partial\,(-2\log L_R)}{\partial V} = P - (Py)(Py)',
+\end{equation}
+%
+and lets automatic differentiation propagate that single rule backwards
+through whatever code built $V$ from $\theta$.
+
+Two consequences matter. Memory: reverse-mode differentiation through a
+Cholesky factorisation stores the intermediates of the factorisation, whereas
+\eqref{eq:vjp} needs $P$ and $Py$ only, so three $n \times n$ matrices are
+live at once rather than a dozen. Genericity: a new covariance structure is a
+new way of building $V$, and it receives its gradient without any further
+derivation. The catalogue of Section~\ref{sec:catalogue} is a direct
+consequence---adding a structure is writing its forward construction.
+
+\section{The structure catalogue}\label{sec:catalogue}
+
+A term contributes $Z_k (\Sigma_k \otimes C_k) Z_k'$ to $V$, where $\Sigma_k$
+is a covariance between traits and $C_k$ a correlation between levels.
+\pkg{remlax} parameterises the two independently: nine forms for $\Sigma$ and
+twenty-five for $C$, so their product covers the models used in multi-trait
+and spatial analyses without a combinatorial special case for each pairing.
+
+\begin{table}[t]\centering
+\begin{tabular}{llr}
+\toprule
+Form & Meaning & Parameters \\
+\midrule
+\code{iid}   & scalar variance                        & $1$ \\
+\code{diag}  & heterogeneous variances, no correlation& $t$ \\
+\code{us}    & unstructured                           & $t(t+1)/2$ \\
+\code{fa}    & factor analytic, $m$ factors           & $tm + t$ \\
+\code{rr}    & reduced rank, $m$ factors              & $tm$ \\
+\code{chol}  & Cholesky parameterisation              & $t(t+1)/2$ \\
+\code{ante}  & antedependence                         & $2t-1$ \\
+\code{corh}  & common correlation, heterogeneous variances & $t+1$ \\
+\code{fixed} & supplied, not estimated                & $0$ \\
+\bottomrule
+\end{tabular}
+\caption{\label{tab:sigma}Covariance forms available for $\Sigma$.}
+\end{table}
+
+The level structures $C$ cover autoregressive and moving-average families
+(\code{ar1}, \code{ar2}, \code{ar3}, \code{sar}, \code{ma1}, \code{ma2},
+\code{arma}), isotropic and anisotropic metric kernels (\code{exp},
+\code{gau}, \code{iexp}, \code{igau}, \code{ieuc}, \code{sph}, \code{cir},
+\code{aexp}, \code{agau}, \code{mtrn}), correlation forms (\code{cor},
+\code{corb}, \code{corg}), the separable product \code{ar1ar1}, and the
+degenerate cases \code{id}, \code{fixed} and \code{own}.
+
+\subsection{Reported scales}
+
+% NOTE(mesure) — cette sous-section documente le comportement CORRIGÉ ce jour :
+% les rapports rendent la valeur remise à l'échelle présente dans C, non la
+% valeur transformée. Voir docs/structures.md, qui donne l'échelle rapportée
+% famille par famille.
+
+Every family is estimated on an unconstrained scale and reported on its
+natural one. This matters for interpretation: a correlation is reported as the
+rescaled value actually present in $C$, not as the transformed parameter the
+optimiser moves. For the intrinsic metric kernels the sign of the range
+parameter is not identified---$\theta$ and $-\theta$ give the same $C$---and
+the reported value is taken positive.
+
+\section{Two engines for one specification}\label{sec:engines}
+
+\subsection{The dense engine}
+
+The dense engine forms $V$ explicitly, factorises it, and applies
+\eqref{eq:vjp}. It is written in \proglang{JAX} in double precision and runs
+unchanged on CPU or GPU. Its cost is $O(n^3)$ per evaluation and it is
+indifferent to how sparse the model is.
+
+\subsection{The sparse engine}
+
+The sparse engine never forms $V$. It works on the mixed model equations,
+%
+\begin{equation}\label{eq:mme}
+  C = \begin{pmatrix} X'R^{-1}X & X'R^{-1}Z \\
+                      Z'R^{-1}X & Z'R^{-1}Z + G^{-1} \end{pmatrix},
+\end{equation}
+%
+which contain $G^{-1}$ and $R^{-1}$ rather than $G$ and $R$. It is built on
+\pkg{RTMB} \citep{rtmb}, declaring both $\beta$ and $u$ as random so that the
+Laplace approximation---exact for a linear Gaussian model---supplies the
+sparse factorisation, the log-determinant and the exact gradient.
+
+Its scope is a declared, testable rule rather than a heuristic: a model is in
+scope when every level structure has a sparse inverse known in closed form.
+Three qualify (\code{id}, \code{ar1}, \code{ar1ar1}), together with a
+precision supplied directly by the user, and three covariance forms
+(\code{iid}, \code{diag}, \code{us}). Everything else stays on the dense
+engine. A consequence of the rule is that the sparse engine never inverts
+anything: the retained structures have analytic inverses and analytic
+log-determinants.
+
+\subsection{Declaring a term by its precision}
+
+A term may be declared by $K$, its between-level covariance, or by $K^{-1}$,
+its precision. The second is the sparse route for a pedigree: Henderson's
+rules give $A^{-1}$ directly, with about five non-zeros per individual,
+without ever forming $A$ or factorising it. Supplying $K$ does not permit
+this, since its Cholesky factor is dense and the inverse of a sparse matrix is
+generally full. Supplying both is refused, and a precision that is itself
+heavily filled---the genomic case---raises a warning, since sparsity buys
+nothing there.
+
+\section{Validation}\label{sec:validation}
+
+% Chaque affirmation de cette section renvoie au fichier qui la produit.
+% Aucune n'est reprise d'une exécution antérieure non versionnée.
+
+Validation is organised around what a failure would have meant, not around
+test counts. Three levels are used, and the third is the one that found
+defects the other two could not.
+
+\subsection{Internal agreement}
+
+\emph{tests/R/test\_remlax\_tmb\_parity.R} checks that the two engines read
+$\theta$ identically: that $\Sigma(\theta)$ agrees for \code{iid},
+\code{diag} and \code{us}; that the closed-form \code{ar1} and \code{ar1ar1}
+precisions are exact inverses of the correlation matrices the dense engine
+builds, verified by forming $K^{-1}K$ rather than by inspecting a sparsity
+pattern; and that the analytic log-determinants agree with numerical ones.
+Thirty checks, largest discrepancy $3.6 \times 10^{-15}$.
+
+\subsection{Cross-engine agreement, in both directions}
+
+\emph{tests/R/test\_remlax\_tmb\_vs\_dense.R} evaluates each engine at the
+other's optimum. Both directions are needed: an engine could have a correct
+surface along the other's path and be wrong elsewhere. Sixteen checks over
+four designs agree to $10^{-12}$ on cross-evaluation and $6 \times 10^{-9}$ on
+the attained optima.
+
+\subsection{An arbiter beholden to neither engine}
+
+Two engines that agree prove less than one engine checked against an
+independent computation. \emph{tests/R/test\_remlax\_tmb\_prec.R} carries a
+REML likelihood written out in dense linear algebra, and it settled three
+disagreements during development that engine-to-engine comparison could not.
+In one of them it identified the sparse engine as wrong; in another, the dense
+engine; in the third, the test design itself.
+
+The defect it caught in the precision path deserves reporting, because it is
+the class of defect an estimate-based test cannot see. The objective read a
+user-supplied log-determinant field and silently fell back to zero when
+absent, so $\log|K|$ was simply missing. Being constant, the omission left the
+gradient untouched: the parameter estimates agreed to five digits and only the
+likelihood was wrong---hence every model comparison, likelihood ratio test and
+information criterion computed from it.
+
+\subsection{Agreement with established software}
+
+Against \pkg{asreml} 4.2 \citep{asreml}, \pkg{lme4} \citep{lme4} and
+\pkg{sommer} \citep{sommer}, in a container where all are installed:
+restricted log-likelihoods agree to $10^{-5}$ in \pkg{asreml}'s own
+convention, variance components to the same order, and heritabilities with
+their delta-method standard errors.
+
+% TODO(mesure) — BLUP et variances d'erreur de prédiction : job soumis, la
+% suite est tests/R/test_remlax_asreml_blup.R. C'est le seul chemin de sortie
+% encore non confronté à un logiciel de référence.
+
+\subsection{A conditioning limit, made deliberate}
+
+The mixed model equations \eqref{eq:mme} contain $R^{-1}$, so the sparse
+engine degrades as the residual variance approaches zero. Rather than hope an
+optimiser visits that region, the check imposes $\theta$ and reports the
+degradation, which is monotone: at $\sigma_e^2 = 3.4 \times 10^{-4}$ the two
+engines agree to $3.8 \times 10^{-11}$, and at $3.8 \times 10^{-11}$ they
+agree only to $1.7 \times 10^{-4}$. This is structural to the formulation,
+and it is why \pkg{asreml} parameterises the ratio of variances instead.
+
+\section{Performance}\label{sec:performance}
+
+% ATTENTION — toute mesure GPU obtenue sur une tranche MIG est une BORNE
+% PESSIMISTE : une tranche expose 7 des 108 unités de calcul de la carte. Le
+% facteur tranche vers carte entière se mesure, il ne s'extrapole pas ; une
+% extrapolation linéaire dépasse le pic annoncé de la carte.
+
+\subsection{Compilation is a purchasable cost, not a fixed one}
+
+\pkg{remlax} compiles the model to a program before evaluating it, and that
+compilation runs on the CPU whichever device the program targets. On a
+dense-kinship model with $n = 2000$ and $q = 1000$:
+
+\begin{table}[h]\centering
+\begin{tabular}{rrrr}
+\toprule
+Cores & CPU backend & GPU backend & Backend gap \\
+\midrule
+ 2 & \phantom{0}75.99\,s & \phantom{0}79.89\,s & 5.1\,\% \\
+ 8 & \phantom{0}20.95\,s & \phantom{0}21.49\,s & 2.6\,\% \\
+16 & \phantom{0}10.88\,s & \phantom{0}12.24\,s & 12.6\,\% \\
+\bottomrule
+\end{tabular}
+\caption{\label{tab:compil}Compilation time against core count. Eight times
+the cores divide the cost by 7.0---87\,\% parallel efficiency---while the
+target device changes it by at most 13\,\%.}
+\end{table}
+
+Two practical consequences follow, and the second is counter-intuitive.
+Compilation is amortised over evaluations, so it is negligible for a model
+with many parameters and dominant for a model with few: the break-even is
+counted in evaluations, not in problem size. And a GPU job should request many
+CPU cores; fitting several models concurrently on separate GPU slices with few
+cores each is slower than fitting them sequentially with all cores.
+
+\subsection{Where each engine wins}
+
+% TODO(mesure) — tableau à compléter par le criblage G x R et par la carte
+% entière. Les cellules ci-dessous sont mesurées et versionnées dans
+% benchmarks/results/.
+
+For a structurally sparse model the sparse engine wins by a wide margin: at
+$n = 4000$ it fits in 2.6\,s against 608\,s for the dense engine on CPU, a
+factor of 230. For dense genomic kinship the picture is not the one the
+folklore suggests---the sparse engine still wins most cells, and loses only
+when the number of effects is large relative to the number of observations.
+What separates the two is that the sparse engine's cost is governed by $q$ and
+is flat in $n$ (2.43, 2.43 and 2.39\,s per evaluation at $q = 500$ for
+$n = 1000, 2000, 4000$), while the dense engine's cost grows with $n$.
+
+\subsection{The empty cell}
+
+The sparse engine has no GPU path, and this is not an omission. Sparse
+factorisation goes through \pkg{CHOLMOD}, which is CPU-only, and the reason is
+structural: irregular memory access and the sequential dependencies of the
+elimination tree give it low arithmetic intensity, where a dense product
+reaches close to peak. Sparse and GPU are therefore mutually exclusive rather
+than two independent axes, which turns the choice of engine into an arbitrage.
+
+\section{Choosing an engine}\label{sec:decision}
+
+% TODO(mesure) — cette section attend le criblage G x R. La prédiction qu'elle
+% teste est écrite ici AVANT la mesure, pour qu'elle soit réfutable.
+
+The criterion is structural and costs no numerical work. What decides is not
+the size of the problem but where the density sits. In \eqref{eq:mme}, a dense
+$G$ fills its own block, from which fill propagates through elimination; a
+dense $R$ fills $Z'R^{-1}Z$ for every term at once, including terms whose
+precision is diagonal. The prediction, which the accompanying screening tests
+at matched parameter counts, is that an unstructured residual disqualifies the
+sparse route where a dense genomic kinship does not.
+
+\section{Outlook}\label{sec:outlook}
+
+Three directions are identified by measurement rather than by preference.
+
+Relationship matrices currently enter the compiled program as constants---the
+compiler reports 2.17\,GB captured on a real multivariate analysis---so the
+program is recompiled for every size. Passing them as arguments would compile
+once and reuse, and the gain is measurable against the figures of
+Section~\ref{sec:performance}.
+
+Prediction error variances for BLUPs are computed but not yet confronted with
+a reference implementation.
+
+Finally, the sparse route is limited by the CPU-only factorisation. A
+matrix-free formulation---for Markov random field representations of spatial
+fields in particular---would restore a GPU path, at the cost of a stochastic
+gradient and hence of a different stopping rule.
+
+\bibliography{remlax}
+
+\end{document}
