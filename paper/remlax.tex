@@ -221,9 +221,19 @@ restricted log-likelihoods agree to $10^{-5}$ in \pkg{asreml}'s own
 convention, variance components to the same order, and heritabilities with
 their delta-method standard errors.
 
-% TODO(mesure) — BLUP et variances d'erreur de prédiction : job soumis, la
-% suite est tests/R/test_remlax_asreml_blup.R. C'est le seul chemin de sortie
-% encore non confronté à un logiciel de référence.
+BLUPs are checked separately, in
+\emph{tests/R/test\_remlax\_asreml\_blup.R}, because they are the output a
+breeder actually uses and no earlier suite touched them. Matching levels by
+name rather than by position, all $60$ predictions agree with \pkg{asreml} to
+$3.2 \times 10^{-6}$, with a correlation of $1$ to twelve digits, and the
+fixed effect to ten.
+
+That test also records a gap rather than a disagreement: \pkg{remlax} computes
+BLUPs but does not expose their prediction error variances, where
+\pkg{asreml} reports a standard error and a $z$ ratio for every effect.
+Without them a candidate ranking carries no measure of reliability, so this is
+a required addition, and the information is available since the solver already
+factorises the coefficient matrix.
 
 \subsection{A conditioning limit, made deliberate}
 
@@ -241,6 +251,47 @@ and it is why \pkg{asreml} parameterises the ratio of variances instead.
 % PESSIMISTE : une tranche expose 7 des 108 unités de calcul de la carte. Le
 % facteur tranche vers carte entière se mesure, il ne s'extrapole pas ; une
 % extrapolation linéaire dépasse le pic annoncé de la carte.
+
+\subsection{Fixed costs, and an unfavourable comparison}\label{sec:fixed}
+
+A reader comparing \pkg{remlax} to established software on a small model will
+find it slower, and by a wide margin. We report that measurement first,
+because the decomposition behind it is the informative part.
+
+On a single-trait model with $720$ observations, $60$ genotypes and two
+variance parameters, \pkg{asreml} fits in $0.080$\,s. \pkg{remlax} takes
+$3.40$\,s called from \proglang{R}. Decomposing that figure:
+
+\begin{table}[h]\centering
+\begin{tabular}{lrr}
+\toprule
+Quantity measured & Time & Ratio to \pkg{asreml} \\
+\midrule
+Wall time, called from \proglang{R}          & 3.398\,s & 42.5 \\
+Fit in process                               & 1.329\,s & 16.6 \\
+Internal time reported by the solver         & 0.598\,s & \phantom{0}7.5 \\
+Algebraic cost alone ($9 \times 0.0137$\,s)  & 0.123\,s & \phantom{0}1.5 \\
+\bottomrule
+\end{tabular}
+\caption{\label{tab:fixed}Where the time goes on a small model. The linear
+algebra is within a factor of $1.5$; everything above it is fixed cost.}
+\end{table}
+
+Compilation, the finite-difference Hessian and the BLUPs account for
+$90.7\,\%$ of the in-process fit, and the \proglang{R} interface adds $2.8$\,s
+of out-of-process invocation because it launches a \proglang{Python} process
+per fit. On a model with two parameters and nine iterations there is nothing
+to amortise these costs against.
+
+This unifies the section. Fixed costs are amortised over evaluations, and the
+number of evaluations is governed by the number of parameters, so
+\pkg{remlax} becomes competitive exactly when a model is large enough in
+parameters to pay for its own setup---the same criterion as for compilation in
+Section~\ref{sec:performance}. It also identifies the most valuable
+optimisation in the package, which is not algebraic: a persistent worker
+process reused across fits would remove the $2.8$\,s entirely, and it matters
+most for the serial-fitting workloads (likelihood ratio tests over many
+reduced models) where hundreds of fits are performed.
 
 \subsection{Compilation is a purchasable cost, not a fixed one}
 
