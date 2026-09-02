@@ -256,7 +256,13 @@ rx_level_prec_R <- function(theta_lv, kind, q, dims = NULL, Kinv = NULL,
 }
 
 rx_n_level_params <- function(kind) {
-  switch(kind, id = 0L, iid = 0L, ar1 = 1L, ar1ar1 = 2L, prec = 0L,
+  # `fixed` = une parente FOURNIE, par son facteur de Cholesky (champ LK). Elle
+  # ne porte aucun parametre a estimer, exactement comme `prec` qui la fournit
+  # par son inverse. L'omission faisait echouer rx_n_theta() sur tout terme
+  # portant une K, alors que le moteur creux n'y touchait pas : il recoit Kinv,
+  # donc `prec`, qui etait present. Le defaut n'apparaissait qu'en imposant
+  # theta sur un modele a parente dense.
+  switch(kind, id = 0L, iid = 0L, ar1 = 1L, ar1ar1 = 2L, prec = 0L, fixed = 0L,
          stop("structure entre niveaux inconnue : ", kind))
 }
 
