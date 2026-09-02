@@ -339,19 +339,27 @@ by $3.8$, then $5.2$, then $6.0$ per doubling of $n$, against $8$ for a pure
 Cholesky. Below $n \approx 4000$ the card is not saturated and fixed launch
 costs dominate; by $n = 16\,000$ it approaches its compute limit.
 
-The median speed-up of the card over sixteen CPU cores is $27$ on the
-multi-trait family, the only one sampled densely enough to support a
-conclusion---$26.9$ without kinship against $28.2$ with it, on $28$ paired
-cells each. The other two families contribute two pairs per group and their
-medians are not interpretable; the figure prints the group sizes rather than
-hide the weakness.
+The median speed-up of the whole card over sixteen CPU cores, on $87$ paired
+cells, is $27.2$, $26.8$, $29.7$ and $21.7$ at $n = 2000$, $4000$, $8000$ and
+$16\,000$. It is therefore \emph{flat across the range}: the card does not win
+by more as the problem grows. This contradicts the intuition that an
+accelerator pays off increasingly with size, and it follows from the two
+curves being close to parallel---both devices are in the same asymptotic
+regime, and the card's advantage is a constant factor rather than a widening
+one. Kinship does not move it either: on the multi-trait family, the only one
+sampled densely enough to support the comparison, the median is $26.9$ without
+a genomic relationship matrix and $28.2$ with it, on $28$ paired cells each.
 
-Two absences are stated rather than left to inference. CPU cells beyond
-$n = 4000$ were not measured: a single fit at $n = 16\,000$ with six traits
-took $2736$\,s, and the sweep exhausted its allocation. And the CPU points
-scatter over a factor of $13$ where the card holds within a factor of $1.3$;
-that dispersion is measurement noise on a shared node rather than a property
-of the model, and it is the card's stability that licenses the attribution.
+Two limitations are stated rather than left to inference. The CPU cells at
+$n = 8000$ and $16\,000$ were recovered from the run logs of two jobs that
+exhausted their walltime before writing their result files---a single fit at
+$n = 16\,000$ with six traits took $2736$\,s---so those two sizes carry $12$
+and $11$ cells against $32$ at the smaller sizes, and no full fits. And the
+CPU points scatter over a factor of $13$ at $n = 2000$ where the card holds
+within $1.3$; that dispersion is contention on a shared node rather than a
+property of the model. It shrinks to a factor of $1.3$ at $n = 16\,000$, where
+computation dominates and the node's other tenants matter less---which is the
+evidence that it is noise and not signal.
 
 \begin{figure}[t]\centering
 \includegraphics[width=\textwidth]{figures/fig_backend.pdf}
@@ -359,9 +367,12 @@ of the model, and it is the card's stability that licenses the attribution.
 \textbf{(a)} Each point is one cell---one family, one covariance structure,
 one relationship matrix; the line joins the medians. The card's cells collapse
 onto each other at every size, so the engine's cost is set by $n$ alone.
-\textbf{(b)} Card-over-CPU speed-up per family and per relationship matrix,
-with group sizes printed; the bar is the median. $n = 2000$ and $4000$ only,
-these being the sizes at which both devices were measured.}
+\textbf{(b)} Card-over-CPU speed-up, one point per paired cell, with the
+number of pairs printed at each size; the bar is the median. The medians are
+$27.2$, $26.8$, $29.7$ and $21.7$: the advantage is a constant factor, not one
+that widens with the problem. The two largest sizes carry fewer pairs because
+their CPU measurements were recovered from the logs of jobs that exhausted
+their walltime.}
 \end{figure}
 
 \subsection{A cost model that can be, and was, refuted}\label{sec:reconstruction}
