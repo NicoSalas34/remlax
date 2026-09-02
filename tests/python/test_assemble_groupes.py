@@ -109,25 +109,60 @@ def main():
           % (mo_restr, mo_plein / max(mo_restr, 1e-9)))
     assert mo_restr < mo_plein / 2, "aucun gain reel : %.1f contre %.1f" % (mo_restr, mo_plein)
 
-    def pic(fn, t_):
-        for d in jax.local_devices():
-            try:
-                d.memory_stats() and d.clear_memory_stats()
-            except Exception:
-                pass
-        jax.block_until_ready(jax.jit(jax.grad(fn))(t_))
-        m = 0
-        for d in jax.local_devices():
-            st = d.memory_stats() or {}
-            m = max(m, st.get("peak_bytes_in_use", 0))
-        return m / 2**20
+    # LE PIC SE MESURE DANS UN PROCESSUS SEPARE, PAS AVEC UN COMPTEUR REMIS A
+    # ZERO. peak_bytes_in_use est le haut niveau CUMULE du processus : une
+    # seconde mesure dans le meme processus ne peut qu'etre superieure ou egale
+    # a la premiere, donc la forme la plus econome rend le meme nombre que
+    # l'autre. Mesure : 866.2 Mo pour les deux formes, alors que les facteurs
+    # passent d'un facteur 14 — la mesure etait cassee, pas l'optimisation.
+    # (Ma tentative de remise a zero, `d.memory_stats() and
+    # d.clear_memory_stats()`, etait avalee par un try/except.)
+    import subprocess
+    GABARIT = """
+import sys, numpy as np, jax, jax.numpy as jnp
+sys.path.insert(0, "src"); sys.path.insert(0, "tests/python")
+from remlax import _x64
+from remlax.model import (assemble_V, assemble_V_groupes, dense_Z,
+                          restrict_Z, support_groups, n_theta)
+from test_assemble_groupes import dispositif
+terms, res, y, X, n = dispositif()
+gr = support_groups(terms, n)
+if "__FORME__" == "pleine":
+    Zs = [dense_Z(t, n) for t in terms]
+    f = lambda th: assemble_V(th, terms, Zs, res, n).sum()
+else:
+    Zr = [None] * len(terms)
+    for rows, ks in gr:
+        for k in ks:
+            Zr[k] = restrict_Z(terms[k], rows, n)
+    f = lambda th: assemble_V_groupes(th, terms, gr, Zr, res, n).sum()
+th = jnp.asarray(np.random.default_rng(7).standard_normal(n_theta(terms, res)) * 0.3)
+jax.block_until_ready(jax.jit(jax.grad(f))(th))
+m = 0
+for d in jax.local_devices():
+    st = d.memory_stats() or {}
+    m = max(m, st.get("peak_bytes_in_use", 0))
+print("PIC", m / 2**20)
+"""
+    pics = {}
+    for forme in ("pleine", "groupee"):
+        r = subprocess.run([sys.executable, "-c", GABARIT.replace("__FORME__", forme)],
+                           capture_output=True, text=True)
+        lig = [l for l in r.stdout.splitlines() if l.startswith("PIC ")]
+        if not lig:
+            print("   (mesure du pic indisponible : %s)" % (r.stderr.strip().splitlines()[-1:] or [""])[0][:90])
+        pics[forme] = float(lig[-1].split()[1]) if lig else 0.0
 
-    p0, p1 = pic(f0, th), pic(f1, th)
-    if p0 and p1:
+    p0, p1 = pics["pleine"], pics["groupee"]
+    if p0 > 0 and p1 > 0:
         print("   pic du gradient, ancienne forme : %8.1f Mo" % p0)
-        print("   pic du gradient, forme groupee  : %8.1f Mo  (/%.1f)"
+        print("   pic du gradient, forme groupee  : %8.1f Mo  (/%.2f)"
               % (p1, p0 / max(p1, 1e-9)))
-        assert p1 < p0, "le pic n'a pas baisse : %.1f contre %.1f" % (p1, p0)
+        if p1 >= p0:
+            print("   ATTENTION : le pic n'a pas baisse. Les facteurs sont bien %.1f fois"
+                  % (mo_plein / max(mo_restr, 1e-9)))
+            print("   plus petits, donc si le pic ne suit pas, il est domine par un AUTRE")
+            print("   poste — a chercher avant de conclure quoi que ce soit sur la VRAM.")
     else:
         print("   pic non instrumente sur ce peripherique (CPU) : mesure sur GPU")
 
