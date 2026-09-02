@@ -595,6 +595,18 @@ def fit_reml(terms, res, y, X, theta_init=None, maxiter=3000,
         out["hessian"] = H
         out.update(_diagnostic(H, g_end, theta, floor, ceil, fixed_idx=fixed_idx,
                                f_obj=out.get("neg2_reml")))
+    else:
+        # SANS HESSIEN, CE QUI RESTE DISPONIBLE L'EST GRATUITEMENT. g_end est
+        # deja en memoire : supprimer le gradient projete avec le reste laissait
+        # un ajustement de 39 minutes sans AUCUN critere, alors que celui-ci
+        # suffit a dire qu'un point n'est pas un optimum. Le decrement et le
+        # signe de la courbure restent absents, et le verdict le DIT plutot que
+        # de valoir vrai par defaut.
+        out.update(_diagnostic_gradient(g_end, theta, floor, ceil,
+                                        fixed_idx=fixed_idx,
+                                        f_obj=out.get("neg2_reml")))
+        out.update(dict(newton_decrement=np.nan, conv_decrement=None,
+                        conv_hessien_ok=None, n_neg_eig=None, cond=np.nan))
     return out
 
 
@@ -692,6 +704,49 @@ def _verdict(d):
     v["seuil_decrement"] = SEUIL_DECREMENT
     v["seuil_grad_rel"] = SEUIL_GRAD_REL
     return v
+
+
+def _diagnostic_gradient(g, theta, floor, ceil, tol_bound=1e-7, fixed_idx=None,
+                         f_obj=None, ech=None):
+    """Les criteres qui ne demandent QU'UN GRADIENT, deja calcule.
+
+    POURQUOI CETTE FONCTION EXISTE. Le bloc de diagnostic etait conditionne EN
+    BLOC sur `hessian` : avec hessian=False les TROIS criteres sortaient NA, y
+    compris le gradient projete, qui ne demande pourtant aucun Hessien. Mesure
+    sur l'ordre 0 du balayage IGE : 39 minutes d'ajustement et pas un seul
+    critere rapporte, alors que celui-la etait disponible gratuitement — g_end
+    est deja en memoire. Le decrement de Newton et le signe de la courbure, eux,
+    exigent bien H et restent absents.
+
+    LA PROJECTION EST INDISPENSABLE. Une composante de variance tenue a sa borne
+    laisse un gradient non nul dans cette direction : sans projeter sur le cone
+    admissible, aucun critere ne peut jamais etre satisfait, et c'est exactement
+    le defaut du critere max_grad de la grille de reference.
+    """
+    p_ = len(theta)
+    at_bound = (theta <= floor + tol_bound) | (theta >= ceil - tol_bound)
+    fixed = np.zeros(p_, bool)
+    if fixed_idx:
+        fixed[np.asarray(list(fixed_idx), dtype=int)] = True
+    free = ~at_bound & ~fixed
+    out = dict(n_at_bound=int((at_bound & ~fixed).sum()),
+               n_fixed_out=int(fixed.sum()),
+               n_par_free=int(free.sum()))
+    if free.sum() == 0:
+        return dict(out, grad_proj_max=np.nan, grad_rel=np.nan, conv_grad_rel=None)
+    gf = g[free]
+    if not np.all(np.isfinite(gf)):
+        return dict(out, grad_proj_max=np.nan, grad_rel=np.nan, conv_grad_rel=None)
+    gpm = float(np.max(np.abs(gf)))
+    # MISE A L'ECHELLE de chaque parametre et de l'objectif, comme dans le
+    # diagnostic complet : un gradient brut n'est pas invariant d'echelle.
+    e = np.maximum(np.abs(theta[free]), 1.0) if ech is None else np.asarray(ech)[free]
+    if f_obj is None or not np.isfinite(f_obj):
+        grad_rel = np.nan
+    else:
+        grad_rel = float(np.max(np.abs(gf) * e) / max(abs(float(f_obj)), 1.0))
+    return dict(out, grad_proj_max=gpm, grad_rel=grad_rel,
+                conv_grad_rel=(None if not np.isfinite(grad_rel) else bool(grad_rel < 1e-6)))
 
 
 def _diagnostic(H, g, theta, floor, ceil, tol_bound=1e-7, fixed_idx=None, f_obj=None):
