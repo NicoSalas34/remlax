@@ -97,3 +97,49 @@ should be written as one.
 
 Nothing outstanding on the external test. The CPU/card paired comparison is
 still running at the largest sizes.
+
+## Sweep 3: model complexity at constant n per trait (running)
+
+The design a breeder runs: the same plants measured on more and more traits.
+`us(t)` on the genetic term, `t` from 1 to 8, so `p = t(t+1)/2` rises from 1 to
+36 while total `n = 2000 t` rises with it. This **couples** n and p on purpose,
+where sweep 2 held total n fixed; the two together separate the axes. Levels
+`q = 500`, residual `diag(t)` so p stays dominated by the genetic term.
+
+Three cells, not four:
+
+| cell | engine | device | why |
+|---|---|---|---|
+| traits-dense | dense (JAX) | CPU 16 cores | |
+| traits-dense | dense (JAX) | whole A100 | asserted, not assumed |
+| traits-creux  | sparse (RTMB) | CPU 16 cores | |
+| —             | sparse | GPU | **does not exist**: CHOLMOD is CPU-only |
+
+That empty cell is a result. It makes "sparse" and "GPU" mutually exclusive, so
+the engine choice is a trade-off rather than two independent axes.
+
+Each cell is measured with an identity relationship matrix and with a dense
+genomic one.
+
+### Two protocol points, both established by a failure
+
+**Theta must be imposed, and the same for both engines.** The bench logged a
+`logLik` column taken at each engine's *own* starting value. The values diverged
+by 1.6e-5, 1.2e-3 and 8.9e-3, growing with `t` — which reads exactly like a
+formulation defect in the sparse engine, and was nearly reported as one. At a
+common theta the two agree to 1e-12, and to 0e+00 after the fix. The bench now
+imposes zero on the transformed scale: well conditioned, reproducible, and
+belonging to neither engine. `rx_n_theta()` was factored out for it.
+
+**A warm-up call is required before timing.** The first call in a cell pays
+RTMB's C++ construction. Without a warm-up the sparse engine read 0.209 s at
+`t = 1` against 0.012 s at `t = 2` — a factor 17 *against* the expected slope.
+With it, `t = 1` reads 0.0070 s.
+
+### Local expectation, to be confirmed at real sizes
+
+At `t = 4`, `n_unit = 400`, `q = 60`: dense 0.157 s per evaluation against
+sparse 0.0245 s, and 21.7 s against 0.13 s for a full fit. The sparse
+advantage **grows** with complexity — the opposite of what reading the n axis
+alone suggests. These are local numbers on a laptop-class CPU and **must not**
+join the published curve.
