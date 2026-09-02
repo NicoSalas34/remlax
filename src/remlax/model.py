@@ -410,6 +410,13 @@ def make_objective(bundle_terms, res, y, X, scale=None):
     # forme, et pour le chemin de repli si un jour un terme couvrait tout n.
     Zs = [dense_Z(t, n) for t in bundle_terms]
 
+    # LES INCIDENCES RESTENT CAPTUREES, ET C'EST MESURE. Les passer en argument
+    # de la fonction compilee ne gagne rien : tampon 4580,3 Mo contre 4548,7 et
+    # 160,8 Mo d'arguments en plus, sur un dispositif de la forme du modele IGE.
+    # L'avertissement "2,90 GB of constants were captured" que j'avais lu venait
+    # des facteurs PLEINE HAUTEUR (2769 Mo) captures par la forme de reference
+    # compilee A COTE pour le test d'identite — pas de cet objectif, dont les
+    # incidences restreintes ne pesent que 161 Mo.
     def f(theta):
         return neg2_reml_groupes(jnp.asarray(theta), bundle_terms, groupes, Zr,
                                  res, yj, Xj) / sc
