@@ -37,6 +37,10 @@ def main(argv=None):
     ap.add_argument("--ceil", type=float, default=12.0)
     ap.add_argument("--no-hessian", action="store_true")
     ap.add_argument("--no-blups", action="store_true")
+    ap.add_argument("--pev", action="store_true",
+                    help="variance d'erreur de prediction des BLUP (diagonale). "
+                         "Necessaire a une heritabilite de Cullis ou a une "
+                         "fiabilite ; coute une matrice (t*q) x n par terme.")
     ap.add_argument("--quiet", action="store_true")
     ap.add_argument("--vpredict", default=None,
                     help="expressions 'nom=formule' separees par ';', ex. "
@@ -97,7 +101,7 @@ def main(argv=None):
         r = fit_reml(terms, res, y, X, theta_init=th0,
                      maxiter=a.maxiter, polish=a.polish,
                      floor=a.floor, ceil=a.ceil, verbose=not a.quiet,
-                     hessian=not a.no_hessian, blups=not a.no_blups,
+                     hessian=not a.no_hessian, blups=not a.no_blups, pev=a.pev,
                      n_restarts=a.restarts, restart_sd=a.restart_sd, fixed_idx=fixe)
 
     # --- inference ------------------------------------------------------------
@@ -147,7 +151,7 @@ def main(argv=None):
            for k, v in r.items()
            if k not in ("theta", "beta", "sigmas", "sigma_res", "sigmas_res",
                         "blups", "hessian", "Py", "vbeta", "vbeta_kr", "Vi",
-                        "pred_cov")}
+                        "pred_cov", "loadings", "loadings_res", "pev")}
     out["backend"] = plat
     out["devices"] = device_report()
 
@@ -167,6 +171,20 @@ def main(argv=None):
     out["sigma_res_dims"] = {}
     for nm, S in r.get("sigmas_res", {}).items():
         wr("out_sigmares_%s" % nm, S); out["sigma_res_dims"][nm] = list(np.shape(S))
+    # LOADINGS ET PEV. Ecrits en binaire comme les autres tableaux, avec leurs
+    # dimensions dans le JSON : le format de sortie est le miroir du format
+    # d'entree, pour que R n'ait aucune dependance Python.
+    out["loadings_dims"], out["psi_dims"] = {}, {}
+    for src, pref in (("loadings", ""), ("loadings_res", "res_")):
+        for nm, lo in (r.get(src) or {}).items():
+            wr("out_loadings_%s%s" % (pref, nm), lo["Lambda"])
+            out["loadings_dims"]["%s%s" % (pref, nm)] = list(np.shape(lo["Lambda"]))
+            if lo.get("psi") is not None:
+                wr("out_psi_%s%s" % (pref, nm), lo["psi"])
+                out["psi_dims"]["%s%s" % (pref, nm)] = [int(np.size(lo["psi"]))]
+    out["pev_dims"] = {}
+    for nm, Pv in (r.get("pev") or {}).items():
+        wr("out_pev_%s" % nm, Pv); out["pev_dims"][nm] = list(np.shape(Pv))
     out["blup_dims"] = {}
     for nm, U in r.get("blups", {}).items():
         wr("out_blup_%s" % nm, U); out["blup_dims"][nm] = list(np.shape(U))

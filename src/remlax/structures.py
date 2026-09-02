@@ -31,6 +31,41 @@ import numpy as np
 STRUCTURES = ("iid", "diag", "us", "fa", "rr", "chol", "ante", "corh", "fixed")
 
 
+def sigma_loadings(theta, struct, t, rank):
+    """Lambda et les variances SPECIFIQUES d'une structure a facteurs.
+
+    POURQUOI CETTE FONCTION EXISTE. `build_sigma` rend un FACTEUR, et
+    l'interface rend Sigma assemblee. Ni l'un ni l'autre ne donne Lambda
+    separement, or Sigma = Lambda Lambda' + diag(psi) n'a PAS de decomposition
+    unique : sans la contrainte trapezoidale, Lambda n'est definie qu'a une
+    rotation pres. Lambda ne se retrouve donc pas depuis Sigma, elle doit etre
+    lue dans theta -- ce que fait cette fonction.
+
+    CONVENTION DE psi, a ne pas confondre. La parametrisation interne porte
+    psi = exp(theta), et Sigma = Lambda Lambda' + diag(psi^2). La sortie rend
+    psi^2, la VARIANCE specifique, qui est la convention des tableaux de
+    loadings d'asreml : la diagonale de Sigma y vaut somme(V_k^2) + psi.
+
+    Rend None pour toute structure sans facteurs, plutot que de lever : un
+    appelant qui boucle sur des termes heterogenes ne doit pas avoir a savoir
+    d'avance lesquels en ont.
+    """
+    if struct not in ("fa", "rr"):
+        return None
+    th = np.asarray(theta, dtype=float)
+    r = int(rank)
+    nl = n_loadings(t, r)
+    lam = np.zeros((t, r))
+    k = 0
+    for i in range(t):
+        for j in range(min(i + 1, r)):
+            lam[i, j] = th[k]; k += 1
+    # `rr` est un rang reduit pur : Sigma = Gamma Gamma', aucune variance
+    # specifique. Rendre des zeros serait un mensonge lisible comme une mesure.
+    psi = np.exp(th[nl:nl + t]) ** 2 if struct == "fa" else None
+    return {"Lambda": lam, "psi": psi, "rank": r, "struct": struct}
+
+
 def n_loadings(t, r):
     """Nombre de loadings d'une matrice t x r triangulaire inferieure."""
     return int(np.sum(np.minimum(np.arange(1, t + 1), r)))

@@ -767,7 +767,8 @@ rx_export <- function(model, dir) {
 #' @param fixed_theta indices (1-based) des parametres a FIXER a leur depart
 rx_fit <- function(model, backend = c("auto", "gpu", "cpu"), dir = NULL,
                    maxiter = 3000L, polish = 25L, n_restarts = 0L,
-                   hessian = TRUE, blups = TRUE, vpredict = NULL, wald = FALSE,
+                   hessian = TRUE, blups = TRUE, pev = FALSE,
+                   vpredict = NULL, wald = FALSE,
                    kenward_roger = FALSE, predict = NULL, theta_init = NULL,
                    fixed_theta = NULL, verbose = TRUE, keep = FALSE) {
   backend <- match.arg(backend)
@@ -801,6 +802,11 @@ rx_fit <- function(model, backend = c("auto", "gpu", "cpu"), dir = NULL,
          if (!is.null(fixed_theta)) c("--fixed-theta",
            paste(as.integer(fixed_theta), collapse = ",")) else NULL,
          if (!hessian) "--no-hessian" else NULL, if (!blups) "--no-blups" else NULL,
+         # DEFAUT A FALSE, deliberement. La PEV coute une matrice (t*q) x n par
+         # terme : gratuite pour un modele univarie a quelques centaines de
+         # genotypes, lourde des que t*q monte. Elle se demande donc, elle ne
+         # s'impose pas. Sans elle H2_Cullis n'est pas calculable.
+         if (isTRUE(pev)) "--pev" else NULL,
          if (!verbose) "--quiet" else NULL)
   st <- system2(py[1], shQuote(c(py[-1], as.character(a))),
                 stdout = if (verbose) "" else TRUE, stderr = if (verbose) "" else TRUE)
@@ -885,6 +891,26 @@ rx_read_result <- function(dir) {
   }
   v <- rd("out_sigma_res")
   if (!is.null(v)) r[["sigma_res"]] <- matrix(v, sqrt(length(v)), sqrt(length(v)))
+  # LOADINGS ET PEV, ajoutes pour le pipeline IGE. Sigma assemblee ne suffit pas
+  # a un tableau de loadings : sa decomposition n'est pas unique. Et H2_Cullis
+  # n'est pas calculable sans la variance d'erreur de prediction.
+  r[["loadings"]] <- list(); r[["pev"]] <- list()
+  for (nm in names(r[["loadings_dims"]])) {
+    v <- rd(paste0("out_loadings_", nm))
+    if (is.null(v)) next
+    L <- matrix(v, r[["loadings_dims"]][[nm]][1], r[["loadings_dims"]][[nm]][2])
+    ps <- if (nm %in% names(r[["psi_dims"]])) rd(paste0("out_psi_", nm)) else NULL
+    # `psi` est la VARIANCE specifique, convention des tableaux d'asreml : la
+    # diagonale de Sigma vaut somme(V_k^2) + psi. Une structure `rr` est un rang
+    # reduit pur et n'en a pas : NULL, jamais des zeros qui se liraient comme
+    # une mesure.
+    r[["loadings"]][[nm]] <- list(Lambda = L, psi = ps)
+  }
+  for (nm in names(r[["pev_dims"]])) {
+    v <- rd(paste0("out_pev_", nm))
+    if (!is.null(v)) r[["pev"]][[nm]] <- matrix(v, r[["pev_dims"]][[nm]][1],
+                                                r[["pev_dims"]][[nm]][2])
+  }
   for (nm in names(r[["blup_dims"]])) {
     v <- rd(paste0("out_blup_", nm))
     if (!is.null(v)) r[["blups"]][[nm]] <- matrix(v, r[["blup_dims"]][[nm]][1],

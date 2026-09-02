@@ -28,11 +28,13 @@ try:
                         term_factor, term_n_params, res_sections, sec_n_params)
     from .structures import build_sigma, n_params, theta0 as struct_theta0
     from .levels import n_level_params, level_params_report, level_chol
+    from .structures import sigma_loadings
 except ImportError:
     from model import (make_objective, assemble_V, split_theta, n_theta, dense_Z,
                        term_factor, term_n_params, res_sections, sec_n_params)
     from structures import build_sigma, n_params, theta0 as struct_theta0
     from levels import n_level_params, level_params_report, level_chol
+    from structures import sigma_loadings
 
 
 def initial_theta(terms, res, y):
@@ -178,7 +180,7 @@ def _valide_reste(terms, y, X, n):
 
 def fit_reml(terms, res, y, X, theta_init=None, maxiter=3000,
              floor=-12.0, ceil=12.0, verbose=True, hessian=True,
-             blups=True, tol=1e-14, polish=25, check=True,
+             blups=True, pev=False, tol=1e-14, polish=25, check=True,
              n_restarts=0, restart_sd=0.5, seed=0, fixed_idx=None):
     """Ajustement REML.
 
@@ -195,7 +197,7 @@ def fit_reml(terms, res, y, X, theta_init=None, maxiter=3000,
     if n_restarts > 0:
         base = fit_reml(terms, res, y, X, theta_init=theta_init, maxiter=maxiter,
                         floor=floor, ceil=ceil, verbose=verbose, hessian=hessian,
-                        blups=blups, tol=tol, polish=polish, check=False,
+                        blups=blups, pev=pev, tol=tol, polish=polish, check=False,
                         fixed_idx=fixed_idx)
         rng = np.random.default_rng(seed)
         best, n_better = base, 0
@@ -207,7 +209,7 @@ def fit_reml(terms, res, y, X, theta_init=None, maxiter=3000,
                     th[np.array(fixed_idx)] = base["theta"][np.array(fixed_idx)]
                 cand = fit_reml(terms, res, y, X, theta_init=th, maxiter=maxiter,
                                 floor=floor, ceil=ceil, verbose=False, hessian=hessian,
-                                blups=blups, tol=tol, polish=polish, check=False,
+                                blups=blups, pev=pev, tol=tol, polish=polish, check=False,
                                 fixed_idx=fixed_idx)
             except Exception:
                 continue
@@ -427,6 +429,12 @@ def fit_reml(terms, res, y, X, theta_init=None, maxiter=3000,
         r_ = level_params_report(np.asarray(th_terms[k][ns:]), kind_,
                                  tm.get("lvl_order", 0), opts=tm.get("lvl_opts"),
                                  q=tm.get("q"))
+        # Lambda et les variances specifiques, quand la structure en a. Sigma
+        # assemblee ne suffit pas : sa decomposition n'est pas unique.
+        lo = sigma_loadings(np.asarray(th_terms[k][:ns]), tm["struct"],
+                            tm["t"], tm["rank"])
+        if lo is not None:
+            out.setdefault("loadings", {})[tm["name"]] = lo
         if r_.get("pacf"):
             out.setdefault("pacf", {})[tm["name"]] = r_["pacf"]
         _ranger_niveaux(out, tm["name"], kind_, r_)
@@ -442,6 +450,10 @@ def fit_reml(terms, res, y, X, theta_init=None, maxiter=3000,
              if sec["struct"] in ("us", "fa", "diag")
              else np.array([[float(np.exp(2 * th_s[0]))]]))
         out["sigmas_res"][nom] = S
+        lo_r = sigma_loadings(np.asarray(th_s[:ns_r]), sec["struct"],
+                              sec["t"], sec["rank"])
+        if lo_r is not None:
+            out.setdefault("loadings_res", {})[nom] = lo_r
         r_res = level_params_report(np.asarray(th_s[ns_r:]), sec.get("lvl", "id"),
                                     sec.get("lvl_order", 0), opts=sec.get("lvl_opts"),
                                     q=sec.get("n_unit", len(np.unique(np.asarray(sec["unit"])))))
@@ -476,6 +488,11 @@ def fit_reml(terms, res, y, X, theta_init=None, maxiter=3000,
         resid = y - X @ beta
         Py = Vi @ resid - Vi @ X @ (np.linalg.pinv(A) @ (XtVi @ resid))
         out["Py"] = Py
+        if blups and pev:
+            # P, formee UNE fois : elle ne depend pas du terme. C'est la matrice
+            # dont depend toute la PEV, et la former dans la boucle la
+            # recalculerait pour chaque terme.
+            Pmat = Vi - (Vi @ X) @ out["vbeta"] @ (X.T @ Vi)
         if blups:
             # u_k = (Sigma_k (x) K_k) Z_k' P y = B_k B_k' P y au facteur pres :
             # on passe par B pour ne jamais former Sigma (x) K.
@@ -503,8 +520,28 @@ def fit_reml(terms, res, y, X, theta_init=None, maxiter=3000,
                 Kq = (np.eye(tm["q"]) if from_lvl is None
                       else np.asarray(from_lvl) @ np.asarray(from_lvl).T)
                 Zd = np.asarray(Zs[k])
-                u = np.kron(Ls, Kq) @ (Zd.T @ Py)
+                G = np.kron(Ls, Kq)
+                u = G @ (Zd.T @ Py)
                 out["blups"][tm["name"]] = u.reshape(tm["t"], tm["q"]).T
+                if pev:
+                    # VARIANCE D'ERREUR DE PREDICTION, diagonale seulement.
+                    #
+                    #     var(u - u_chapeau) = G - G Z' P Z G
+                    #
+                    # avec P = V^-1 - V^-1 X (X'V^-1X)^-1 X'V^-1, deja formable
+                    # ici puisque Vi et vbeta sont sous la main. On ne rend que
+                    # la DIAGONALE : c'est tout ce que demande une fiabilite ou
+                    # une heritabilite de Cullis, et la matrice pleine pese
+                    # (t*q)^2.
+                    #
+                    # POURQUOI CETTE SORTIE EXISTE. Sans elle H2_Cullis n'est
+                    # pas calculable, et la suite de validation contre asreml
+                    # l'avait releve comme la seule sortie que le logiciel de
+                    # reference donne et que remlax ne donnait pas.
+                    M = G @ Zd.T                      # (t*q) x n
+                    d_ = np.diag(G) - np.einsum("ij,ij->i", M @ Pmat, M)
+                    out.setdefault("pev", {})[tm["name"]] = \
+                        np.maximum(d_, 0.0).reshape(tm["t"], tm["q"]).T
     if hessian:
         H = _hessian_fd(fun_jac, theta, floor=floor, ceil=ceil)
         out["hessian"] = H
