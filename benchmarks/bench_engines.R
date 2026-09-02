@@ -205,6 +205,12 @@ for (cl in CELL) {
                                          verbose = FALSE), 1L)
         list(ev = ev$val$secondes %||% NA_real_, ev_paroi = ev$med,
              ev_min = ev$min, ev_max = ev$max, ll = ev$val$logLik,
+             # LA VRAISEMBLANCE A L'OPTIMUM, distincte de celle a theta impose.
+             # Sans elle, comparer des TEMPS d'ajustement entre moteurs n'a pas
+             # de sens : un moteur qui s'arrete a un point moins bon n'est pas
+             # plus rapide, il est moins bon. La colonne ll est la valeur au
+             # theta impose commun et ne repond pas a cette question.
+             ll_fit = aj$val$logLik %||% NA_real_,
              fit = aj$val$secondes %||% NA_real_, fit_paroi = aj$med,
              n_iter = aj$val$n_iter %||% NA_integer_,
              # COMPTE et non inference. Diviser le temps d'ajustement par le
@@ -214,21 +220,33 @@ for (cl in CELL) {
              n_eval = aj$val$n_eval %||% NA_integer_,
              compile_s = aj$val$compile_s %||% NA_real_, err = "")
       } else {
+        # LE COUT UNITAIRE CREUX EST CELUI QUE LE SOLVEUR RAPPORTE, jamais le
+        # temps de paroi de l'appel : celui-ci inclut la construction du ruban
+        # de derivation, payee a chaque appel de rx_fit_sparse mais une seule
+        # fois dans un ajustement. Mesure du piege : le controle
+        # « ajustement >= n_eval x cout unitaire » echouait sur les HUIT
+        # cellules creuses d'un balayage et sur aucune dense. On ne prend donc
+        # plus $logLik ici, pour garder acces aux postes du resultat.
         ev <- chrono(function() rx_fit_sparse(m, theta_init = th0, maxiter = 0L,
-                                              verbose = FALSE)$logLik, REPS)
+                                              verbose = FALSE), REPS)
         aj <- chrono(function() rx_fit_sparse(m, maxiter = 300L, verbose = FALSE), 1L)
-        list(ev = ev$med, ev_paroi = ev$med, ev_min = ev$min, ev_max = ev$max,
-             ll = ev$val, fit = aj$med, fit_paroi = aj$med,
+        list(ev = ev$val$eval_s %||% NA_real_, ev_paroi = ev$med,
+             ev_min = ev$min, ev_max = ev$max,
+             ll = ev$val$logLik %||% NA_real_,
+             ll_fit = aj$val$logLik %||% NA_real_,
+             fit = aj$val$secondes %||% aj$med, fit_paroi = aj$med,
              n_iter = aj$val$n_iter %||% NA_integer_,
-             # Le moteur creux ne compte pas encore ses appels : on ecrit NA
-             # plutot que zero, qui se confondrait avec une mesure.
-             n_eval = NA_integer_, compile_s = NA_real_, err = "")
+             n_eval = aj$val$n_eval %||% NA_integer_,
+             # `compile_s` porte ici la CONSTRUCTION du ruban, poste homologue
+             # de la compilation XLA du moteur dense : paye une fois, amorti sur
+             # les iterations.
+             compile_s = ev$val$construct_s %||% NA_real_, err = "")
       }
     }, error = function(e) list(ev = NA_real_, ev_paroi = NA_real_,
                                 ev_min = NA_real_, ev_max = NA_real_,
                                 ll = NA_real_, fit = NA_real_, fit_paroi = NA_real_,
                                 n_iter = NA_integer_, n_eval = NA_integer_,
-                                compile_s = NA_real_,
+                                compile_s = NA_real_, ll_fit = NA_real_,
                                 err = substr(conditionMessage(e), 1, 200)))
     lignes[[length(lignes) + 1L]] <- data.frame(
       cellule = cl, cas = cas, moteur = mot, backend = if (mot == "dense") BK else "cpu",
@@ -237,7 +255,8 @@ for (cl in CELL) {
       eval_s = r$ev, eval_paroi_s = r$ev_paroi,
       eval_min_s = r$ev_min, eval_max_s = r$ev_max,
       fit_s = r$fit, fit_paroi_s = r$fit_paroi, n_iter = r$n_iter,
-      n_eval = r$n_eval, compile_s = r$compile_s, logLik = r$ll,
+      n_eval = r$n_eval, compile_s = r$compile_s,
+      logLik = r$ll, logLik_fit = r$ll_fit,
       rss_mb = as.numeric(gsub("[^0-9]", "", system("grep VmRSS /proc/self/status", intern = TRUE))) / 1024,
       tag = TAG, erreur = r$err, stringsAsFactors = FALSE)
     note(sprintf("[%s] t=%-2s n=%-6d q=%-5s eval %8.4f s (paroi %8.3f) | ajust %8.2f s | iter %-4s %s",

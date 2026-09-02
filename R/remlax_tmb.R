@@ -519,14 +519,49 @@ rx_fit_sparse <- function(model, theta_init = NULL, maxiter = 3000L, verbose = T
   # signature d'une convergence interne insuffisante, pas d'une formulation
   # differente. Le probleme interne etant quadratique, le resserrer ne coute
   # qu'une iteration ou deux.
+  # CONSTRUCTION DU RUBAN, CHRONOMETREE A PART. Elle est payee UNE fois par
+  # appel, et un ajustement l'amortit sur toutes ses iterations. La confondre
+  # avec le calcul rendait le cout unitaire du moteur creux inutilisable :
+  # mesure du piege, le controle « ajustement >= iterations x cout unitaire »
+  # echouait sur les HUIT cellules creuses d'un balayage et sur aucune dense —
+  # 38 iterations a 0,757 s auraient demande 28,8 s quand l'ajustement entier
+  # prenait 11,25 s. Le rapport separe donc les deux postes, comme le fait le
+  # moteur dense depuis qu'un bilan de reconstruction a echoue pour la meme
+  # raison.
+  ..t0 <- proc.time()[["elapsed"]]
   obj <- RTMB::MakeADFun(nll, par, random = c("beta", "u"), silent = !verbose,
                          inner.control = list(maxit = 200L, tol = 1e-14,
                                               tol10 = 0, smartsearch = FALSE))
 
+  ..construct_s <- proc.time()[["elapsed"]] - ..t0
+
   if (maxiter <= 0L) {
+    # PIEGE DE TMB, MESURE. Appeler obj$fn DEUX FOIS AU MEME theta ne mesure
+    # presque rien : le second appel reutilise le mode interne en (beta, u) deja
+    # converge par le premier, donc il saute le probleme de Laplace qui est le
+    # gros du calcul. Chronometre ainsi, le cout unitaire ressortait a 0,00000 s
+    # a quatre tailles — une valeur qui aurait fait passer le moteur creux pour
+    # gratuit. La mesure se fait donc a un theta que le ruban n'a pas vu ; le
+    # cout ne depend que des dimensions, pas des valeurs, ce qui est la premisse
+    # de tout le protocole. La vraisemblance rendue reste celle de th0, seule
+    # comparable entre moteurs.
     v <- obj$fn(th0)
+    # RESOLUTION. proc.time() quantifie a ~10 ms sur ce systeme, or une
+    # evaluation creuse est sous-milliseconde aux petites tailles : mesuree une
+    # a une elle ressortait a 0,000 ou 0,001 s, c'est-a-dire au grain de
+    # l'horloge et non au cout. On chronometre donc PLUSIEURS evaluations, avec
+    # Sys.time() qui descend sous la microseconde, chacune a un theta distinct
+    # pour qu'aucune ne reutilise le mode interne de la precedente. Ce sont les
+    # petites tailles qui portent le point de croisement entre moteurs : leur
+    # resolution decide de la conclusion.
+    ..k <- 5L
+    ..t1 <- Sys.time()
+    for (..i in seq_len(..k)) invisible(obj$fn(th0 + ..i * 1e-3))
+    ..eval_s <- as.numeric(difftime(Sys.time(), ..t1, units = "secs")) / ..k
     return(list(theta = th0, logLik = -as.numeric(v), n_par = n_theta,
                 n_iter = 0L, engine = "sparse", converged = NA,
+                construct_s = ..construct_s, eval_s = ..eval_s,
+                secondes = ..construct_s + ..eval_s,
                 message = "evaluation seule (maxiter = 0)"))
   }
   fit <- stats::nlminb(obj$par, obj$fn, obj$gr,
@@ -535,6 +570,9 @@ rx_fit_sparse <- function(model, theta_init = NULL, maxiter = 3000L, verbose = T
   sdr <- try(TMB::sdreport(obj), silent = TRUE)
   list(theta = as.numeric(fit$par), logLik = -as.numeric(fit$objective), n_par = n_theta,
        n_iter = fit$iterations, engine = "sparse",
+       construct_s = ..construct_s,
+       n_eval = as.integer(fit$evaluations[["function"]] %||% NA_integer_),
+       secondes = proc.time()[["elapsed"]] - ..t0,
        converged = identical(fit$convergence, 0L), message = fit$message,
        gradient = as.numeric(obj$gr(fit$par)),
        sdreport = if (inherits(sdr, "try-error")) NULL else sdr)
