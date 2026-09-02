@@ -232,71 +232,41 @@ def split_theta(theta, terms, res):
 
 
 # ==============================================================================
-# L'ASSEMBLAGE DE V PORTE SA PROPRE REGLE DE DERIVATION
+# L'ASSEMBLAGE DE V TIENT EN UN SEUL PRODUIT
 # ==============================================================================
-# POURQUOI. La chaine naive
+# POURQUOI, ET LE CHIFFRE QUI L'A EXIGE. La chaine naive
 #
 #     V = R ;  pour chaque terme :  V = V + B_k B_k'
 #
-# cree une matrice n x n NEUVE a chaque tour, et la differentiation en mode
-# inverse doit les conserver TOUTES pour la passe arriere. Mesure sur le modele
-# reel d'IGE_analysis : 65 termes a n = 16211, soit 65 x 1,96 Go = 127 Go
-# d'intermediaires, quand la carte en a 80. Le job echouait en demandant
-# 134 Gio, et aucune carte n'a cette memoire.
+# cree une matrice n x n NEUVE a chaque tour, et XLA n'en reutilise pas les
+# tampons : le pic mesure vaut un tampon PAR TERME. Sur le modele multivarie
+# complet d'IGE_analysis — 65 termes a n = 16211 — cela fait 65 x 1,96 = 127 Go,
+# et le job a echoue en demandant 134 Gio sur une A100 de 80 Go.
 #
-# Or ces intermediaires ne servent a rien : la derivee d'une somme par rapport a
-# chacun de ses termes est l'identite. Une fois dV = d(-2logL)/dV connu — et
-# reml_from_V le donne analytiquement — chaque terme se derive INDEPENDAMMENT :
+# L'IDENTITE QUI RESOUT. La somme des contributions est un seul produit :
 #
-#     d(-2logL)/dB_k = 2 dV B_k        puis la regle de B_k par rapport a theta_k
+#     Sum_k B_k B_k' = [B_1 ... B_K] [B_1 ... B_K]'
 #
-# La passe arriere ne garde donc qu'UNE matrice n x n a la fois. Le cout est une
-# reconstruction de B_k, qui est un produit et non une factorisation.
+# Exact, et il n'y a plus qu'UN intermediaire n x n. Le cout est la matrice
+# concatenee, de largeur Sum_k m_k q_k : sur le modele reel, 16211 x 42186, soit
+# 5,1 Go contre 2,0 pour V. Mesure sur un modele a 41 termes : le pic passe de
+# 126,1 a 16,2 Mo, soit un facteur 7,8, a valeur et gradient identiques.
 #
-# C'EST LA MEME PHILOSOPHIE QUE reml_from_V, etendue d'un cran : la
-# vraisemblance portait deja sa regle par rapport a V ; l'assemblage porte
-# maintenant la sienne par rapport a theta.
+# ET IL N'Y A PAS DE REGLE DE DERIVATION A ECRIRE. Une premiere tentative avait
+# donne a l'assemblage sa propre regle, sur l'idee que la passe ARRIERE gardait
+# les intermediaires. Elle etait correcte — valeur et gradient identiques a la
+# chaine, y compris sous jit — et parfaitement inutile : le pic est dans la passe
+# AVANT, et la regle ne l'a pas bouge d'un pour cent. Avec un seul produit, la
+# derivation automatique rend deja dB = 2 dV B, ce qui est optimal.
 # ==============================================================================
-@partial(jax.custom_vjp, nondiff_argnums=(1, 2, 3, 4))
 def assemble_V(theta, terms, Zs, res, n):
-    return _assemble_V_fwd_val(theta, terms, Zs, res, n)
-
-
-def _assemble_V_fwd_val(theta, terms, Zs, res, n):
     th_terms, th_res, _ = split_theta(theta, terms, res)
-    V = residual_V(th_res, res, n)
-    for k, tm in enumerate(terms):
-        B = term_factor(th_terms[k], tm, Zs[k])
-        V = V + B @ B.T
-    return V
-
-
-def _assemble_V_fwd(theta, terms, Zs, res, n):
-    # On ne sauvegarde QUE theta : les B_k sont reconstruits dans la passe
-    # arriere. Les sauvegarder couterait la somme de leurs tailles, soit ~16 Go
-    # sur le modele reel — huit fois moins que la chaine naive, mais toujours
-    # inutile puisqu'un produit se recalcule pour rien.
-    return _assemble_V_fwd_val(theta, terms, Zs, res, n), theta
-
-
-def _assemble_V_bwd(terms, Zs, res, n, theta, dV):
-    # dV est la cotangente d(-2logL)/dV, symetrique. La contribution du terme k
-    # est <dV, d(B_k B_k')> = <2 dV B_k, dB_k>, donc on passe 2 dV B_k a la
-    # regle de B_k. Un terme a la fois : la memoire ne depend pas de leur
-    # nombre.
-    th_terms, th_res, _ = split_theta(theta, terms, res)
-    dV = 0.5 * (dV + dV.T)          # la cotangente d'une forme symetrique
-    grads = []
-    for k, tm in enumerate(terms):
-        Bk, vjp_k = jax.vjp(lambda th: term_factor(th, tm, Zs[k]), th_terms[k])
-        (g_k,) = vjp_k(2.0 * (dV @ Bk))
-        grads.append(g_k)
-    _, vjp_r = jax.vjp(lambda th: residual_V(th, res, n), th_res)
-    (g_r,) = vjp_r(dV)
-    return (jnp.concatenate([jnp.atleast_1d(g) for g in grads] + [jnp.atleast_1d(g_r)]),)
-
-
-assemble_V.defvjp(_assemble_V_fwd, _assemble_V_bwd)
+    R = residual_V(th_res, res, n)
+    if not terms:
+        return R
+    B = jnp.concatenate([term_factor(th_terms[k], tm, Zs[k])
+                         for k, tm in enumerate(terms)], axis=1)
+    return R + B @ B.T
 
 
 def neg2_reml(theta, terms, Zs, res, y, X):

@@ -1,10 +1,10 @@
-"""La regle de derivation de l'assemblage rend-elle EXACTEMENT le meme gradient ?
+"""L'assemblage en UN produit rend-il exactement la meme chose que la chaine ?
 
-POURQUOI CE FICHIER EXISTE. L'assemblage de V porte desormais sa propre regle de
-derivation, pour que la passe arriere ne conserve pas une matrice n x n par
-terme — 65 termes a n = 16211 demandaient 127 Go sur le modele reel. Une regle
-mal posee donne un gradient FAUX sans rien signaler : l'ajustement converge
-ailleurs, ou pas du tout, et rien ne dit pourquoi.
+POURQUOI CE FICHIER EXISTE. L'assemblage utilise l'identite
+Sum_k B_k B_k' = [B_1 ... B_K][B_1 ... B_K]', qui ne laisse qu'UN intermediaire
+n x n au lieu d'un par terme — 65 termes a n = 16211 demandaient 127 Go sur le
+modele reel. La reecriture est exacte en algebre, mais une concatenation dans le
+mauvais ordre ou une largeur mal calculee donne un V FAUX sans rien signaler.
 
 LE CONTROLE. On compare a la chaine naive, terme a terme, sur un modele qui
 melange les cas : `us` multi-caracteres, `iid`, une structure de niveaux a
@@ -16,8 +16,8 @@ import numpy as np
 sys.path.insert(0, "src")
 import jax
 import jax.numpy as jnp
-from remlax.model import (assemble_V, _assemble_V_fwd_val, split_theta,
-                          term_factor, residual_V, dense_Z, n_theta)
+from remlax.model import (assemble_V, split_theta, term_factor,
+                          residual_V, dense_Z, n_theta)
 from remlax.core import reml_from_V
 
 ok = ko = 0
@@ -61,6 +61,23 @@ def dispositif(seed=0):
     return terms, res, y, X, n
 
 
+def dispositif_nombreux(n_unit=200, t=3, q=20, n_nuis=40, seed=5):
+    """La FORME du modele reel : peu de termes genetiques, beaucoup de nuisances."""
+    rng = np.random.default_rng(seed)
+    n = n_unit * t
+    tri = np.tile(np.arange(t), n_unit); uni = np.repeat(np.arange(n_unit), t)
+    gu = np.repeat(np.arange(q), n_unit // q + 1)[:n_unit]
+    zj = np.array([tri[i] * q + gu[uni[i]] for i in range(n)])
+    terms = [dict(name="g", struct="us", rank=0, t=t, q=q, zi=np.arange(n),
+                  zj=zj, zx=np.ones(n), lvl="id", LK=None)]
+    for i in range(n_nuis):
+        terms.append(dict(name="z%d" % i, struct="iid", rank=0, t=1, q=12,
+                          zi=np.arange(n), zj=(np.arange(n) + i) % 12,
+                          zx=np.ones(n), lvl="id", LK=None))
+    res = dict(struct="diag", t=t, rank=0, trait=tri, unit=uni, lvl="id")
+    return terms, res, rng.normal(size=n), np.eye(t)[tri], n
+
+
 def main():
     terms, res, y, X, n = dispositif()
     Zs = [dense_Z(tm, n) for tm in terms]
@@ -73,15 +90,21 @@ def main():
 
         V_new = assemble_V(th, terms, Zs, res, n)
         V_ref = chaine_naive(th, terms, Zs, res, n)
-        e = float(jnp.abs(V_new - V_ref).max())
-        chk("essai %d : V identique" % essai, e == 0.0, "ecart max %.1e" % e)
+        # TOLERANCE ET NON EGALITE EXACTE, et ce n'est pas un relachement :
+        # Sum_k B_k B_k' = [B_1...B_K][B_1...B_K]' est exact en ALGEBRE, mais
+        # l'addition flottante n'est pas associative. Regrouper les termes en un
+        # produit change l'ordre des sommes, donc les derniers bits. Exiger 0
+        # exactement testerait l'associativite de l'arithmetique, pas l'identite.
+        rel = float(jnp.abs(V_new - V_ref).max() / jnp.abs(V_ref).max())
+        chk("essai %d : V identique a la chaine" % essai, rel < 1e-13,
+            "ecart relatif max %.1e" % rel)
 
         f_new = lambda t_: reml_from_V(assemble_V(t_, terms, Zs, res, n), y, X)
         f_ref = lambda t_: reml_from_V(chaine_naive(t_, terms, Zs, res, n), y, X)
         v_new, g_new = jax.value_and_grad(f_new)(th)
         v_ref, g_ref = jax.value_and_grad(f_ref)(th)
         chk("essai %d : -2logL identique" % essai,
-            float(abs(v_new - v_ref)) == 0.0,
+            float(abs(v_new - v_ref) / abs(v_ref)) < 1e-13,
             "%.10f contre %.10f" % (v_new, v_ref))
         rel = float(jnp.abs(g_new - g_ref).max() /
                     jnp.maximum(jnp.abs(g_ref).max(), 1e-30))
@@ -101,6 +124,29 @@ def main():
         pires.append(abs(gd - float(g[j])) / max(abs(gd), 1.0))
     chk("gradient contre differences finies", max(pires) < 1e-5,
         "ecart relatif max %.2e sur %d parametres" % (max(pires), p))
+
+    # LE CONTROLE QUE J'AVAIS OMIS LA PREMIERE FOIS, et c'est la raison meme du
+    # changement : la correction ne suffit pas, il faut que le PIC BAISSE. Une
+    # premiere tentative etait correcte et n'a rien change au pic ; verifier la
+    # valeur et le gradient sans verifier la propriete visee ne prouve rien.
+    # LE PIC SE MESURE SUR BEAUCOUP DE TERMES. Le gain croit avec leur nombre :
+    # un modele a trois termes n'en montre rien, et c'est precisement pourquoi
+    # la limite n'est apparue que sur le modele reel a 65 termes.
+    terms_m, res_m, y_m, X_m, n_m = dispositif_nombreux()
+    Zs_m = [dense_Z(tm, n_m) for tm in terms_m]
+    th_m = jnp.asarray(np.random.default_rng(3).normal(
+        scale=0.3, size=n_theta(terms_m, res_m)))
+
+    def pic(f, t_):
+        fj = jax.jit(jax.value_and_grad(f))
+        v, _ = fj(t_); jax.block_until_ready(v)
+        return fj.lower(t_).compile().memory_analysis().temp_size_in_bytes
+    t_ref = pic(lambda t_: reml_from_V(
+        chaine_naive(t_, terms_m, Zs_m, res_m, n_m), y_m, X_m), th_m)
+    t_new = pic(lambda t_: reml_from_V(
+        assemble_V(t_, terms_m, Zs_m, res_m, n_m), y_m, X_m), th_m)
+    chk("le pic temporaire BAISSE (%d termes)" % len(terms_m), t_new < 0.5 * t_ref,
+        "%.1f Mo contre %.1f, soit /%.1f" % (t_new/2**20, t_ref/2**20, t_ref/max(t_new,1)))
 
     print("\n%d verification(s), %d echec(s)" % (ok + ko, ko))
     return 1 if ko else 0
