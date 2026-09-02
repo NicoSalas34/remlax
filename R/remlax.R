@@ -948,6 +948,18 @@ rx_read_result <- function(dir) {
     if (!is.null(v)) r[["blups"]][[nm]] <- matrix(v, r[["blup_dims"]][[nm]][1],
                                                   r[["blup_dims"]][[nm]][2])
   }
+  # LE HESSIEN. cli.py l'ECRIT deja en binaire a cote (out_hessian.bin), mais
+  # ce lecteur ne le reprenait pas : cote R seul le drapeau derive
+  # conv_hessien_ok survivait. Sans la matrice, un verdict "12 directions quasi
+  # nulles sur 57" n'est pas actionnable — les vecteurs propres disent QUELS
+  # parametres ne sont pas identifies. Mesure sur le modele a 5 caracteres :
+  # 0 valeur propre negative, 12 directions quasi nulles, conditionnement 2,4e9.
+  v <- rd("out_hessian")
+  if (!is.null(v)) {
+    q_ <- as.integer(round(sqrt(length(v))))
+    if (q_ * q_ == length(v)) r[["hessian"]] <- matrix(v, q_, q_)
+    else warning(sprintf("out_hessian a %d valeurs, non carre : ignore", length(v)))
+  }
   class(r) <- "rx_fit"; r
 }
 
