@@ -106,7 +106,16 @@ rx_n_params <- function(struct, t, rank = 0L) {
 RX_LEVEL_STRUCTURES <- c("id", "fixed", "cor", "corb", "corg",
                          "ar1", "ar2", "ar3", "sar", "ma1", "ma2", "arma",
                          "exp", "gau", "lvr", "iexp", "igau", "ieuc",
-                         "sph", "cir", "aexp", "agau", "mtrn", "own", "ar1ar1")
+                         "sph", "cir", "aexp", "agau", "mtrn", "own", "ar1ar1",
+                         # PRODUIT SEPARABLE A NOMBRE QUELCONQUE DE FACTEURS.
+                         # `ar1ar1` ne couvre que DEUX facteurs. Un champ spatial
+                         # replique independamment par bloc s'ecrit
+                         # id (x) ar1 (x) ar1 : trois facteurs, dont le premier
+                         # n'apporte AUCUN parametre, donc les correlations sont
+                         # PARTAGEES entre les repliques. C'est ce que le moteur
+                         # d'IGE_analysis estime, et ce que `ar1ar1` ne peut pas
+                         # exprimer. `parts` porte la liste (famille, dimension).
+                         "sep")
 RX_LEVEL_NP <- c(id = 0L, fixed = 0L, cor = 1L, ar1 = 1L, ar2 = 2L, ar3 = 3L,
                  sar = 1L, ma1 = 1L, ma2 = 2L, arma = 2L, exp = 1L, gau = 1L,
                  lvr = 1L, iexp = 1L, igau = 1L, ieuc = 1L,
@@ -122,7 +131,17 @@ RX_METRIQUES_2D <- c("iexp", "igau", "ieuc", "sph", "cir",
 RX_METRIQUES <- c(RX_METRIQUES_1D, RX_METRIQUES_2D)
 
 #' Nombre de parametres d'une structure entre niveaux (doit suivre levels.py)
-rx_n_level <- function(level, order = 0L, opts = NULL) {
+rx_n_level <- function(level, order = 0L, opts = NULL, parts = NULL) {
+  # PRODUIT SEPARABLE : la somme des parametres de ses facteurs. `id` en apporte
+  # zero, ce qui est precisement ce qui rend les correlations PARTAGEES entre
+  # les repliques d'un champ.
+  if (identical(level, "sep")) {
+    if (is.null(parts) || !length(parts))
+      stop("level='sep' exige `parts`, la liste des facteurs (famille, dimension).",
+           call. = FALSE)
+    return(sum(vapply(parts, function(x)
+      rx_n_level(as.character(x[[1]]), 0L), integer(1))))
+  }
   if (level == "mtrn")
     return(sum(vapply(c("phi", "nu", "delta", "alpha"),
                       function(p) isTRUE(opts[[paste0("est_", p)]] > 0.5), TRUE)))
@@ -178,7 +197,7 @@ rx_n_level <- function(level, order = 0L, opts = NULL) {
 rx_term <- function(name, Z, K = NULL, struct = "iid", rank = 0L,
                     t = NULL, levels = NULL, level = "auto",
                     dims = NULL, order = 0L, coord = NULL,
-                    opts = NULL, expr = NULL,
+                    opts = NULL, expr = NULL, parts = NULL,
                     Kinv = NULL, Kinv_logdet = NULL) {
   if (!is.null(Kinv) && !is.null(K))
     stop("terme '", name, "' : fournir K OU Kinv, pas les deux. K sert au moteur ",
@@ -270,7 +289,7 @@ rx_term <- function(name, Z, K = NULL, struct = "iid", rank = 0L,
   if (level == "own" && (is.null(expr) || !nzchar(expr)))
     stop("terme '", name, "' : level='own' exige `expr`, l'expression de la ",
          "correlation (variables : d, dx, dy, lag, I, J, p1..pk).")
-  n_lvl <- rx_n_level(level, order, opts)
+  n_lvl <- rx_n_level(level, order, opts, parts = parts)
   # Validation de Kinv : c'est une matrice CREUSE q x q symetrique. On verifie la
   # taille et la symetrie du MOTIF, pas les valeurs — une precision fournie par
   # l'utilisateur peut legitimement etre stockee en triangle.
@@ -290,7 +309,7 @@ rx_term <- function(name, Z, K = NULL, struct = "iid", rank = 0L,
                  struct = struct, rank = as.integer(rank), LK = LK,
                  Kinv = Kinv, Kinv_logdet = Kinv_logdet,
                  level = level, dims = dims, order = as.integer(order), coord = coord,
-                 opts = opts, expr = expr,
+                 opts = opts, expr = expr, parts = parts,
                  levels = levels, n_par = rx_n_params(struct, t, rank) + n_lvl),
             class = "rx_term")
 }
@@ -718,6 +737,14 @@ rx_export <- function(model, dir) {
       put(paste0("term_", p, "_lvloptv"), as.numeric(tm$opts))
     }
     if (!is.null(tm$expr)) put(paste0("term_", p, "_lvlexpr"), tm$expr, "str")
+    if (!is.null(tm$parts) && length(tm$parts)) {
+      # `parts` est une liste de (famille, dimension). On la serialise en deux
+      # vecteurs paralleles : les noms d'un cote, les dimensions de l'autre.
+      put(paste0("term_", p, "_lvlpartk"),
+          vapply(tm$parts, function(x) as.character(x[[1]]), character(1)), "str")
+      put(paste0("term_", p, "_lvlpartq"),
+          vapply(tm$parts, function(x) as.integer(x[[2]]), integer(1)), "i4")
+    }
     if (!is.null(tm$LK)) put(paste0("term_", p, "_LK"), tm$LK)
     if (!is.null(tm$levels)) put(paste0("term_", p, "_levels"), tm$levels, "str")
   }
@@ -806,7 +833,12 @@ rx_fit <- function(model, backend = c("auto", "gpu", "cpu"), dir = NULL,
          # terme : gratuite pour un modele univarie a quelques centaines de
          # genotypes, lourde des que t*q monte. Elle se demande donc, elle ne
          # s'impose pas. Sans elle H2_Cullis n'est pas calculable.
-         if (isTRUE(pev)) "--pev" else NULL,
+         # pev accepte TRUE (tous les termes) ou un VECTEUR DE NOMS. Sur le
+         # modele IGE complet, 21 des 23 termes sont des nuisances dont la
+         # variance d'erreur de prediction n'interesse personne, et les
+         # demander toutes a epuise la memoire lors du premier essai reel.
+         if (isTRUE(pev)) "--pev" else
+           if (is.character(pev) && length(pev)) c("--pev-termes", paste(pev, collapse = ",")) else NULL,
          if (!verbose) "--quiet" else NULL)
   st <- system2(py[1], shQuote(c(py[-1], as.character(a))),
                 stdout = if (verbose) "" else TRUE, stderr = if (verbose) "" else TRUE)

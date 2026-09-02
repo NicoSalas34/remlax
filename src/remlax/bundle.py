@@ -99,6 +99,14 @@ class Bundle:
             d["coord"] = (self.get("term_%s_coord" % nm).astype(np.float64)
                           if self.has("term_%s_coord" % nm) else None)
             d["lvl_opts"] = self._opts("term_%s" % nm)
+            # PRODUIT SEPARABLE : liste (famille, dimension), serialisee en deux
+            # vecteurs paralleles. C'est ce qui permet id (x) ar1 (x) ar1, soit un
+            # champ spatial replique par bloc a correlations PARTAGEES — que
+            # `ar1ar1`, limite a deux facteurs, ne peut pas exprimer.
+            if self.has("term_%s_lvlpartk" % nm):
+                pk = list(self.get("term_%s_lvlpartk" % nm))
+                pq = [int(v) for v in self.get("term_%s_lvlpartq" % nm)]
+                d["lvl_parts"] = list(zip(pk, pq))
             d["lvl_expr"] = (self.get("term_%s_lvlexpr" % nm)[0]
                              if self.has("term_%s_lvlexpr" % nm) else None)
             out.append(d)

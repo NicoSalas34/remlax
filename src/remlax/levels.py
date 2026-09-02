@@ -107,7 +107,23 @@ def n_level_params(kind, order=0, parts=None, opts=None):
     if kind == "ar1ar1":
         return 2
     if kind == "sep":
-        return sum(n_level_params(k, o) for k, o in (parts or []))
+        # INCOHERENCE A NE PAS LAISSER PASSER EN SILENCE. `level_chol` lit le
+        # second element de `parts` comme la DIMENSION du facteur, alors que
+        # cette ligne le lisait comme son ORDRE. Pour `id` et `ar1` les deux
+        # coincident par accident — leur compte ne depend pas de l'ordre — mais
+        # pour `ar2`, `arma` ou une famille metrique le compte serait faux, et
+        # rien ne le signalerait : theta serait decoupe autrement des deux cotes.
+        # On lit donc la famille SEULE, ce qui est correct pour toute famille
+        # dont le compte ne depend pas de l'ordre, et on refuse les autres.
+        deps = ("ar2", "ar3", "ma2", "arma")
+        mauvais = [k for k, _ in (parts or []) if k in deps]
+        if mauvais:
+            raise ValueError(
+                "produit separable : les familles %s ont un nombre de parametres "
+                "qui depend de leur ordre, et `parts` ne porte que (famille, "
+                "dimension). Les declarer ici decouperait theta differemment de "
+                "level_chol. Utiliser `expr` pour ces cas." % sorted(set(mauvais)))
+        return sum(n_level_params(k) for k, _ in (parts or []))
     if kind == "corb":
         return int(order)
     if kind == "corg":
@@ -502,7 +518,7 @@ def ar1_chol(rho, n):
     return L.at[:, 0].set(rho ** i)
 
 
-def level_params_report(theta_lv, kind, order=0, opts=None, q=None):
+def level_params_report(theta_lv, kind, order=0, opts=None, q=None, parts=None):
     """Parametres sur l'echelle d'asreml (phi, theta), pour les sorties.
 
     REGLE : cette fonction rend la valeur EFFECTIVEMENT UTILISEE dans C, jamais
@@ -520,6 +536,22 @@ def level_params_report(theta_lv, kind, order=0, opts=None, q=None):
                      (theta et -theta donnent le meme C). On rapporte donc la
                      valeur absolue, et le champ `signe_non_identifie` le dit.
     """
+    # PRODUIT SEPARABLE : rapporter CHAQUE facteur, sous un nom qui dit sa
+    # position. Sans cela un champ id (x) ar1 (x) ar1 ne rapportait rien du tout
+    # — `rho` revenait vide — et les correlations n'etaient lisibles qu'en
+    # decodant theta a la main. Le nom porte l'indice du facteur parce que deux
+    # facteurs de la meme famille sont la norme ici, pas l'exception.
+    if kind == "sep":
+        out, o = {}, 0
+        for idx, (k, qi) in enumerate(parts or [], start=1):
+            pk = n_level_params(k)
+            if pk:
+                sub = level_params_report(theta_lv[o:o + pk], k, order, q=qi)
+                for nm, v in (sub or {}).items():
+                    out["%s_%d_%s" % (k, idx, nm)] = v
+            o += pk
+        return out
+
     th = np.asarray(theta_lv, dtype=float)
     absta = lambda j: float(np.clip(np.abs(np.tanh(th[j])), 1e-12, 1 - 1e-12))  # noqa: E731
     if kind == "ar1ar1":

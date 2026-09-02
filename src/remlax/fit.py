@@ -428,7 +428,7 @@ def fit_reml(terms, res, y, X, theta_init=None, maxiter=3000,
         kind_ = tm.get("lvl") or ("fixed" if tm.get("LK") is not None else "id")
         r_ = level_params_report(np.asarray(th_terms[k][ns:]), kind_,
                                  tm.get("lvl_order", 0), opts=tm.get("lvl_opts"),
-                                 q=tm.get("q"))
+                                 q=tm.get("q"), parts=tm.get("lvl_parts"))
         # Lambda et les variances specifiques, quand la structure en a. Sigma
         # assemblee ne suffit pas : sa decomposition n'est pas unique.
         lo = sigma_loadings(np.asarray(th_terms[k][:ns]), tm["struct"],
@@ -456,7 +456,8 @@ def fit_reml(terms, res, y, X, theta_init=None, maxiter=3000,
             out.setdefault("loadings_res", {})[nom] = lo_r
         r_res = level_params_report(np.asarray(th_s[ns_r:]), sec.get("lvl", "id"),
                                     sec.get("lvl_order", 0), opts=sec.get("lvl_opts"),
-                                    q=sec.get("n_unit", len(np.unique(np.asarray(sec["unit"])))))
+                                    q=sec.get("n_unit", len(np.unique(np.asarray(sec["unit"])))),
+                                    parts=sec.get("lvl_parts"))
         _ranger_niveaux(out, nom, sec.get("lvl", "id"), r_res)
         o_s += p_s
     out["sigma_res"] = out["sigmas_res"][list(out["sigmas_res"])[0]]
@@ -488,7 +489,21 @@ def fit_reml(terms, res, y, X, theta_init=None, maxiter=3000,
         resid = y - X @ beta
         Py = Vi @ resid - Vi @ X @ (np.linalg.pinv(A) @ (XtVi @ resid))
         out["Py"] = Py
-        if blups and pev:
+        # QUELS TERMES. `pev=True` la calcule pour TOUS les termes, ce qui est
+        # une mauvaise valeur par defaut sur un modele reel : le modele IGE
+        # complet a 23 termes dont 21 sont des nuisances — effets spatiaux de
+        # bloc et effets environnementaux indirects — et personne ne veut la
+        # variance d'erreur de prediction d'un effet de bloc. Chacun coute
+        # pourtant une matrice (t*q) x n, et le total a tue le processus par
+        # manque de memoire lors du premier essai reel. `pev` accepte donc une
+        # LISTE DE NOMS, et le pipeline ne demande que les termes genetiques.
+        pev_noms = ([tm["name"] for tm in terms] if pev is True
+                    else ([] if not pev else list(pev)))
+        inconnus = set(pev_noms) - {tm["name"] for tm in terms}
+        if inconnus:
+            raise ValueError("pev : terme(s) inconnu(s) %s ; termes du modele : %s"
+                             % (sorted(inconnus), [tm["name"] for tm in terms]))
+        if blups and pev_noms:
             # P, formee UNE fois : elle ne depend pas du terme. C'est la matrice
             # dont depend toute la PEV, et la former dans la boucle la
             # recalculerait pour chaque terme.
@@ -523,7 +538,7 @@ def fit_reml(terms, res, y, X, theta_init=None, maxiter=3000,
                 G = np.kron(Ls, Kq)
                 u = G @ (Zd.T @ Py)
                 out["blups"][tm["name"]] = u.reshape(tm["t"], tm["q"]).T
-                if pev:
+                if tm["name"] in pev_noms:
                     # VARIANCE D'ERREUR DE PREDICTION, diagonale seulement.
                     #
                     #     var(u - u_chapeau) = G - G Z' P Z G

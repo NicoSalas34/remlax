@@ -37,6 +37,10 @@ def main(argv=None):
     ap.add_argument("--ceil", type=float, default=12.0)
     ap.add_argument("--no-hessian", action="store_true")
     ap.add_argument("--no-blups", action="store_true")
+    ap.add_argument("--pev-termes", dest="pev_termes", default=None,
+                    help="liste de termes, separes par des virgules, pour "
+                         "lesquels calculer la PEV. Preferable a --pev sur un "
+                         "modele a nombreuses nuisances.")
     ap.add_argument("--pev", action="store_true",
                     help="variance d'erreur de prediction des BLUP (diagonale). "
                          "Necessaire a une heritabilite de Cullis ou a une "
@@ -101,7 +105,8 @@ def main(argv=None):
         r = fit_reml(terms, res, y, X, theta_init=th0,
                      maxiter=a.maxiter, polish=a.polish,
                      floor=a.floor, ceil=a.ceil, verbose=not a.quiet,
-                     hessian=not a.no_hessian, blups=not a.no_blups, pev=a.pev,
+                     hessian=not a.no_hessian, blups=not a.no_blups,
+                     pev=(a.pev_termes.split(",") if a.pev_termes else a.pev),
                      n_restarts=a.restarts, restart_sd=a.restart_sd, fixed_idx=fixe)
 
     # --- inference ------------------------------------------------------------
