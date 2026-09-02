@@ -96,6 +96,35 @@ rx_tmb_available <- function() {
 # -----------------------------------------------------------------------------
 # Perimetre
 # -----------------------------------------------------------------------------
+#' Longueur du vecteur theta d'un modele
+#'
+#' Utile des qu'on veut IMPOSER un theta : un banc apparie doit evaluer les deux
+#' moteurs au MEME point, sinon chacun part de son theta initial et les
+#' vraisemblances rapportees ne sont pas comparables. Mesure du piege : les
+#' valeurs divergeaient de 1e-5 a 9e-3 en croissant avec le nombre de
+#' caracteres, ce qui ressemblait a un defaut de formulation, alors qu'a theta
+#' commun les deux moteurs s'accordent a 1e-12.
+#'
+#' Le decoupage est celui du moteur dense, et les deux moteurs comptent a
+#' l'identique — verifie par la suite de concordance.
+#'
+#' @param model objet rx_model
+#' @return entier
+#' @export
+rx_n_theta <- function(model) {
+  terms <- model$terms
+  residual <- model$residual
+  np <- integer(0)
+  for (tm in terms) {
+    np <- c(np, rx_n_sigma_params(tm$struct %||% "iid", tm$t) +
+                rx_n_level_params(rx_level_of(tm)))
+  }
+  t_res <- as.integer(model$t_res %||% 1L)
+  n_res <- rx_n_sigma_params(residual$struct %||% "iid",
+                             if (identical(residual$struct, "diag")) t_res else 1L)
+  sum(np) + n_res
+}
+
 RX_SPARSE_SIGMA <- c("iid", "diag", "us")
 RX_SPARSE_LEVEL <- c("id", "iid", "ar1", "ar1ar1", "prec")   # "prec" = A^-1 fournie
 
