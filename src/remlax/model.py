@@ -83,6 +83,64 @@ def dense_Z(term, n):
     return Z.at[term["zi"], term["zj"]].add(term["zx"])
 
 
+def term_support(term, n):
+    """Les lignes ou l'incidence du terme est non nulle, triees.
+
+    POURQUOI CELA VAUT LA PEINE. Un terme du modele IGE ne concerne qu'un bloc
+    et un caractere : son incidence est nulle sur toutes les autres lignes. Le
+    facteur B_k stocke pourtant ces zeros en flottants doubles sur toute la
+    hauteur n. MESURE sur le modele a 5 caracteres (n = 8987) : un terme d'IEE
+    porte q = 1920 colonnes pour ~1800 lignes utiles, soit 131,6 Mo dont 80 %
+    de zeros ; les dix termes d'IEE font 1316 Mo, 82 % de la memoire des
+    facteurs.
+
+    Le support est CONSTANT — il ne depend pas de theta — donc il se calcule
+    une fois, hors de la fonction derivee.
+    """
+    return np.unique(np.asarray(term["zi"], dtype=np.int64))
+
+
+def restrict_Z(term, rows, n):
+    """Z du terme, restreint aux lignes `rows`.
+
+    On renumerote zi dans le repere du support. Un indice absent du support
+    serait une incoherence entre le support et l'incidence, donc on l'assertit
+    plutot que de le laisser produire une matrice silencieusement fausse.
+    """
+    pos = np.full(n, -1, dtype=np.int64)
+    pos[rows] = np.arange(len(rows), dtype=np.int64)
+    zi = pos[np.asarray(term["zi"], dtype=np.int64)]
+    assert zi.min() >= 0, "une entree de l'incidence tombe hors du support"
+    Z = jnp.zeros((len(rows), term["t"] * term["q"]))
+    return Z.at[zi, np.asarray(term["zj"], dtype=np.int64)].add(
+        jnp.asarray(term["zx"]))
+
+
+def support_groups(terms, n):
+    """Regroupe les termes par support IDENTIQUE.
+
+    La concaternation exige des hauteurs egales, donc seuls des termes partageant
+    exactement le meme support peuvent entrer dans un meme produit. Le
+    regroupement est naturel dans ce modele : les cinq termes spatiaux d'un
+    caractere, son terme d'IEE et son terme d'IEE croise portent tous les memes
+    lignes.
+
+    ET IL NE PEUT PAS ETRE PLUS AGRESSIF. Deux termes a supports DISJOINTS ne
+    peuvent pas partager de colonnes : (B_1 + B_2)(B_1 + B_2)' fait apparaitre
+    les termes croises B_1 B_2', non nuls sur S_1 x S_2. Fusionner des supports
+    disjoints donnerait donc un V faux.
+    """
+    par_cle, ordre = {}, []
+    for k, tm in enumerate(terms):
+        rows = term_support(tm, n)
+        cle = rows.tobytes()
+        if cle not in par_cle:
+            par_cle[cle] = (rows, [])
+            ordre.append(cle)
+        par_cle[cle][1].append(k)
+    return [par_cle[c] for c in ordre]
+
+
 def term_factor(theta_k, term, Z):
     """B_k = Z_k (L_Sigma (x) L_K), tel que Z_k (Sigma (x) K) Z_k' = B_k B_k'.
 
@@ -269,8 +327,53 @@ def assemble_V(theta, terms, Zs, res, n):
     return R + B @ B.T
 
 
+def assemble_V_groupes(theta, terms, groupes, Zr, res, n):
+    """V assemblee par SOUS-BLOCS, chaque terme sur son seul support.
+
+    CE QUE CETTE FORME EVITE, ET QUI A ETE MESURE.
+
+    1. Les zeros stockes. Un facteur pleine hauteur porte n lignes la ou le
+       terme n'en concerne qu'une fraction. Sur le modele a 5 caracteres :
+       1598 Mo de facteurs contre ~400 Mo restreints, soit un facteur 4.
+
+    2. La residuelle densifiee. residual_V() formait un n x n dense par une
+       chaine de mises a jour fonctionnelles — une par section, 47 sur le jeu
+       complet — puis assemble_V l'additionnait au produit, allouant un
+       TROISIEME n x n. C'est le meme defaut que la chaine d'additions par
+       terme corrigee auparavant, transpose dans une autre fonction. Ici les
+       sections sont dispersees DIRECTEMENT dans V.
+
+    CE QU'ELLE NE CHANGE PAS : l'algebre. V est la meme matrice. Mais l'ORDRE
+    des sommations change, et l'addition flottante n'est pas associative : les
+    tests comparent donc a des tolerances RELATIVES, jamais a l'egalite exacte.
+    """
+    th_terms, th_res, _ = split_theta(theta, terms, res)
+    V = jnp.zeros((n, n))
+
+    # --- residuelle : dispersion directe, sans n x n intermediaire ----------
+    o = 0
+    for sec in res_sections(res, n):
+        pnb = sec_n_params(sec)
+        idx = jnp.asarray(np.asarray(sec["rows"], dtype=np.int64))
+        V = V.at[idx[:, None], idx[None, :]].add(_section_V(th_res[o:o + pnb], sec))
+        o += pnb
+
+    # --- termes, un produit par support ------------------------------------
+    for rows, ks in groupes:
+        B = jnp.concatenate([term_factor(th_terms[k], terms[k], Zr[k]) for k in ks],
+                            axis=1)
+        idx = jnp.asarray(rows)
+        V = V.at[idx[:, None], idx[None, :]].add(B @ B.T)
+    return V
+
+
 def neg2_reml(theta, terms, Zs, res, y, X):
     V = assemble_V(theta, terms, Zs, res, y.shape[0])
+    return reml_from_V(V, y, X)
+
+
+def neg2_reml_groupes(theta, terms, groupes, Zr, res, y, X):
+    V = assemble_V_groupes(theta, terms, groupes, Zr, res, y.shape[0])
     return reml_from_V(V, y, X)
 
 
@@ -295,10 +398,21 @@ def make_objective(bundle_terms, res, y, X, scale=None):
     n = y.shape[0]
     sc = float(n) if scale is None else float(scale)
     yj, Xj = jnp.asarray(y), jnp.asarray(X)
+    # SUPPORTS CALCULES UNE FOIS, hors de la fonction derivee : ils ne
+    # dependent pas de theta. Zr[k] est le facteur du terme k restreint aux
+    # lignes de son groupe.
+    groupes = support_groups(bundle_terms, n)
+    Zr = [None] * len(bundle_terms)
+    for rows, ks in groupes:
+        for k in ks:
+            Zr[k] = restrict_Z(bundle_terms[k], rows, n)
+    # Zs pleine hauteur : conserve pour le test d'identite contre l'ancienne
+    # forme, et pour le chemin de repli si un jour un terme couvrait tout n.
     Zs = [dense_Z(t, n) for t in bundle_terms]
 
     def f(theta):
-        return neg2_reml(jnp.asarray(theta), bundle_terms, Zs, res, yj, Xj) / sc
+        return neg2_reml_groupes(jnp.asarray(theta), bundle_terms, groupes, Zr,
+                                 res, yj, Xj) / sc
 
     fg = jax.jit(jax.value_and_grad(f))
 
