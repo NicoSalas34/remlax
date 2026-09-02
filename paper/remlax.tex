@@ -375,6 +375,47 @@ their CPU measurements were recovered from the logs of jobs that exhausted
 their walltime.}
 \end{figure}
 
+\subsection{The parameter count is not a measure of difficulty}\label{sec:paxis}
+
+The number of covariance parameters $p$ ranged from $3$ to $27$ across the
+sweep, varied through the number of traits and through the covariance
+structure. Its two effects separate cleanly, and only one of them is the one
+usually assumed.
+
+On the cost of a single evaluation, $p$ has \emph{no} effect. Fitting a power
+law to the $28$ cells at $n = 8000$ gives an exponent of $0.000$: at $p = 3$
+an evaluation costs $0.2384$\,s and at $p = 27$ it costs $0.2316$\,s. This is
+expected---the factorisation of $V$ does not know how many parameters
+generated it---but it is worth measuring, because it means the parameter count
+enters the total only through the number of evaluations.
+
+On that number, the naive reading is wrong, and pooling the structures
+produces it. Regressed over every multi-trait cell, iterations scale as
+$p^{0.95}$, near-linear and tidy. Split by structure family the exponent is
+$0.01$ for \code{iid}, $0.27$ for \code{diag}, $0.44$ for \code{us} and
+$1.01$ for \code{fa}: the pooled slope was an artefact of the reduced-rank
+cells occupying the high-$p$ end. The clearest statement of this is a direct
+comparison at six traits, where \code{fa(6,2)} carries $23$ parameters and
+needs $154$ iterations while \code{us(6)} carries $27$ and needs $34$. More
+parameters, four and a half times fewer iterations.
+
+The consequence for the decision rule in Section~\ref{sec:decision} is that
+$p$ cannot be used as a scalar measure of how hard a model is to fit. A
+reduced-rank structure buys parameter economy and pays for it in path length,
+and any predictor that reads only the count will misprice it by a factor of
+several. The structure family must enter the rule alongside the count.
+
+\begin{figure}[t]\centering
+\includegraphics[width=\textwidth]{figures/fig_axe_p.pdf}
+\caption{\label{fig:axep}The two effects of the parameter count, measured on
+the whole card. \textbf{(a)} At fixed $n$, an evaluation costs the same
+whatever $p$ and whatever the structure; the dashed line is the median over
+all $28$ cells. \textbf{(b)} Iterations to convergence against $p$, one point
+per fit and a line through the medians, coloured by structure family. The
+families diverge, and the arrow marks the pair that refutes reading $p$ as
+difficulty.}
+\end{figure}
+
 \subsection{A cost model that can be, and was, refuted}\label{sec:reconstruction}
 
 The measurements above decompose a fit into three parts: a compilation paid
