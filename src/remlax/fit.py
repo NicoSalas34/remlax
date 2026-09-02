@@ -261,7 +261,20 @@ def fit_reml(terms, res, y, X, theta_init=None, maxiter=3000,
     _t_eval = time.time() - _t
     _t_compil = max(_t_premier - _t_eval, 0.0)
 
-    hist = {"n": 0, "t0": time.time(), "n_eval": 0}
+    # ANNONCER LA COMPILATION DES QU'ELLE EST FINIE. Sur le modele multivarie
+    # complet d'IGE_analysis, XLA compile un programme portant 5,47 Go de
+    # constantes : cette phase peut durer longtemps, et pendant ce temps un
+    # journal muet ne permet pas de distinguer "il compile" de "il est bloque".
+    # Cette ligne est le premier signe de vie du solveur.
+    if verbose:
+        print("  [compilation] %.1f s | une evaluation : %.3f s | %d parametres"
+              % (_t_compil, _t_eval, p), flush=True)
+
+    hist = {"n": 0, "t0": time.time(), "n_eval": 0,
+            # DERNIERE VALEUR VUE, pour que le rapport soit GRATUIT. La version
+            # precedente rappelait fun_jac() juste pour imprimer : une
+            # evaluation entiere par ligne, pour une information deja calculee.
+            "v": float("nan"), "gmax": float("nan")}
 
     # COMPTER LES EVALUATIONS PLUTOT QUE LES PREDIRE. La reconstruction
     # compilation + n_eval x cout_unitaire = total echouait d'un facteur deux
@@ -274,20 +287,36 @@ def fit_reml(terms, res, y, X, theta_init=None, maxiter=3000,
 
     def fun_jac(th):
         hist["n_eval"] += 1
-        return _fun_jac_brut(th)
+        v, g = _fun_jac_brut(th)
+        hist["v"], hist["gmax"] = float(v), float(np.max(np.abs(g)))
+        return v, g
 
     _fun_sc_brut = fun_sc
 
     def fun_sc(th):
         hist["n_eval"] += 1
-        return _fun_sc_brut(th)
+        v, g = _fun_sc_brut(th)
+        # REMISE A L'ECHELLE. L-BFGS-B minimise -2logL / sc (cf. make_objective) ;
+        # imprimer sa valeur brute donnerait un nombre sans signification pour le
+        # lecteur. C'est fun_sc que l'optimiseur appelle, donc c'est ici qu'il
+        # faut retenir la valeur — la retenir dans fun_jac laisserait NaN.
+        hist["v"], hist["gmax"] = float(v) * sc, float(np.max(np.abs(g))) * sc
+        return v, g
 
     def cb(_):
         hist["n"] += 1
-        if verbose and hist["n"] % 25 == 0:
-            v, g = fun_jac(_)
-            print("  iter %4d | -2logL %14.6f | max|grad| %.3e | %5.1f s"
-                  % (hist["n"], v, np.max(np.abs(g)), time.time() - hist["t0"]), flush=True)
+        # LE PAS D'IMPRESSION S'ADAPTE AU COUT MESURE D'UNE ITERATION. Un pas
+        # fixe de 25 rendait le journal MUET sur le modele reel, ou une
+        # evaluation coute plusieurs secondes : 52 minutes sans une ligne, et
+        # aucun moyen de distinguer la progression d'un blocage. Le seuil porte
+        # sur _t_eval, qui est MESURE juste au-dessus, et non suppose.
+        if not verbose:
+            return
+        pas = 1 if _t_eval > 0.25 else (10 if _t_eval > 0.02 else 50)
+        if hist["n"] == 1 or hist["n"] % pas == 0:
+            print("  iter %4d | -2logL %14.6f | max|grad| %.3e | %6.1f s | %d eval"
+                  % (hist["n"], hist["v"], hist["gmax"],
+                     time.time() - hist["t0"], hist["n_eval"]), flush=True)
 
     # L-BFGS-B travaille sur l'objectif MIS A L'ECHELLE (cf. make_objective).
     # Parametres FIXES (le code F d'asreml) : on les borne a leur valeur de
@@ -316,8 +345,12 @@ def fit_reml(terms, res, y, X, theta_init=None, maxiter=3000,
     if int(maxiter) <= 0:
         theta = np.asarray(th0, dtype=np.float64)
     else:
+        # callback=cb : SANS LUI LE RAPPEL EST DU CODE MORT. Il existait, avait
+        # l'air de rapporter la progression, et n'a jamais ete passe ici — d'ou
+        # 52 minutes d'ajustement sans une ligne sur le modele reel, et aucun
+        # moyen de distinguer la progression d'un blocage.
         r = minimize(fun_sc, th0, jac=True, method="L-BFGS-B",
-                     bounds=bornes,
+                     bounds=bornes, callback=cb,
                      options=dict(maxiter=maxiter, maxfun=10 * maxiter,
                                   ftol=tol, gtol=1e-10))
         theta = np.asarray(r.x, dtype=np.float64)
