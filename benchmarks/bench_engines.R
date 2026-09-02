@@ -229,7 +229,19 @@ for (cl in CELL) {
         # plus $logLik ici, pour garder acces aux postes du resultat.
         ev <- chrono(function() rx_fit_sparse(m, theta_init = th0, maxiter = 0L,
                                               verbose = FALSE), REPS)
-        aj <- chrono(function() rx_fit_sparse(m, maxiter = 300L, verbose = FALSE), 1L)
+        # SYMETRIE DE L'APPEL. Le moteur dense est appele avec hessian = FALSE
+        # et blups = FALSE ; sans sdreport = FALSE le moteur creux formerait en
+        # plus la covariance de TOUS les effets aleatoires, que le dense ne
+        # calcule pas. Mesure de l'asymetrie : ce rapport pesait 28 a 58 pour
+        # cent du temps d'ajustement creux a q_total de 300 a 900, et sa part
+        # croit avec le nombre d'effets — a t = 8 sur le cluster, 93 pour cent
+        # du temps d'ajustement echappait au bilan des postes. Le comparer ainsi
+        # SOUS-ESTIMAIT l'avantage du moteur creux.
+        # Le plafond doit aussi egaler celui du dense : 300 contre 3000 aurait
+        # tronque le creux et laisse le dense aller au bout, defaut deja corrige
+        # une fois dans ce projet.
+        aj <- chrono(function() rx_fit_sparse(m, maxiter = 3000L, verbose = FALSE,
+                                              sdreport = FALSE), 1L)
         list(ev = ev$val$eval_s %||% NA_real_, ev_paroi = ev$med,
              ev_min = ev$min, ev_max = ev$max,
              ll = ev$val$logLik %||% NA_real_,

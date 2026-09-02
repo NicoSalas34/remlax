@@ -358,7 +358,16 @@ rx_quad_ar1ar1 <- function(u, phi_r, phi_c, nr, nc) {
 #'   exactement 200 iterations, et leurs temps — 12,4 s et 42,8 s — n'etaient pas
 #'   des temps d'ajustement mais des temps de plafond. Comparer les deux moteurs
 #'   avec des plafonds differents biaise la comparaison en faveur du plus bas.
-rx_fit_sparse <- function(model, theta_init = NULL, maxiter = 3000L, verbose = TRUE) {
+#' @param sdreport calculer le rapport d'ecarts-types de TMB. Il forme la
+#'   covariance de TOUS les effets aleatoires, ce qui est cher des que q_total
+#'   grandit, et il est facultatif : un utilisateur qui ne veut que les
+#'   composantes de variance n'en a pas besoin. Le mettre a FALSE est aussi la
+#'   condition d'une comparaison EQUITABLE avec rx_fit(hessian = FALSE,
+#'   blups = FALSE), qui ne calcule aucun equivalent — sinon le moteur creux
+#'   fait un travail que le dense ne fait pas, et l'ecart de temps mesure
+#'   sous-estime son avantage.
+rx_fit_sparse <- function(model, theta_init = NULL, maxiter = 3000L, verbose = TRUE,
+                          sdreport = TRUE) {
   stopifnot(rx_tmb_available())
   terms <- model$terms; residual <- model$residual
   y <- model$y; X <- as.matrix(model$X)
@@ -567,7 +576,7 @@ rx_fit_sparse <- function(model, theta_init = NULL, maxiter = 3000L, verbose = T
   fit <- stats::nlminb(obj$par, obj$fn, obj$gr,
                        control = list(iter.max = maxiter, eval.max = 4L * maxiter,
                                       trace = if (verbose) 1L else 0L))
-  sdr <- try(TMB::sdreport(obj), silent = TRUE)
+  sdr <- if (isTRUE(sdreport)) try(TMB::sdreport(obj), silent = TRUE) else NULL
   list(theta = as.numeric(fit$par), logLik = -as.numeric(fit$objective), n_par = n_theta,
        n_iter = fit$iterations, engine = "sparse",
        construct_s = ..construct_s,
