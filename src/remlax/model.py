@@ -37,6 +37,8 @@ except ImportError:
 import os
 import sys
 
+from functools import partial
+
 import jax
 import jax.numpy as jnp
 import numpy as np
@@ -229,13 +231,72 @@ def split_theta(theta, terms, res):
     return out, theta[o:o + pr], o + pr
 
 
+# ==============================================================================
+# L'ASSEMBLAGE DE V PORTE SA PROPRE REGLE DE DERIVATION
+# ==============================================================================
+# POURQUOI. La chaine naive
+#
+#     V = R ;  pour chaque terme :  V = V + B_k B_k'
+#
+# cree une matrice n x n NEUVE a chaque tour, et la differentiation en mode
+# inverse doit les conserver TOUTES pour la passe arriere. Mesure sur le modele
+# reel d'IGE_analysis : 65 termes a n = 16211, soit 65 x 1,96 Go = 127 Go
+# d'intermediaires, quand la carte en a 80. Le job echouait en demandant
+# 134 Gio, et aucune carte n'a cette memoire.
+#
+# Or ces intermediaires ne servent a rien : la derivee d'une somme par rapport a
+# chacun de ses termes est l'identite. Une fois dV = d(-2logL)/dV connu — et
+# reml_from_V le donne analytiquement — chaque terme se derive INDEPENDAMMENT :
+#
+#     d(-2logL)/dB_k = 2 dV B_k        puis la regle de B_k par rapport a theta_k
+#
+# La passe arriere ne garde donc qu'UNE matrice n x n a la fois. Le cout est une
+# reconstruction de B_k, qui est un produit et non une factorisation.
+#
+# C'EST LA MEME PHILOSOPHIE QUE reml_from_V, etendue d'un cran : la
+# vraisemblance portait deja sa regle par rapport a V ; l'assemblage porte
+# maintenant la sienne par rapport a theta.
+# ==============================================================================
+@partial(jax.custom_vjp, nondiff_argnums=(1, 2, 3, 4))
 def assemble_V(theta, terms, Zs, res, n):
-    V = residual_V(split_theta(theta, terms, res)[1], res, n)
-    th_terms, _, _ = split_theta(theta, terms, res)
+    return _assemble_V_fwd_val(theta, terms, Zs, res, n)
+
+
+def _assemble_V_fwd_val(theta, terms, Zs, res, n):
+    th_terms, th_res, _ = split_theta(theta, terms, res)
+    V = residual_V(th_res, res, n)
     for k, tm in enumerate(terms):
         B = term_factor(th_terms[k], tm, Zs[k])
         V = V + B @ B.T
     return V
+
+
+def _assemble_V_fwd(theta, terms, Zs, res, n):
+    # On ne sauvegarde QUE theta : les B_k sont reconstruits dans la passe
+    # arriere. Les sauvegarder couterait la somme de leurs tailles, soit ~16 Go
+    # sur le modele reel — huit fois moins que la chaine naive, mais toujours
+    # inutile puisqu'un produit se recalcule pour rien.
+    return _assemble_V_fwd_val(theta, terms, Zs, res, n), theta
+
+
+def _assemble_V_bwd(terms, Zs, res, n, theta, dV):
+    # dV est la cotangente d(-2logL)/dV, symetrique. La contribution du terme k
+    # est <dV, d(B_k B_k')> = <2 dV B_k, dB_k>, donc on passe 2 dV B_k a la
+    # regle de B_k. Un terme a la fois : la memoire ne depend pas de leur
+    # nombre.
+    th_terms, th_res, _ = split_theta(theta, terms, res)
+    dV = 0.5 * (dV + dV.T)          # la cotangente d'une forme symetrique
+    grads = []
+    for k, tm in enumerate(terms):
+        Bk, vjp_k = jax.vjp(lambda th: term_factor(th, tm, Zs[k]), th_terms[k])
+        (g_k,) = vjp_k(2.0 * (dV @ Bk))
+        grads.append(g_k)
+    _, vjp_r = jax.vjp(lambda th: residual_V(th, res, n), th_res)
+    (g_r,) = vjp_r(dV)
+    return (jnp.concatenate([jnp.atleast_1d(g) for g in grads] + [jnp.atleast_1d(g_r)]),)
+
+
+assemble_V.defvjp(_assemble_V_fwd, _assemble_V_bwd)
 
 
 def neg2_reml(theta, terms, Zs, res, y, X):
