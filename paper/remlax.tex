@@ -341,12 +341,20 @@ costs dominate; by $n = 16\,000$ it approaches its compute limit.
 
 The median speed-up of the whole card over sixteen CPU cores, on $87$ paired
 cells, is $27.2$, $26.8$, $29.7$ and $21.7$ at $n = 2000$, $4000$, $8000$ and
-$16\,000$. It is therefore \emph{flat across the range}: the card does not win
-by more as the problem grows. This contradicts the intuition that an
-accelerator pays off increasingly with size, and it follows from the two
-curves being close to parallel---both devices are in the same asymptotic
-regime, and the card's advantage is a constant factor rather than a widening
-one. Kinship does not move it either: on the multi-trait family, the only one
+$16\,000$. It is therefore flat across the range \emph{of this design}: the card does not
+win by more as the problem grows, the two curves being close to parallel.
+
+That qualification is not a formality, and a second design contradicts the
+unqualified reading. Section~\ref{sec:traits} grows the problem by adding
+traits at a fixed number of observations per trait and a fixed number of
+levels, and there the speed-up rises steeply---$21$, $42$, $64$ at
+$n = 2000$, $4000$, $6000$. At $n = 4000$, common to both designs, one gives
+$27$ and the other $42$. The difference is what happens to the effect vector:
+the sweep here scales the number of levels with $n$, whereas the trait sweep
+holds it fixed, so the two designs load the two devices differently at equal
+$n$. The speed-up is thus a property of the design, not a constant of the
+hardware, and quoting a single number for it---as software papers routinely
+do---is the mistake this pair of sweeps was built to expose. Kinship does not move it either: on the multi-trait family, the only one
 sampled densely enough to support the comparison, the median is $26.9$ without
 a genomic relationship matrix and $28.2$ with it, on $28$ paired cells each.
 
@@ -373,6 +381,63 @@ $27.2$, $26.8$, $29.7$ and $21.7$: the advantage is a constant factor, not one
 that widens with the problem. The two largest sizes carry fewer pairs because
 their CPU measurements were recovered from the logs of jobs that exhausted
 their walltime.}
+\end{figure}
+
+\subsection{Adding traits: the design a breeder runs}\label{sec:traits}
+
+The two sweeps above hold the total number of observations fixed and vary the
+covariance structure within it. That isolates the axes but it is not what
+happens in a breeding programme, where traits are added to a trial that
+already exists: the same plants, measured for more things. The third sweep
+follows that shape---an unstructured $\Sigma$ over $t$ traits, $2000$
+observations per trait, $500$ levels, $t$ from $1$ to $8$---so $p = t(t+1)/2$
+rises from $1$ to $36$ while $n$ rises with it. The axes are deliberately
+coupled here; it is the pair of designs that separates them.
+
+Three cells exist, not four. The sparse engine factorises through
+\pkg{CHOLMOD}, which is CPU-only, so \emph{sparse} and \emph{GPU} are mutually
+exclusive and the engine choice is a trade-off rather than two independent
+options. That empty cell is a result, and it is stated rather than left as a
+gap in a table.
+
+Two findings so far, on the completed whole-card lot and a partial read of the
+CPU lots still running.
+
+\emph{The two devices are on different slopes.} Over $n = 2000$ to $6000$ an
+evaluation costs $n^{2.78}$ on sixteen CPU cores against $n^{1.77}$ on the
+card; over the card's full range to $n = 16\,000$ the exponent rises to
+$2.14$. The card is not saturated at the small sizes---fixed launch costs it
+does not amortise until later---while the CPU is already compute-bound. The
+speed-up therefore grows roughly linearly in $n$ over this range, which is the
+disagreement discussed in Section~\ref{sec:paired}.
+
+\emph{Iterations stop growing.} The card lot gives $6$, $15$, $24$, $36$, then
+$32$, $32$, $37$, $33$: from $t = 4$ to $t = 8$ the parameter count is
+multiplied by $3.6$ and the iteration count does not move. The pooled slope of
+$p^{0.47}$ across the whole sweep is carried entirely by the rise up to
+$t = 4$. Read against the fixed-$n$ sweep, where iterations \emph{did} grow
+with $p$, this suggests that the extra data arriving with each trait sharpens
+the optimum enough to offset the extra dimension. Two designs are consistent
+with that reading; neither establishes it, and we record it as a hypothesis.
+
+A third result arrives as a by-product and is worth more than either, because
+it re-tests the paper's central claim on a design built for something else:
+a dense genomic relationship matrix changes the cost of an evaluation by at
+most $2.2\%$ across seven matched pairs on both devices. The dense engine's
+indifference to model structure was measured in Section~\ref{sec:paired} and
+is reproduced here without having been aimed at.
+
+\begin{figure}[t]\centering
+\includegraphics[width=\textwidth]{figures/fig_traits.pdf}
+\caption{\label{fig:traits}Adding traits at constant observations per trait.
+\textbf{(a)} Cost of one evaluation at an imposed common $\theta$; filled
+markers are an identity relationship matrix, open markers a dense genomic one,
+and the two coincide. The CPU series is a partial read of jobs still running
+and stops at $t = 3$. \textbf{(b)} The card-over-CPU speed-up from this design
+against the same quantity from the fixed-$n$ design of
+Section~\ref{sec:paired}. They disagree in the shaded region where both were
+measured, which is why no single speed-up figure is quoted anywhere in this
+paper.}
 \end{figure}
 
 \subsection{The parameter count is not a measure of difficulty}\label{sec:paxis}
