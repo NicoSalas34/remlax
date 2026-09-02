@@ -206,17 +206,29 @@ for (cl in CELL) {
         list(ev = ev$val$secondes %||% NA_real_, ev_paroi = ev$med,
              ev_min = ev$min, ev_max = ev$max, ll = ev$val$logLik,
              fit = aj$val$secondes %||% NA_real_, fit_paroi = aj$med,
-             n_iter = aj$val$n_iter %||% NA_integer_, err = "")
+             n_iter = aj$val$n_iter %||% NA_integer_,
+             # COMPTE et non inference. Diviser le temps d'ajustement par le
+             # cout unitaire donne un nombre d'evaluations plausible et faux :
+             # c'est precisement l'erreur qui faisait echouer la reconstruction
+             # du modele de cout d'un facteur deux. Le solveur les compte.
+             n_eval = aj$val$n_eval %||% NA_integer_,
+             compile_s = aj$val$compile_s %||% NA_real_, err = "")
       } else {
         ev <- chrono(function() rx_fit_sparse(m, theta_init = th0, maxiter = 0L,
                                               verbose = FALSE)$logLik, REPS)
         aj <- chrono(function() rx_fit_sparse(m, maxiter = 300L, verbose = FALSE), 1L)
         list(ev = ev$med, ev_paroi = ev$med, ev_min = ev$min, ev_max = ev$max,
              ll = ev$val, fit = aj$med, fit_paroi = aj$med,
-             n_iter = aj$val$n_iter %||% NA_integer_, err = "")
+             n_iter = aj$val$n_iter %||% NA_integer_,
+             # Le moteur creux ne compte pas encore ses appels : on ecrit NA
+             # plutot que zero, qui se confondrait avec une mesure.
+             n_eval = NA_integer_, compile_s = NA_real_, err = "")
       }
-    }, error = function(e) list(ev = NA, ev_paroi = NA, ev_min = NA, ev_max = NA,
-                                ll = NA, fit = NA, fit_paroi = NA, n_iter = NA,
+    }, error = function(e) list(ev = NA_real_, ev_paroi = NA_real_,
+                                ev_min = NA_real_, ev_max = NA_real_,
+                                ll = NA_real_, fit = NA_real_, fit_paroi = NA_real_,
+                                n_iter = NA_integer_, n_eval = NA_integer_,
+                                compile_s = NA_real_,
                                 err = substr(conditionMessage(e), 1, 200)))
     lignes[[length(lignes) + 1L]] <- data.frame(
       cellule = cl, cas = cas, moteur = mot, backend = if (mot == "dense") BK else "cpu",
@@ -224,7 +236,8 @@ for (cl in CELL) {
       p_us = if (is.null(g$t)) NA_integer_ else g$t * (g$t + 1L) / 2L, reps = REPS,
       eval_s = r$ev, eval_paroi_s = r$ev_paroi,
       eval_min_s = r$ev_min, eval_max_s = r$ev_max,
-      fit_s = r$fit, fit_paroi_s = r$fit_paroi, n_iter = r$n_iter, logLik = r$ll,
+      fit_s = r$fit, fit_paroi_s = r$fit_paroi, n_iter = r$n_iter,
+      n_eval = r$n_eval, compile_s = r$compile_s, logLik = r$ll,
       rss_mb = as.numeric(gsub("[^0-9]", "", system("grep VmRSS /proc/self/status", intern = TRUE))) / 1024,
       tag = TAG, erreur = r$err, stringsAsFactors = FALSE)
     note(sprintf("[%s] t=%-2s n=%-6d q=%-5s eval %8.4f s (paroi %8.3f) | ajust %8.2f s | iter %-4s %s",
