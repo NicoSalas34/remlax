@@ -28,3 +28,15 @@ paper/*.toc
 paper/*.synctex.gz
 paper/*.fls
 paper/*.fdb_latexmk
+
+# Produits de compilation LaTeX. Le PDF NE DOIT PAS etre versionne : un binaire
+# construit se desynchronise de sa source en silence, et un lecteur du clone
+# lirait un manuscrit qui n'est plus celui du .tex. C'est la meme erreur que de
+# verifier un objet et d'en livrer un autre.
+paper/*.pdf
+!paper/figures/*.pdf
+paper/*.aux
+paper/*.log
+paper/*.out
+paper/*.bbl
+paper/*.blg

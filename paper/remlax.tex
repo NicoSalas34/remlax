@@ -251,8 +251,25 @@ and it is why \pkg{asreml} parameterises the ratio of variances instead.
 
 \subsection{Measurement protocol}\label{sec:protocol}
 
-Three points of protocol are stated here because each of them changed a
+Four points of protocol are stated here because each of them changed a
 conclusion during development.
+
+First, and most consequentially: \emph{fit times are not compared across
+backends}. The two backends follow different optimisation trajectories on the
+same model---419 iterations on the card against 317 on the CPU, reaching the
+same optimum to $8.6 \times 10^{-10}$ relative. Floating-point addition is not
+associative, so a reduction ordered across thousands of GPU threads differs in
+its last bits from one ordered across sixteen CPU cores; the line search then
+accepts a different step, and the paths diverge. Near a flat optimum the
+stopping test operates at that noise floor. A total time therefore mixes a
+hardware cost with a path length settled by rounding noise, and the mixture is
+not separable after the fact.
+
+The paired unit is instead an \emph{objective evaluation at an imposed}
+$\theta$, which performs identical arithmetic on both devices. The imposed
+$\theta$ need not be the optimum: the cost of a Cholesky factorisation depends
+on dimensions, not values, so any $\theta$ common to both sides makes the
+comparison valid, and none has to be bought with a reference fit.
 
 Every GPU figure reported below is measured on a \emph{whole} A100. Earlier
 sweeps used a one-seventh MIG slice, and we had assumed the slice figures
@@ -294,6 +311,113 @@ full genomic kinship), and an \emph{engine} is what fits it. The two are
 crossed, so a structurally dense case can be forced onto the sparse engine---a
 cell its declared scope excludes, measured here to price the wrong choice
 rather than assert it.
+
+\subsection{Where the two devices differ}\label{sec:paired}
+
+Six model families were measured, chosen because they are what plant breeders
+actually fit rather than because they are convenient to generate: single-trait
+genomic prediction; multi-trait and multi-environment covariances under
+\code{iid}, \code{diag}, reduced-rank \code{fa} and unstructured \code{us} at
+two, four and six traits; a row-by-column field trial with a separable
+\code{ar1} residual; and a direct-and-indirect effects design whose indirect
+incidence is column-dense. Each family was crossed with an identity
+relationship matrix and with a dense genomic one---the structural axis---at
+$n$ from $2000$ to $16\,000$, five repetitions per cell.
+
+Figure~\ref{fig:backend} reports the result. The dense engine is
+\emph{indifferent to the structure of the model}: at $n = 8000$, across every
+family, every covariance structure and both relationship matrices, an
+evaluation costs between $0.219$ and $0.282$\,s---a factor $1.3$ between the
+extremes, against a factor of four in the parameter count and two regimes of
+kinship. This is the central asymmetry of the paper stated as a measurement
+rather than an argument. The engine forms and factorises $V$ whatever the
+sparsity of the model, which is precisely why it wins when the model is dense
+and loses when it is sparse.
+
+Evaluation cost is sub-cubic and becomes less so with size: the median rises
+by $3.8$, then $5.2$, then $6.0$ per doubling of $n$, against $8$ for a pure
+Cholesky. Below $n \approx 4000$ the card is not saturated and fixed launch
+costs dominate; by $n = 16\,000$ it approaches its compute limit.
+
+The median speed-up of the card over sixteen CPU cores is $27$ on the
+multi-trait family, the only one sampled densely enough to support a
+conclusion---$26.9$ without kinship against $28.2$ with it, on $28$ paired
+cells each. The other two families contribute two pairs per group and their
+medians are not interpretable; the figure prints the group sizes rather than
+hide the weakness.
+
+Two absences are stated rather than left to inference. CPU cells beyond
+$n = 4000$ were not measured: a single fit at $n = 16\,000$ with six traits
+took $2736$\,s, and the sweep exhausted its allocation. And the CPU points
+scatter over a factor of $13$ where the card holds within a factor of $1.3$;
+that dispersion is measurement noise on a shared node rather than a property
+of the model, and it is the card's stability that licenses the attribution.
+
+\begin{figure}[t]\centering
+\includegraphics[width=\textwidth]{figures/fig_backend.pdf}
+\caption{\label{fig:backend}Paired evaluation cost at an imposed $\theta$.
+\textbf{(a)} Each point is one cell---one family, one covariance structure,
+one relationship matrix; the line joins the medians. The card's cells collapse
+onto each other at every size, so the engine's cost is set by $n$ alone.
+\textbf{(b)} Card-over-CPU speed-up per family and per relationship matrix,
+with group sizes printed; the bar is the median. $n = 2000$ and $4000$ only,
+these being the sizes at which both devices were measured.}
+\end{figure}
+
+\subsection{A cost model that can be, and was, refuted}\label{sec:reconstruction}
+
+The measurements above decompose a fit into three parts: a compilation paid
+once, the cost of one evaluation, and a number of evaluations. That
+decomposition is only useful if the three reconstruct the total, so we tested
+it, and it failed. Across the $32$ paired CPU cells at $n = 2000$ the ratio of
+predicted to measured time was $0.48$ in median: the model accounted for half
+the time.
+
+The cause was not in the timing but in the count. We had \emph{predicted} the
+number of evaluations as $n_{\text{iter}} + 2p$---the iterations plus the
+finite-difference Hessian---whereas the bounded quasi-Newton optimiser performs
+several evaluations per iteration inside its line search, and each Newton
+polish step adds a full Hessian of its own. Measured on a case with $p = 14$
+and $32$ iterations: $60$ predicted, $102$ actual. The solver now counts its
+own calls to the objective. With the true count the reconstruction reaches
+$0.94$; the residual six per cent is incidence assembly, the starting value,
+and the predictors.
+
+We report the failure because the alternative was available and worse. A
+multiplicative correction of $1.70$ would have closed the budget exactly while
+concealing the missing term, and a cost model calibrated that way predicts
+correctly on the grid it was fitted to and nowhere else.
+
+\subsection{An external contrast that does not replicate}\label{sec:external}
+
+\pkg{ASReml} partitions the terms of a model into a dense set, whose
+coefficient-matrix inverse is fully formed, and a sparse set, for which it is
+formed only partially; a random term may be moved into the dense set
+explicitly, and the manual recommends this for relationship matrices of the
+order of several thousand. This offers a contrast internal to one program:
+same model, same data, same optimiser, only the solve path differing.
+
+It does not reproduce the asymmetry we report. On a dense genomic relationship
+matrix at $n = 8000$, with three repetitions, the sparse-to-dense time ratio
+was $0.97$, $1.01$, $1.04$ and $1.02$ at $q = 500$, $1000$, $2000$ and $4000$:
+no measurable advantage either way. Log-likelihoods and iteration counts were
+identical between the two paths throughout, so the partition changes the
+solution route and not the problem---but on this model it changes the cost by
+less than the measurement noise.
+
+One caveat we cannot close: ``the partition has no effect'' and ``the option
+did not apply'' would look alike here. The evidence that it applied is thin
+but real---the median prediction error variances agree bit-for-bit at
+$q = 500$ and $1000$ and differ in the tenth digit at $q = 2000$ and $4000$,
+the signature of a different arithmetic path rather than of no path at all.
+
+This measurement also retires an explanation we had found attractive. Because
+the inverse is only partially formed for sparse terms, we expected prediction
+error variances to be unavailable on the sparse side, and to be able to
+present \pkg{remlax}'s lack of them as the same structural price. They come
+back from both paths, with median standard errors agreeing to ten digits.
+\pkg{remlax} not exposing prediction error variances is an implementation gap,
+and is recorded as one.
 
 \subsection{Fixed costs, and an unfavourable comparison}\label{sec:fixed}
 
