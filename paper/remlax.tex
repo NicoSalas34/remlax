@@ -481,6 +481,58 @@ families diverge, and the arrow marks the pair that refutes reading $p$ as
 difficulty.}
 \end{figure}
 
+\subsection{Which engine, and on which device}\label{sec:decision}
+
+The trait sweep measures all three cells that exist, and the answer is not the
+one an accelerator invites. Across $t = 1$ to $8$ the sparse engine on sixteen
+CPU cores is faster than the dense engine on a whole A100 at every size, and
+the margin widens: $22\times$ to $121\times$ per evaluation at the imposed
+common $\theta$, and $7\times$ to $78\times$ for a complete fit
+(Figure~\ref{fig:moteurs}). There is no crossover to report.
+
+The three exponents say why. Over this range an evaluation costs $n^{2.78}$ for
+the dense engine on CPU, $n^{2.14}$ for the same engine on the card, and
+$n^{1.25}$ for the sparse engine. The gap is algorithmic, not hardware: the
+sparse factorisation pays only for the fill it actually incurs, while the dense
+engine forms and factorises the whole of $V$ regardless of sparsity. The
+indifference to model structure established in Section~\ref{sec:paired} is an
+advantage on dense models and precisely this liability on sparse ones.
+
+The empty fourth cell then decides the practical recommendation. Since
+\pkg{CHOLMOD} runs on the CPU, \emph{sparse} and \emph{GPU} cannot be combined:
+for any model inside the sparse engine's declared scope the right choice is the
+CPU, and the accelerator earns its place only on models the scope excludes ---
+metric kernels, factor-analytic structures, a supplied dense relationship
+factor. That is a narrower role for the GPU than we expected when this work
+started, and it is the honest reading of the measurements.
+
+Two components of the comparison were wrong until they were checked, both in
+the direction that flattered the dense engine, and both are recorded because
+the corrected figures depend on them. The sparse engine computed \pkg{TMB}'s
+standard-error report on every fit --- the covariance of all random effects,
+which the dense call never forms --- costing $42\%$ of the sparse fit time at
+$t = 8$; and its iteration cap was $300$ against the dense engine's $3000$,
+which would have let a truncation read as a convergence. Both are corrected in
+the figures above.
+
+What the cost model still does not explain, we name rather than absorb into a
+fitted constant: construction plus counted evaluations account for only $15$ to
+$48\%$ of a sparse fit. The remainder is the gradient evaluations, which
+\pkg{nlminb} requests about as often as the objective, and instrumenting them
+is the next step rather than a closed question.
+
+\begin{figure}[t]\centering
+\includegraphics[width=\textwidth]{figures/fig_moteurs.pdf}
+\caption{\label{fig:moteurs}The three cells that exist.
+\textbf{(a)} Cost of one evaluation against problem size, with the fitted
+exponent for each cell; the fourth cell---sparse on the card---does not exist,
+\pkg{CHOLMOD} being CPU-only. \textbf{(b)} Whole-card dense engine over
+sixteen-core sparse engine, per evaluation and per complete fit. The dotted
+line is equality and is never approached. The fit ratio sits below the
+evaluation ratio because most of a sparse fit is gradient evaluations rather
+than objective evaluations.}
+\end{figure}
+
 \subsection{A cost model that can be, and was, refuted}\label{sec:reconstruction}
 
 The measurements above decompose a fit into three parts: a compilation paid
