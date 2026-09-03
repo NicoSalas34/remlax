@@ -421,6 +421,12 @@ def fit_reml(terms, res, y, X, theta_init=None, maxiter=3000,
                               if int(maxiter) <= 0 else str(r.message)),
                n_iter=(0 if int(maxiter) <= 0 else int(r.nit)),
                secondes=time.time() - hist["t0"],
+               # LES BORNES VOYAGENT AVEC LE RESULTAT. Tout consommateur qui a
+               # besoin du sous-espace libre — erreurs-types, diagnostics — doit
+               # les LIRE et non les recoder : une borne en dur cote R valait -8
+               # la ou le solveur borne a -12, et onze composantes de variance
+               # etaient exclues du calcul des erreurs-types sans raison.
+               par_floor=float(floor), par_ceil=float(ceil),
                # Mesures separees : la compilation est payee UNE fois, une
                # evaluation autant de fois qu'il y a d'iterations. Les melanger
                # attribue a l'algebre du temps de compilateur.
