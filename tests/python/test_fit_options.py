@@ -19,6 +19,24 @@ from remlax.fit import fit_reml
 RNG = np.random.default_rng(2026)
 
 
+
+def _sur_gpu():
+    """Un peripherique cuda est-il le peripherique par defaut ?"""
+    import jax
+    return any(d.platform == "gpu" for d in jax.devices())
+
+
+def _egal_selon_peripherique(a, b):
+    """CPU : egalite bit a bit, mesuree sur le cluster (quatre executions de la
+    meme cellule a logLik EXACTEMENT egale). GPU : les reductions XLA ne sont
+    pas deterministes d'une execution a l'autre ; mesure sur RTX A1000 avec
+    jax 0.11.1 : 1,2e-14 sur theta et 3,4e-13 sur -2logL entre deux appels
+    identiques. On exige donc 1e-12 relatif sur GPU, l'egalite sur CPU."""
+    a = np.asarray(a, dtype=np.float64); b = np.asarray(b, dtype=np.float64)
+    if _sur_gpu():
+        return bool(np.allclose(a, b, rtol=1e-12, atol=1e-12))
+    return bool(np.array_equal(a, b))
+
 def plan(q=20, rep=4, sg=1.0, sb=0.4, se=1.0, seed=0):
     """Plan en blocs complets : q genotypes x rep blocs."""
     rng = np.random.default_rng(seed)
@@ -41,7 +59,7 @@ def test_theta_init_maxiter_0_polish_0_est_une_evaluation_exacte():
     f = fit_reml(terms, res, y, X, theta_init=th, maxiter=0, polish=0, verbose=False,
                  hessian=False, blups=False)
     assert np.array_equal(f["theta"], th)
-    assert f["neg2_reml"] == _n2(terms, res, y, X, th)
+    assert _egal_selon_peripherique(f["neg2_reml"], _n2(terms, res, y, X, th))
     assert f["n_iter"] == 0 and f["n_polish"] == 0
     assert "evaluation seule" in f["scipy_message"]
     assert f["logLik"] == pytest.approx(-0.5 * f["neg2_reml"])
@@ -158,7 +176,15 @@ def test_deux_appels_identiques_meme_resultat_et_polish_0():
     terms, res, y, X = plan()
     a = fit_reml(terms, res, y, X, verbose=False)
     b = fit_reml(terms, res, y, X, verbose=False)
-    assert np.array_equal(a["theta"], b["theta"])
+    if _sur_gpu():
+        # Sur GPU la TRAJECTOIRE change d'une execution a l'autre (le bruit
+        # d'arrondi fait accepter un autre pas), donc l'arret tombe a un autre
+        # point de la meme surface plate : mesure 2e-8 sur theta pour 3e-13 sur
+        # -2logL. C'est la vraisemblance qui est reproductible, pas le chemin.
+        assert np.allclose(a["neg2_reml"], b["neg2_reml"], rtol=1e-10)
+        assert np.allclose(a["theta"], b["theta"], atol=1e-6)
+    else:
+        assert np.array_equal(a["theta"], b["theta"])
     c = fit_reml(terms, res, y, X, polish=0, verbose=False, hessian=False, blups=False)
     assert c["n_polish"] == 0
     assert a["n_polish"] >= 0 and a["neg2_reml"] <= c["neg2_reml"] + 1e-9

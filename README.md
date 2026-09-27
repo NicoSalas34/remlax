@@ -222,6 +222,17 @@ Full definitions, positivity constraints and internal parametrisations:
   per iteration (step adapted to the measured evaluation cost) and the Newton
   polishing prints one line per step. A log with no new line for a long time
   means the current evaluation is long, not that the fit has stalled.
+- **CPU fits are bitwise reproducible; GPU fits are not.** On CPU, four
+  independent runs of the same fit on the cluster returned exactly the same
+  log-likelihood. On GPU, XLA reductions are not deterministic across runs:
+  measured on an RTX A1000 with jax 0.11.1, two identical fits agree on
+  `-2 logL` to 3e-13 but can stop at a `theta` 2e-8 apart, because the
+  rounding noise changes which line-search step is accepted and the
+  optimiser lands elsewhere on the same flat top. Evaluation at a fixed
+  `theta` (`maxiter = 0, polish = 0`) is exact on both devices. Compare GPU fits with a
+  tolerance, never with equality. The number of BLAS threads also moves the
+  CPU log-likelihood in its sixth decimal, so bitwise comparison across
+  machines requires the same thread count.
 - **Restarts are off by default** (`n_restarts = 0`). The Newton decrement
   cannot detect a local optimum — it measures the ascent available *locally*,
   so it is zero at the top of a secondary hill. Turn restarts on for any fit
