@@ -38,7 +38,11 @@ parametrised, never `Sigma` itself — followed by regularised Newton polishing.
   log-likelihood constant, and the default Wald test type all differ. Those
   differences are documented in [docs/structures.md](docs/structures.md) and
   in the guides.
-- **Not an R package.** `R/remlax.R` is a single file you `source()`.
+- **Two forms of the R interface, one source.** `R/remlax.R` is a single file
+  you `source()`, and `rpkg/` is the same code as an installable R package
+  (generated from it by `rpkg/tools/sync_sources.R`, with a copy of the Python
+  solver under `inst/python/`). Use whichever suits: the scripts for a cluster
+  job that sets `RX_REMLAX_R`, the package for `library(remlax)` and `?rx_fit`.
 
 ## Installation
 
@@ -63,9 +67,23 @@ python -c "import remlax; print(remlax.device_report())"
 
 ### R interface
 
+Either source the script:
+
 ```r
 source("R/remlax.R")            # needs Matrix and jsonlite
 ```
+
+or install the package, which ships its own copy of the Python solver and
+documents every `rx_*` function:
+
+```r
+install.packages("rpkg", repos = NULL, type = "source")   # from a clone
+# remotes::install_github("nsalas/remlax", subdir = "rpkg")
+library(remlax); ?rx_reml
+```
+
+The package still needs a Python interpreter with jax, numpy and scipy; point
+`RX_PY` at it. See [rpkg/README.md](rpkg/README.md).
 
 The R side never imports Python. It writes the design to a directory as raw
 binary plus a JSON manifest, calls the solver as a subprocess, and reads the

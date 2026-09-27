@@ -1,4 +1,8 @@
 __pycache__/
+# bibliotheque R locale et produits de R CMD build/check
+.r-libs/
+*.Rcheck/
+remlax_*.tar.gz
 *.py[cod]
 *.egg-info/
 build/

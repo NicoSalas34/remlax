@@ -1,0 +1,3 @@
+source_git_head: 0fe0ab89c32b321a9448a7978cf16b4da7acd0f2
+synced_on: 2026-09-27 19:48:02 CEST
+python_files: __init__.py _x64.py bessel.py bundle.py cli.py core.py device.py fit.py inference.py levels.py model.py scan_cli.py scan.py sparsity.py structures.py

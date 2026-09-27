@@ -32,3 +32,36 @@ jobs:
         run: python tests/python/test_remlax_core.py
       - name: random stress sweep (reduced)
         run: python tests/python/stress_remlax.py --n 30
+
+  r-package:
+    name: "R package (CPU, jax via pip)"
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: python solver dependencies
+        run: python -m pip install "jax>=0.4.30" numpy scipy
+      - uses: r-lib/actions/setup-r@v2
+        with:
+          use-public-rspm: true
+      - uses: r-lib/actions/setup-r-dependencies@v2
+        with:
+          working-directory: rpkg
+          extra-packages: any::rcmdcheck, any::roxygen2
+      # Le paquet est une copie transformee de R/*.R et src/remlax : la
+      # synchronisation est verifiee avant tout, un paquet desynchronise
+      # n'a pas a passer les tests.
+      - name: sources in step with the scripts
+        run: Rscript rpkg/tools/sync_sources.R --check
+      - name: Rd up to date
+        run: |
+          cd rpkg && Rscript -e 'roxygen2::roxygenise(roclets = "rd")'
+          git diff --exit-code -- man || { echo "man/ desynchronise : relancer roxygenise"; exit 1; }
+      - name: R CMD check
+        env:
+          RX_PY: python
+          REMLAX_REPO_ROOT: ${{ github.workspace }}
+          _R_CHECK_FORCE_SUGGESTS_: "false"
+        run: Rscript -e 'rcmdcheck::rcmdcheck("rpkg", args = c("--no-manual", "--as-cran"), error_on = "warning")'
