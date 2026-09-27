@@ -152,5 +152,10 @@ def main():
     return 1 if ko else 0
 
 
+def test_assemble_V():
+    """Point d'entree pytest : main() rend 0 si tout passe (convention du script)."""
+    assert main() == 0
+
+
 if __name__ == "__main__":
     sys.exit(main())

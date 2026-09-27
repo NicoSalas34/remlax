@@ -170,5 +170,10 @@ print("PIC", m / 2**20)
     return 0
 
 
+def test_assemble_groupes():
+    """Point d'entree pytest : main() rend 0 si tout passe (convention du script)."""
+    assert main() == 0
+
+
 if __name__ == "__main__":
     sys.exit(main())

@@ -157,7 +157,7 @@ CAS = [
 ]
 
 
-def test_scan_egale_wald(n_snp=25, verbose=True):
+def scan_egale_wald(n_snp=25, verbose=True):
     d = dispositif()
     V, y, fit = ajuste(d)
     proj = projeter(fit, d["X"], {"dir": d["Zdir"], "ind": d["Zind"]})
@@ -186,7 +186,7 @@ def test_scan_egale_wald(n_snp=25, verbose=True):
     return pires
 
 
-def test_correlation_conditionnelle(n_snp=15, verbose=True):
+def correlation_conditionnelle(n_snp=15, verbose=True):
     """r_dir_ind est-il la vraie correlation entre covariables sachant V et X ?"""
     d = dispositif()
     V, y, fit = ajuste(d)
@@ -217,7 +217,7 @@ def test_refus_doses_non_centrees():
     except ValueError as e:
         assert "centre" in str(e), str(e)
         print("  refus obtenu : %s..." % str(e)[:60])
-        return True
+        return
     raise AssertionError("la famille sim a accepte des doses non centrees")
 
 
@@ -236,7 +236,7 @@ def test_refus_conjoint_inter_especes():
     # mais chaque famille SEULE doit passer, et valoir la reference
     res = scan(proj, {"dir": d["Mdir"], "ind": d["Mind"]}, tests=["ind"])
     V, y, fit2 = ajuste(d)
-    return np.isfinite(res["chi2_ind"]).all()
+    assert np.isfinite(res["chi2_ind"]).all()
 
 
 def test_analyse_specifications():
@@ -253,7 +253,7 @@ def test_analyse_specifications():
             continue
         raise AssertionError("specification '%s' acceptee" % mauvais)
     print("  specifications : analysees et refusees comme prevu")
-    return True
+
 
 
 def test_lambda_gc():
@@ -261,14 +261,23 @@ def test_lambda_gc():
     lam = lambda_gc(x2, 1)
     assert abs(lam - 1.0) < 0.02, lam
     print("  lambda sur du chi2 pur : %.4f" % lam)
-    return lam
+
+
+
+def test_scan_egale_wald():
+    """Enveloppe pytest sans argument : pytest lirait n_snp et verbose comme des fixtures."""
+    scan_egale_wald(verbose=False)
+
+
+def test_correlation_conditionnelle():
+    correlation_conditionnelle(verbose=False)
 
 
 if __name__ == "__main__":
     print("scan == wald (colonne ajoutee a X) :")
-    test_scan_egale_wald()
+    scan_egale_wald()
     print("diagnostic de colinearite :")
-    test_correlation_conditionnelle()
+    correlation_conditionnelle()
     print("garde-fous :")
     test_refus_doses_non_centrees()
     test_refus_conjoint_inter_especes()
