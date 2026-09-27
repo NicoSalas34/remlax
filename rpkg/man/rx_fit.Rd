@@ -9,7 +9,8 @@ rx_fit(model, backend = c("auto", "gpu", "cpu"), dir = NULL,
        hessian = TRUE, blups = TRUE, pev = FALSE,
        vpredict = NULL, wald = FALSE,
        kenward_roger = FALSE, predict = NULL, theta_init = NULL,
-       fixed_theta = NULL, verbose = TRUE, keep = FALSE)
+       fixed_theta = NULL, floor = -12, ceil = 12,
+       verbose = TRUE, keep = FALSE)
 }
 \arguments{
 \item{model}{an \link{rx_model} object.}
@@ -23,8 +24,7 @@ temporary directory by default, removed unless \code{keep = TRUE}.}
 
 \item{polish}{cap on Newton polishing steps (default 25). Each step costs two
 gradients per parameter. Polishing stops early once the Newton decrement is
-negligible. Note that this phase prints nothing to the log: a silent log
-is not a stalled fit.}
+negligible. Each step prints one line when \code{verbose = TRUE}.}
 
 \item{n_restarts}{number of perturbed restarts (default 0). The Newton
 decrement cannot detect a local optimum; restarts are the only way. Turn
@@ -60,7 +60,13 @@ evaluated at that point.}
 value. Indices, not combinations: a correlation of a \code{us} block depends on
 two \code{theta} and cannot be fixed this way.}
 
-\item{verbose}{pass the solver's output through.}
+\item{floor, ceil}{bounds on every \code{theta} (default \code{-12} and \code{12}). \code{theta}
+is a log standard deviation, \verb{var = exp(2 theta)}, so the default floor is
+\code{var = 3.8e-11}. The values actually used come back as \code{par_floor} and
+\code{par_ceil} in the result; read them there rather than recoding them.}
+
+\item{verbose}{pass the solver's output through: one line per L-BFGS-B
+iteration and one per Newton polishing step.}
 
 \item{keep}{keep \code{dir} after the fit.}
 }
@@ -71,8 +77,9 @@ list of \code{Sigma} matrices), \code{sigmas_res} and \code{sigma_res}, \code{rh
 (between-level parameters on the scale actually used), \code{blups} (named list
 of \verb{q x t} matrices), \code{beta}, \code{vbeta}, \code{hessian}, \code{max_grad},
 \code{newton_decrement}, \code{n_neg_eig}, \code{n_null_dir}, \code{cond}, \code{n_at_bound},
-\code{n_fixed_out}, \code{n_par_free}, \code{composantes_degenerees}, \code{composantes_noms},
-\code{optim_msg}, and, when requested, \code{vpredict}, \code{wald}, \code{kenward_roger},
+\code{n_fixed_out}, \code{n_par_free}, \code{par_floor}, \code{par_ceil},
+\code{composantes_degenerees}, \code{composantes_noms}, \code{optim_msg} (read it first:
+\code{ABNORMAL} is a failed line search, not a maximum), and, when requested, \code{vpredict}, \code{wald}, \code{kenward_roger},
 \code{pev}, \code{predictions}. Read fields with \code{[[} rather than \code{$}: \code{$} does
 partial matching and \code{fit$sigmas} once matched \code{sigmas_res}.
 }

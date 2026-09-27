@@ -355,9 +355,11 @@ The returned object is of class `rx_fit`, and additionally carries `model`,
 ```r
 rx_fit(model, backend = c("auto", "gpu", "cpu"), dir = NULL,
        maxiter = 3000L, polish = 25L, n_restarts = 0L,
-       hessian = TRUE, blups = TRUE, vpredict = NULL, wald = FALSE,
-       kenward_roger = FALSE, predict = NULL,
-       fixed_theta = NULL, verbose = TRUE, keep = FALSE)
+       hessian = TRUE, blups = TRUE, pev = FALSE,
+       vpredict = NULL, wald = FALSE,
+       kenward_roger = FALSE, predict = NULL, theta_init = NULL,
+       fixed_theta = NULL, floor = -12, ceil = 12,
+       verbose = TRUE, keep = FALSE)
 ```
 
 | argument | meaning |
@@ -373,6 +375,9 @@ rx_fit(model, backend = c("auto", "gpu", "cpu"), dir = NULL,
 | `kenward_roger` | denominator degrees of freedom and adjusted covariance |
 | `predict` | `list(L = , M = )`, matrices written for the solver |
 | `fixed_theta` | **1-based** indices of parameters held at their starting value |
+| `theta_init` | starting `theta`, in the solver's order (`rx_n_theta()` gives its length); with `maxiter = 0` and `polish = 0` the objective is only evaluated there |
+| `pev` | `FALSE`, `TRUE`, or a character vector of term names: diagonal prediction error variance of the BLUPs. One `(t q) x n` matrix per term, so name the terms on a large model |
+| `floor`, `ceil` | bounds on every `theta`, default `-12` and `12`. `theta` is a **log standard deviation** (`var = exp(2 theta)`), so the default floor is `var = 3.8e-11`. The values actually used come back as `fit$par_floor` and `fit$par_ceil`; read them there rather than recoding them |
 | `verbose` | passes the solver's output through |
 | `keep` | keep `dir` after the fit |
 
@@ -747,6 +752,8 @@ Ajustement REML (cpu) : logLik -388.088838 | 3 parametres | 240 obs | 1.6 s
 | `hessian` | Hessian of `-2 logL` |
 | `max_grad`, `newton_decrement`, `n_neg_eig`, `n_null_dir`, `cond` | diagnostics |
 | `n_at_bound`, `n_fixed`, `n_fixed_out`, `n_par_free` | bounds, fixed parameters, and the free-subspace dimension |
+| `par_floor`, `par_ceil` | the bounds the solver actually used |
+| `optim_msg` | L-BFGS-B's stopping message; read it first. `ABNORMAL` is a failed line search, not a maximum, whatever the gradient says |
 | `composantes_degenerees` | terms with a parameter at the floor |
 | `composantes_noms` | the `Vi` numbering |
 | `vpredict`, `wald`, `kenward_roger`, `predictions` | present when requested |

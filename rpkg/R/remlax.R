@@ -798,7 +798,20 @@ rx_fit <- function(model, backend = c("auto", "gpu", "cpu"), dir = NULL,
                    hessian = TRUE, blups = TRUE, pev = FALSE,
                    vpredict = NULL, wald = FALSE,
                    kenward_roger = FALSE, predict = NULL, theta_init = NULL,
-                   fixed_theta = NULL, verbose = TRUE, keep = FALSE) {
+                   fixed_theta = NULL, floor = -12, ceil = 12,
+                   verbose = TRUE, keep = FALSE) {
+  # LES BORNES DE theta SE DEMANDENT ICI, ET NULLE PART AILLEURS. Le CLI les
+  # acceptait (--floor, --ceil) mais aucun argument R ne les transmettait : un
+  # appelant qui croyait poser un plancher a -8 obtenait -12 sans un mot, et
+  # un pipeline a enregistre PAR_FLOOR=-8 dans ses specs pendant que le solveur
+  # travaillait a -12. theta est un LOG D'ECART-TYPE : var = exp(2 theta), donc
+  # floor = -12 vaut var = 3,8e-11. Les valeurs effectives reviennent dans le
+  # resultat (par_floor, par_ceil) : les lire la, ne jamais les recoder.
+  floor <- as.numeric(floor); ceil <- as.numeric(ceil)
+  if (length(floor) != 1L || length(ceil) != 1L || !is.finite(floor) || !is.finite(ceil) ||
+      floor >= ceil)
+    stop("rx_fit : floor et ceil doivent etre deux scalaires finis avec floor < ceil.",
+         call. = FALSE)
   # UN MODELE DECLARE PAR SA PRECISION N'EST PAS AJUSTABLE ICI, ET LE TAIRE
   # COUTE CHER. rx_model() pose l'attribut `creux_seulement` des qu'un terme
   # porte Kinv sans LK ; personne ne le lisait, si bien que ce moteur ajustait
@@ -837,6 +850,7 @@ rx_fit <- function(model, backend = c("auto", "gpu", "cpu"), dir = NULL,
   py <- rx_python_cmd()
   a <- c(rx_solver_args(), dir, "--backend", backend, "--maxiter", maxiter, "--polish", polish,
          "--restarts", n_restarts,
+         "--floor", format(floor, digits = 15), "--ceil", format(ceil, digits = 15),
          if (!is.null(vpredict)) c("--vpredict",
            paste(sprintf("%s=%s", names(vpredict), unlist(vpredict)), collapse = ";")) else NULL,
          if (isTRUE(wald)) "--wald" else NULL,

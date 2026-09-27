@@ -31,3 +31,19 @@ test_that("rx_fit refuse un terme Kinv sans facteur de K", {
   m <- rx_model(y, X, terms = list(tm))
   expect_error(rx_fit(m, backend = "cpu", verbose = FALSE), "PRECISION")
 })
+
+test_that("le plancher et le plafond demandes sont ceux que le solveur applique", {
+  skip_si_pas_de_jax()
+  set.seed(4)
+  gid <- factor(rep(1:20, 3)); y <- rnorm(60) + rnorm(20)[gid]; X <- matrix(1, 60, 1)
+  m <- rx_model(y, X, terms = list(rx_term("gid", gid)))
+  f0 <- rx_fit(m, backend = "cpu", verbose = FALSE)
+  expect_equal(f0[["par_floor"]], -12)
+  expect_equal(f0[["par_ceil"]], 12)
+  f1 <- rx_fit(m, backend = "cpu", verbose = FALSE, floor = -8, ceil = 6)
+  expect_equal(f1[["par_floor"]], -8)
+  expect_equal(f1[["par_ceil"]], 6)
+  # sur ce plan, aucun parametre au bord : les bornes ne changent pas l optimum
+  expect_equal(f1[["logLik"]], f0[["logLik"]], tolerance = 1e-8)
+  expect_error(rx_fit(m, backend = "cpu", verbose = FALSE, floor = 3, ceil = 1), "floor < ceil")
+})

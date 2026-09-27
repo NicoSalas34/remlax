@@ -218,6 +218,10 @@ Full definitions, positivity constraints and internal parametrisations:
 ## Known limitations
 
 - **`V` is dense.** See "What it is not" above.
+- **The log stays informative through polishing.** L-BFGS-B prints one line
+  per iteration (step adapted to the measured evaluation cost) and the Newton
+  polishing prints one line per step. A log with no new line for a long time
+  means the current evaluation is long, not that the fit has stalled.
 - **Restarts are off by default** (`n_restarts = 0`). The Newton decrement
   cannot detect a local optimum — it measures the ascent available *locally*,
   so it is zero at the top of a secondary hill. Turn restarts on for any fit

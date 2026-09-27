@@ -136,8 +136,7 @@ NULL
 #' @param maxiter cap on L-BFGS-B iterations (default 3000).
 #' @param polish cap on Newton polishing steps (default 25). Each step costs two
 #'   gradients per parameter. Polishing stops early once the Newton decrement is
-#'   negligible. Note that this phase prints nothing to the log: a silent log
-#'   is not a stalled fit.
+#'   negligible. Each step prints one line when `verbose = TRUE`.
 #' @param n_restarts number of perturbed restarts (default 0). The Newton
 #'   decrement cannot detect a local optimum; restarts are the only way. Turn
 #'   them on for any fit you intend to publish.
@@ -164,7 +163,12 @@ NULL
 #' @param fixed_theta 1-based indices of parameters held at their starting
 #'   value. Indices, not combinations: a correlation of a `us` block depends on
 #'   two `theta` and cannot be fixed this way.
-#' @param verbose pass the solver's output through.
+#' @param floor,ceil bounds on every `theta` (default `-12` and `12`). `theta`
+#'   is a log standard deviation, `var = exp(2 theta)`, so the default floor is
+#'   `var = 3.8e-11`. The values actually used come back as `par_floor` and
+#'   `par_ceil` in the result; read them there rather than recoding them.
+#' @param verbose pass the solver's output through: one line per L-BFGS-B
+#'   iteration and one per Newton polishing step.
 #' @param keep keep `dir` after the fit.
 #' @return An object of class `rx_fit`, a list with `theta`, `logLik`,
 #'   `logLik_asreml`, `n_par`, `n_obs`, `secondes`, `backend`, `sigmas` (named
@@ -172,8 +176,9 @@ NULL
 #'   (between-level parameters on the scale actually used), `blups` (named list
 #'   of `q x t` matrices), `beta`, `vbeta`, `hessian`, `max_grad`,
 #'   `newton_decrement`, `n_neg_eig`, `n_null_dir`, `cond`, `n_at_bound`,
-#'   `n_fixed_out`, `n_par_free`, `composantes_degenerees`, `composantes_noms`,
-#'   `optim_msg`, and, when requested, `vpredict`, `wald`, `kenward_roger`,
+#'   `n_fixed_out`, `n_par_free`, `par_floor`, `par_ceil`,
+#'   `composantes_degenerees`, `composantes_noms`, `optim_msg` (read it first:
+#'   `ABNORMAL` is a failed line search, not a maximum), and, when requested, `vpredict`, `wald`, `kenward_roger`,
 #'   `pev`, `predictions`. Read fields with `[[` rather than `$`: `$` does
 #'   partial matching and `fit$sigmas` once matched `sigmas_res`.
 #' @details A model containing a term declared by its precision (`Kinv`) without
@@ -187,7 +192,8 @@ NULL
 #'        hessian = TRUE, blups = TRUE, pev = FALSE,
 #'        vpredict = NULL, wald = FALSE,
 #'        kenward_roger = FALSE, predict = NULL, theta_init = NULL,
-#'        fixed_theta = NULL, verbose = TRUE, keep = FALSE)
+#'        fixed_theta = NULL, floor = -12, ceil = 12,
+#'        verbose = TRUE, keep = FALSE)
 #' @name rx_fit
 NULL
 
