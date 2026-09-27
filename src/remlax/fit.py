@@ -372,11 +372,23 @@ def fit_reml(terms, res, y, X, theta_init=None, maxiter=3000,
     # devant le seuil d'un LRT (3.84), pas un nombre fixe de fois : c'est le
     # critere qui a un sens, et il coute deux gradients par parametre et par pas.
     n_polish = 0
+    # LE POLISSAGE PARLE, COMME L-BFGS-B. Il etait muet : sur un modele a 198
+    # parametres il a dure 61,5 h et 9 979 evaluations APRES la derniere ligne
+    # d'iteration, et un journal fige pendant quatre jours a fait diagnostiquer
+    # un blocage la ou l'ajustement travaillait. Chaque pas coute 2p gradients
+    # (Hessien par differences finies) : une ligne par pas est bon marche et
+    # suffit a distinguer la progression d'un arret.
     if polish > 0:
+        if verbose:
+            print("  polissage de Newton : jusqu'a %d pas, %d gradients par pas"
+                  % (int(polish), 2 * p), flush=True)
         for _ in range(int(polish)):
+            t_pas = time.time()
             f_cur, g_cur = fun_jac(theta)
             H = _hessian_fd(fun_jac, theta, floor=floor, ceil=ceil)
             if not np.all(np.isfinite(H)) or not np.all(np.isfinite(g_cur)):
+                if verbose:
+                    print("  polissage arrete : Hessien ou gradient non fini", flush=True)
                 break
             try:
                 w, Vv = np.linalg.eigh(0.5 * (H + H.T))
@@ -397,8 +409,19 @@ def fit_reml(terms, res, y, X, theta_init=None, maxiter=3000,
                     theta, done = cand, True
                     break
             if not done:
+                if verbose:
+                    print("  polissage arrete : aucun pas n'ameliore -2logL (deja au sommet)",
+                          flush=True)
                 break                                   # deja au sommet
             n_polish += 1
+            if verbose:
+                # decrement de Newton g' H^+ g / 2 en unites de logLik, sur le
+                # Hessien regularise : c'est la montee encore disponible sous
+                # le modele quadratique, comparable au 3,84 d'un LRT a 1 ddl.
+                dec = 0.5 * float(g_cur @ (Vv @ ((Vv.T @ g_cur) / w_reg)))
+                print("  polish %3d | -2logL %14.6f | gain %.3e | decrement %.3e | %6.1f s | %d eval"
+                      % (n_polish, f_try, f_cur - f_try, dec,
+                         time.time() - t_pas, hist["n_eval"]), flush=True)
             if float(g_cur @ g_cur) < 1e-24:
                 break
 
