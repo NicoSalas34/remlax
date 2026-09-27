@@ -798,6 +798,22 @@ rx_fit <- function(model, backend = c("auto", "gpu", "cpu"), dir = NULL,
                    vpredict = NULL, wald = FALSE,
                    kenward_roger = FALSE, predict = NULL, theta_init = NULL,
                    fixed_theta = NULL, verbose = TRUE, keep = FALSE) {
+  # UN MODELE DECLARE PAR SA PRECISION N'EST PAS AJUSTABLE ICI, ET LE TAIRE
+  # COUTE CHER. rx_model() pose l'attribut `creux_seulement` des qu'un terme
+  # porte Kinv sans LK ; personne ne le lisait, si bien que ce moteur ajustait
+  # le modele en traitant le terme comme INDEPENDANT (level "id", ligne "K=I"
+  # dans le journal) sans un mot. Cout mesure : la variance genetique de
+  # Hauteur.4 sortait a 0,3019 -- exactement celle de l'ajustement univarie
+  # SANS parente (0,3013) -- au lieu de 0,1849, celle de l'univarie AVEC
+  # parente (0,1839). Toutes les heritabilites en decoulant etaient gonflees
+  # d'un facteur 1,63, sans qu'aucun diagnostic ne le signale.
+  if (isTRUE(attr(model$terms, "creux_seulement")))
+    stop("rx_fit : ce modele contient un ou plusieurs termes declares par leur ",
+         "PRECISION (Kinv) sans facteur de K. Le moteur dense a besoin de K et ",
+         "ignorerait silencieusement la parente, en estimant les effets comme ",
+         "INDEPENDANTS. Fournir K a rx_term(), ou ajuster avec rx_fit_sparse().",
+         call. = FALSE)
+
   backend <- match.arg(backend)
   if (is.null(dir)) { dir <- tempfile("rx_"); on.exit(if (!keep) unlink(dir, recursive = TRUE)) }
   rx_export(model, dir)
