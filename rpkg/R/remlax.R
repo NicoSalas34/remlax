@@ -140,12 +140,32 @@ rx_n_level <- function(level, order = 0L, opts = NULL, parts = NULL) {
     if (is.null(parts) || !length(parts))
       stop("level='sep' exige `parts`, la liste des facteurs (famille, dimension).",
            call. = FALSE)
+    # Meme refus que levels.n_level_params : une famille dont le compte depend
+    # d'un ordre ou d'options (corb, corg, mtrn, own) tomberait a zero parametre
+    # et deviendrait une identite en silence ; les familles metriques exigent
+    # des coordonnees que `parts` ne porte pas.
+    fam <- vapply(parts, function(x) as.character(x[[1]]), "")
+    mauvais <- intersect(fam, c("ar2", "ar3", "ma2", "arma", "corb", "corg",
+                                "mtrn", "own", RX_METRIQUES))
+    if (length(mauvais))
+      stop("level='sep' : les familles ", paste(sort(unique(mauvais)), collapse = ", "),
+           " ne sont pas admises dans `parts` (compte dependant d'un ordre ou ",
+           "d'options, ou coordonnees requises).", call. = FALSE)
     return(sum(vapply(parts, function(x)
       rx_n_level(as.character(x[[1]]), 0L), integer(1))))
   }
   if (level == "mtrn")
-    return(sum(vapply(c("phi", "nu", "delta", "alpha"),
-                      function(p) isTRUE(opts[[paste0("est_", p)]] > 0.5), TRUE)))
+    # Memes defauts que levels.n_level_params : phi est estime sauf mention
+    # contraire, les trois autres sont tenus fixes. Un `est_*` absent (rx_term
+    # appele directement avec des opts partiels) levait « subscript out of
+    # bounds » ; et le compter a zero pour phi aurait decoupe theta
+    # autrement que le solveur.
+    return(sum(vapply(c("phi", "nu", "delta", "alpha"), function(p) {
+      v <- if (is.null(opts)) numeric(0) else
+        suppressWarnings(as.numeric(unlist(opts[paste0("est_", p)])))
+      if (length(v) != 1L || is.na(v)) v <- if (p == "phi") 1 else 0
+      isTRUE(v > 0.5)
+    }, TRUE)))
   if (level == "own")  return(as.integer(opts[["n_par"]] %||% 0L))
   if (level == "corb") return(as.integer(order))
   if (level == "corg") return(as.integer(order * (order - 1L) / 2L))
@@ -1146,6 +1166,23 @@ print.rx_fit <- function(x, ...) {
       ordre <- if (!is.null(opt$order)) as.integer(eval(opt$order, env)) else 0L
       st    <- if (!is.null(opt$struct)) as.character(eval(opt$struct, env)) else "iid"
       rkk   <- if (!is.null(opt$rank)) as.integer(eval(opt$rank, env)) else 0L
+      # `struct =` HETEROGENE ENTRE CARACTERES (le v/h d'asreml). L'incidence
+      # etait passee en facteur brut quel que soit `struct`, donc t = 1 et une
+      # `diag` ou une `us` a une seule colonne : ar1(col, struct = "diag") se
+      # reduisait a ar1(col) en silence, 1 variance au lieu d'une par
+      # caractere. On decoupe donc l'indicatrice par caractere, exactement
+      # comme pour diag(gid)/us(gid), des que `struct` n'est pas "iid".
+      .par_caractere <- function(codes, q, txt) {
+        if (identical(st, "iid")) return(NULL)
+        if (is.null(trait))
+          stop("terme '", txt, "' : struct='", st, "' multi-caractere, mais ",
+               "aucun `trait` n'a ete fourni a rx_reml().")
+        tf <- factor(trait, levels = t_lev)
+        lapply(t_lev, function(tt2) {
+          ix <- which(tf == tt2)
+          Matrix::sparseMatrix(i = ix, j = codes[ix], x = 1, dims = c(n, q))
+        })
+      }
 
       # ar1(ligne, colonne) : produit separable, forme la plus courante.
       if (fn == "ar1" && length(pos) == 2L) {
@@ -1156,8 +1193,10 @@ print.rx_fit <- function(x, ...) {
         # levels.py construit L_r (x) L_c dans le meme ordre.
         idx <- (as.integer(fr) - 1L) * nc + as.integer(fc)
         Z <- Matrix::sparseMatrix(i = seq_len(n), j = idx, x = 1, dims = c(n, nr * nc))
+        Zl <- .par_caractere(idx, nr * nc, txt)
         return(rx_term(paste0(as.character(pos[[1]]), "_", as.character(pos[[2]])),
-                       Z, t = 1L, struct = "iid", level = "ar1ar1", dims = c(nr, nc),
+                       if (is.null(Zl)) Z else Zl, t = if (is.null(Zl)) 1L else NULL,
+                       struct = st, rank = rkk, level = "ar1ar1", dims = c(nr, nc),
                        levels = as.vector(outer(levels(fc), levels(fr),
                                                 function(a, b) paste(b, a, sep = ":")))))
       }
@@ -1178,8 +1217,9 @@ print.rx_fit <- function(x, ...) {
           stop("terme '", txt, "' : coordonnees non numeriques.")
         nm <- paste0(deparse(pos[[1]])[1], "_", deparse(pos[[2]])[1])
         opts <- if (fn == "mtrn") .rx_mtrn_opts(opt, env) else NULL
-        return(rx_term(make.names(nm), fz, struct = st, rank = rkk, level = fn,
-                       levels = lev, coord = co, opts = opts))
+        Zl <- .par_caractere(as.integer(fz), length(lev), txt)
+        return(rx_term(make.names(nm), if (is.null(Zl)) fz else Zl, struct = st,
+                       rank = rkk, level = fn, levels = lev, coord = co, opts = opts))
       }
       if (!length(pos))
         stop(fn, "() : aucun facteur de groupement.")
@@ -1202,8 +1242,9 @@ print.rx_fit <- function(x, ...) {
                   normalise = as.numeric(eval(opt$normalise %||% TRUE, env)))
       }
       if (fn == "corg") ordre <- z$q
-      return(rx_term(z$nom, z$f, struct = st, rank = rkk, level = fn,
-                     levels = z$levels, order = ordre, coord = co,
+      Zl <- .par_caractere(as.integer(z$f), z$q, txt)
+      return(rx_term(z$nom, if (is.null(Zl)) z$f else Zl, struct = st, rank = rkk,
+                     level = fn, levels = z$levels, order = ordre, coord = co,
                      opts = opts, expr = expr))
     }
 

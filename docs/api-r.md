@@ -133,8 +133,12 @@ itself):
 ~ mtrn(coln, rown, nu = 1, delta = 2)          5
 ~ mtrn(coln, rown, nu = "1 F")                 3
 ~ own(col, expr = "...", n_par = 1)            3
-~ ar1(col, struct = "diag")                    3
+~ ar1(col, struct = "diag")                    5
 ```
+
+The last line is `3` variances (one per trait) plus one `rho` plus the
+residual: `struct =` on a between-level term splits the incidence by trait,
+exactly as `diag(gid)` does, and therefore requires `trait =`.
 
 `corg(col)` on `q = 5` columns gives `5*4/2 = 10` correlation parameters, plus
 one variance and one residual: 12.

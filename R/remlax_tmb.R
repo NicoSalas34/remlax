@@ -112,17 +112,29 @@ rx_tmb_available <- function() {
 #' @return entier
 #' @export
 rx_n_theta <- function(model) {
-  terms <- model$terms
-  residual <- model$residual
-  np <- integer(0)
-  for (tm in terms) {
-    np <- c(np, rx_n_sigma_params(tm$struct %||% "iid", tm$t) +
-                rx_n_level_params(rx_level_of(tm)))
+  # COMPTE GENERAL, PAS SEULEMENT CELUI DU PERIMETRE CREUX. La version
+  # precedente passait par rx_n_sigma_params et rx_n_level_params, qui ne
+  # connaissent que iid/diag/us et id/ar1/ar1ar1/prec/fixed : sur un modele
+  # fa, corh, cor, ar2, une residuelle us ou sectionnee, la fonction levait
+  # « structure inconnue » alors que sa documentation en fait la longueur du
+  # theta de N'IMPORTE quel modele, celle qu'il faut pour theta_init. Le
+  # decoupage est celui du moteur dense (rx_n_params + rx_n_level par terme,
+  # puis par section residuelle) ; le moteur creux compte a l'identique sur
+  # son perimetre (verifie par test-moteur-creux.R).
+  n_lv <- function(lv, order, opts, parts) {
+    if (lv %in% c("id", "fixed", "prec")) return(0L)
+    as.integer(rx_n_level(lv, order %||% 0L, opts, parts = parts))
   }
-  t_res <- as.integer(model$t_res %||% 1L)
-  n_res <- rx_n_sigma_params(residual$struct %||% "iid",
-                             if (identical(residual$struct, "diag")) t_res else 1L)
-  sum(np) + n_res
+  np <- 0L
+  for (tm in model$terms)
+    np <- np + as.integer(rx_n_params(tm$struct %||% "iid", tm$t, tm$rank %||% 0L)) +
+      n_lv(rx_level_of(tm), tm$order, tm$opts, tm$parts)
+  .t_de <- function(r) if (is.null(r$trait)) 1L else nlevels(factor(r$trait))
+  res <- model$residual
+  for (s in (res$sections %||% list(res)))
+    np <- np + as.integer(rx_n_params(s$struct %||% "iid", .t_de(s), s$rank %||% 0L)) +
+      n_lv(s$level %||% "id", s$order, s$opts, NULL)
+  np
 }
 
 RX_SPARSE_SIGMA <- c("iid", "diag", "us")

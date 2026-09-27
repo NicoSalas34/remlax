@@ -115,14 +115,22 @@ def n_level_params(kind, order=0, parts=None, opts=None):
         # rien ne le signalerait : theta serait decoupe autrement des deux cotes.
         # On lit donc la famille SEULE, ce qui est correct pour toute famille
         # dont le compte ne depend pas de l'ordre, et on refuse les autres.
-        deps = ("ar2", "ar3", "ma2", "arma")
+        # DEUX FAMILLES DE REFUS, et le second manquait. `corb`, `corg`, `mtrn`
+        # et `own` ont un nombre de parametres qui depend de `order` ou de
+        # `opts`, que `parts` ne transporte pas : le compte tombait a zero et le
+        # facteur devenait une identite SANS AUCUN MESSAGE (mesure : un sep
+        # (corb, 4) x (ar1, 5) comptait 1 parametre au lieu de 5). Les familles
+        # metriques exigent des coordonnees, que `parts` ne porte pas non plus.
+        deps = ("ar2", "ar3", "ma2", "arma", "corb", "corg", "mtrn", "own") + LEVEL_NEEDS_COORD
         mauvais = [k for k, _ in (parts or []) if k in deps]
         if mauvais:
             raise ValueError(
-                "produit separable : les familles %s ont un nombre de parametres "
-                "qui depend de leur ordre, et `parts` ne porte que (famille, "
-                "dimension). Les declarer ici decouperait theta differemment de "
-                "level_chol. Utiliser `expr` pour ces cas." % sorted(set(mauvais)))
+                "produit separable : les familles %s ne sont pas admises dans "
+                "`parts`, qui ne porte que (famille, dimension) : leur nombre de "
+                "parametres depend d'un ordre ou d'options, ou elles exigent des "
+                "coordonnees. Les declarer ici decouperait theta differemment de "
+                "level_chol, ou donnerait une identite en silence. Utiliser "
+                "`expr` pour ces cas." % sorted(set(mauvais)))
         return sum(n_level_params(k) for k, _ in (parts or []))
     if kind == "corb":
         return int(order)
@@ -455,11 +463,16 @@ def level_corr(theta_lv, kind, q, order=0, coord=None, C_fixed=None, parts=None,
     if kind == "sep":
         # Produit separable : C = C_1 (x) C_2 (x) ... ; l'ordre des niveaux est
         # celui d'un kron, le PREMIER facteur variant le plus LENTEMENT.
+        # `parts` porte (famille, DIMENSION du facteur), exactement comme dans
+        # level_chol. Une version anterieure lisait le second element comme un
+        # ORDRE et passait q = None a chaque facteur : jnp.eye(None) levait une
+        # TypeError des le premier appel, donc une residuelle a structure `sep`
+        # (_section_V passe par level_corr) etait inatteignable. Trouve par le
+        # test test_levels_catalogue.py::test_sep_level_corr_egale_kron.
         C, o = None, 0
-        for (k, ordk) in parts:
-            p = n_level_params(k, ordk)
-            qi = ordk if k == "__q__" else None      # place tenue, cf. dims
-            C_i = level_corr(theta_lv[o:o + p], k, qi, order=ordk)
+        for (k, qi) in (parts or []):
+            p = n_level_params(k)
+            C_i = level_corr(theta_lv[o:o + p], k, int(qi))
             C = C_i if C is None else jnp.kron(C, C_i)
             o += p
         return C
