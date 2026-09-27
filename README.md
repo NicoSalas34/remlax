@@ -49,7 +49,7 @@ parametrised, never `Sigma` itself — followed by regularised Newton polishing.
 ### Python solver
 
 ```sh
-git clone https://github.com/nsalas/remlax
+git clone https://github.com/NicoSalas34/remlax
 cd remlax
 pip install -e .                 # CPU
 pip install -e ".[cuda]"         # CUDA 12 build of JAX
@@ -78,7 +78,7 @@ documents every `rx_*` function:
 
 ```r
 install.packages("rpkg", repos = NULL, type = "source")   # from a clone
-# remotes::install_github("nsalas/remlax", subdir = "rpkg")
+# remotes::install_github("NicoSalas34/remlax", subdir = "rpkg")
 library(remlax); ?rx_reml
 ```
 
@@ -287,7 +287,7 @@ Timings and memory for CPU and GPU across model sizes are in
 
 ```
 Salas, N. (2026). remlax: a generic, differentiable REML solver for linear
-mixed models. Version 0.1.0. https://github.com/nsalas/remlax
+mixed models. Version 0.1.0. https://github.com/NicoSalas34/remlax
 ```
 
 `CITATION.cff` at the repository root carries the machine-readable form.

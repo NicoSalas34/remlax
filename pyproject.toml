@@ -31,8 +31,8 @@ docs = ["mkdocs-material>=9.5", "mkdocstrings[python]>=0.24"]
 remlax = "remlax.cli:main"
 
 [project.urls]
-Homepage = "https://github.com/nsalas/remlax"
-Issues = "https://github.com/nsalas/remlax/issues"
+Homepage = "https://github.com/NicoSalas34/remlax"
+Issues = "https://github.com/NicoSalas34/remlax/issues"
 
 [tool.setuptools.packages.find]
 where = ["src"]

@@ -10,7 +10,7 @@ authors:
 version: 0.1.0
 date-released: "2026-09-01"
 license: GPL-3.0-or-later
-repository-code: "https://github.com/nsalas/remlax"
+repository-code: "https://github.com/NicoSalas34/remlax"
 keywords:
   - REML
   - linear mixed model

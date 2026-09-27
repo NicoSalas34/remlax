@@ -11,7 +11,7 @@ the Python solver is shipped in `inst/python/`. Do not edit them here.
 # from a clone
 install.packages("rpkg", repos = NULL, type = "source")
 # or, once the repository is public
-remotes::install_github("nsalas/remlax", subdir = "rpkg")
+remotes::install_github("NicoSalas34/remlax", subdir = "rpkg")
 ```
 
 The package needs a Python interpreter (>= 3.10) with `jax`, `numpy` and

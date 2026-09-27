@@ -62,7 +62,7 @@
 #' parameter at the floor: those are unidentified, not estimated at zero.
 #'
 #' @references Salas, N. (2026). remlax: a generic, differentiable REML solver
-#'   for linear mixed models. <https://github.com/nsalas/remlax>
+#'   for linear mixed models. <https://github.com/NicoSalas34/remlax>
 #' @name remlax-package
 #' @aliases remlax
 #' @keywords internal

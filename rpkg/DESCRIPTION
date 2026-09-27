@@ -18,8 +18,8 @@ Description: R interface to the 'remlax' solver, which maximises the restricted
     closed form. A copy of the Python solver ships with the package; a Python
     (>= 3.10) interpreter with 'jax', 'numpy' and 'scipy' must be available.
 License: GPL (>= 3)
-URL: https://github.com/nsalas/remlax
-BugReports: https://github.com/nsalas/remlax/issues
+URL: https://github.com/NicoSalas34/remlax
+BugReports: https://github.com/NicoSalas34/remlax/issues
 Encoding: UTF-8
 Depends: R (>= 4.1)
 Imports:
