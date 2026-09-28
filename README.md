@@ -248,6 +248,11 @@ Full definitions, positivity constraints and internal parametrisations:
   cannot detect a local optimum — it measures the ascent available *locally*,
   so it is zero at the top of a secondary hill. Turn restarts on for any fit
   you intend to publish.
+- **Range kernels (`sph`, `cir`, `lvr`) are multimodal in the range.** The
+  automatic start sweeps the deciles of the pairwise distances and descends
+  briefly from the best three before the fit; a supplied `theta_init` is
+  respected. On irregular 1D positions `lvr` can still need `n_restarts`
+  (`docs/structures.md`).
 - **No `ilv`.** asreml has one; its formula could not be recovered, and the
   natural candidate (a Euclidean tent) is not positive definite in two
   dimensions. An absent structure is preferred to a wrong one carrying an

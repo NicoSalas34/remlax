@@ -313,6 +313,44 @@ unbounded — not a correlation in `tanh`.
 The likelihood in `f` is **not unimodal**: the support of the tent changes
 every time `f` crosses an integer, so an `optimize()`-style search is easily
 trapped. The non-regression test compares against a fine grid for that reason.
+See the next section for how the starting point is chosen.
+
+### sph, cir, lvr: range parameters, kinks and the starting point
+
+These three kernels are exactly zero beyond the range `f`. Two consequences.
+
+**The gradient must be written with `where`, not `clip`.** `cir` contains
+`sqrt(1 - t^2)` and `asin(t)`, whose derivative is infinite at `t = 1`. Writing
+`t = min(d/f, 1)` and then the formula multiplies that infinite derivative by
+the zero derivative of the clip: `0 x inf = NaN`. As soon as one pair of
+positions lies beyond the range (always, in practice) the whole gradient was
+NaN, L-BFGS-B stopped at iteration 0 and the starting point was returned as
+the optimum, silently (validation of 2026-09-28 against asreml, test B7:
+`n_iter = 0`, `-2 logL` 6.4 above the optimum). Both kernels are now evaluated
+on a safe `t` (0 beyond the range) and selected with `jnp.where` on each side,
+the only form whose gradient is finite everywhere. A start whose value or
+gradient is not finite now raises an error instead of being returned.
+
+**The likelihood in `f` has a kink at every distinct pairwise distance**, and
+often several local maxima. On the 90-position irregular field of test B7 the
+circular kernel has three (ranges 5.0, 7.4 and 10.9; `-2 logL` 6.1 apart
+between the first and the best). asreml, started near 5, stops in the first
+hill; so did remlax before this change. The automatic start therefore sweeps
+`-2 logL` over the deciles of the pairwise distances of the design (one range
+parameter at a time, other parameters at their start), gives the three best
+candidates a ten-iteration L-BFGS-B descent, and starts the fit from the best
+point reached. Cost: a few dozen evaluations, once. A `theta_init` supplied
+by the caller is respected and not swept. On that field remlax now reaches
+`logLik = 13.876` where asreml reports `10.848`, at the same kernel; the
+difference is the hill, not the function.
+
+The sweep is a heuristic, not a guarantee. On irregular one-dimensional
+positions the tent kernel `lvr` can have dozens of local minima (68 between
+ranges 2 and 25 on 60 random positions); there `n_restarts`, or a
+`theta_init` from a grid, remains necessary. The pytest file
+`tests/python/test_portee.py` checks the finite gradient, the sweep, and that
+the fit reaches the global minimum of an independent dense profile on
+two-dimensional fields (`sph`, `cir`) and on a regular transect (`lvr`).
 
 ### mtrn: the anisotropic Matern of Haskard et al. (2007)
 

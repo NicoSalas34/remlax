@@ -77,6 +77,51 @@ def initial_theta(terms, res, y):
     return np.concatenate([np.asarray(x, dtype=np.float64) for x in th])
 
 
+RHO_METRIQUES = ("exp", "gau", "iexp", "igau", "ieuc", "aexp", "agau")
+
+
+def _pas_typique(v):
+    """Ecart MEDIAN entre coordonnees consecutives distinctes d'un axe.
+
+    La mediane plutot que le minimum : deux positions presque confondues (pas
+    de 0.01 sur une etendue de 30) ramenaient rho0 = 0.5^(1/0.01) a l'ecretage,
+    c'est-a-dire au point a gradient nul que ce depart doit eviter.
+    """
+    d = np.diff(np.unique(np.asarray(v, dtype=float)))
+    d = d[d > 0]
+    return float(np.median(d)) if d.size else 1.0
+
+
+def _theta0_rho_metrique(kind, nl, coord=None):
+    """Depart des structures rho^d : correlation 0.5 au plus proche voisin.
+
+    rho0 = 0.5^(1/d0) pour les noyaux exponentiels, 0.5^(1/d0^2) pour les
+    gaussiens, d0 etant le pas median de l'axe (un par axe pour aexp et
+    agau, le plus petit des deux pas medians pour les isotropes). rho0 est borne a
+    [1e-3, 0.99] pour que theta = atanh(rho0) reste a une echelle ou le
+    gradient est exploitable ; sans coordonnees, rho0 = 0.5.
+    """
+    th = np.full(nl, np.arctanh(0.5))
+    if coord is None:
+        return th
+    c = np.atleast_2d(np.asarray(coord, dtype=float))
+    if c.shape[0] == 1 and c.shape[1] > 1:
+        c = c.T
+    pas = [_pas_typique(c[:, j]) for j in range(c.shape[1])]
+    gaussien = kind in ("gau", "igau", "agau")
+
+    def rho0(d0):
+        r = 0.5 ** (1.0 / (d0 ** 2 if gaussien else d0))
+        return float(np.clip(r, 1e-3, 0.99))
+
+    if kind in ("aexp", "agau"):
+        for j in range(min(nl, len(pas))):
+            th[j] = np.arctanh(rho0(pas[j]))
+        return th
+    th[0] = np.arctanh(rho0(min(pas)))
+    return th
+
+
 def _theta0_niveaux(kind, nl, opts=None, coord=None):
     """Depart des parametres de niveaux.
 
@@ -110,6 +155,18 @@ def _theta0_niveaux(kind, nl, opts=None, coord=None):
             th[k] = v if p == "alpha" else np.log(max(v, 1e-8))
             k += 1
         return th
+    if kind in RHO_METRIQUES:
+        # Les structures en rho^d (exp, gau, iexp, igau, ieuc, aexp, agau)
+        # prennent rho = |tanh(theta)| ecrete a 1e-12. Partir de theta = 0
+        # mettait rho EXACTEMENT sur l'ecretage, ou le gradient est nul par
+        # construction (clip actif, et sign(0) = 0 pour |.|) : L-BFGS-B
+        # concluait a la convergence sans bouger, et un champ exponentiel sur
+        # des positions irregulieres restait a rho = 0 quelle que soit la
+        # correlation dans les donnees. Trouve le 2026-09-28 en comparant a
+        # nlme::gls(corExp) : -2logL a 65 unites de l'optimum, retrouve a
+        # 1e-9 pres avec un depart a chaud. On part d'une correlation de 0.5
+        # au pas median de chaque axe.
+        return _theta0_rho_metrique(kind, nl, coord)
     if kind not in ("sph", "cir", "lvr", "ilv"):
         return np.zeros(nl)
     etendue = 1.0
@@ -121,6 +178,137 @@ def _theta0_niveaux(kind, nl, opts=None, coord=None):
     th = np.zeros(nl)
     th[0] = np.log(max(0.25 * etendue, 1e-3))
     return th
+
+
+A_PORTEE = ("sph", "cir", "lvr")
+
+
+def _positions_portee(terms, res, n):
+    """Indices dans theta des parametres de PORTEE, avec leurs coordonnees.
+
+    Suit exactement la disposition d'initial_theta : pour chaque terme, les
+    parametres de structure puis ceux de niveaux ; puis chaque section de la
+    residuelle de meme. Rend une liste de (indice, coord).
+    """
+    out, k = [], 0
+    for tm in terms:
+        k += n_params(tm["struct"], tm["t"], tm["rank"])
+        kind = tm.get("lvl") or ("fixed" if tm.get("LK") is not None else "id")
+        nl = n_level_params(kind, tm.get("lvl_order", 0), tm.get("lvl_parts"),
+                            opts=tm.get("lvl_opts"))
+        if nl and kind in A_PORTEE:
+            out.append((k, tm.get("coord")))
+        k += nl
+    for sec in res_sections(res, n):
+        k += n_params(sec["struct"], sec["t"], sec["rank"])
+        kind = sec.get("lvl", "id")
+        nl = n_level_params(kind, sec.get("lvl_order", 0), sec.get("lvl_parts"),
+                            opts=sec.get("lvl_opts"))
+        if nl and kind in A_PORTEE:
+            out.append((k, sec.get("coord")))
+        k += nl
+    return out
+
+
+def _candidats_portee(coord, n_cand=9):
+    """Portees candidates : quantiles des distances entre paires de positions.
+
+    Entre deux distances consecutives du dispositif, la vraisemblance d'un
+    noyau a portee est lisse ; elle a un pli a chaque distance. Balayer les
+    quantiles des distances (10 % a 90 %) place un candidat dans chaque
+    region ou la forme du noyau change vraiment.
+    """
+    if coord is None:
+        return np.array([])
+    c = np.atleast_2d(np.asarray(coord, dtype=float))
+    if c.shape[0] == 1 and c.shape[1] > 1:
+        c = c.T
+    if c.shape[0] > 2000:
+        rng = np.random.default_rng(0)
+        c = c[rng.choice(c.shape[0], 2000, replace=False)]
+    d = np.sqrt(((c[:, None, :] - c[None, :, :]) ** 2).sum(-1))
+    d = d[np.triu_indices(c.shape[0], 1)]
+    d = d[d > 0]
+    if d.size == 0:
+        return np.array([])
+    q = np.quantile(d, np.linspace(0.1, 0.9, n_cand))
+    return np.log(np.unique(q))
+
+
+def _balayage_portee(fun_jac, th0, terms, res, n, verbose=False, fixed_idx=None,
+                     fun_sc=None, bornes=None, n_garde=3, maxiter_local=10):
+    """Depart des parametres de PORTEE choisi sur un balayage de -2logL.
+
+    POURQUOI. La vraisemblance d'un noyau a portee (sph, cir, lvr) a souvent
+    PLUSIEURS maxima locaux en la portee : sur le champ irregulier du test
+    asreml3 B7 (90 positions), le noyau circulaire en a trois (portees 5.0,
+    7.4 et 10.9 ; -2logL a 6,1 d'ecart entre le premier et le meilleur), et
+    asreml comme remlax partaient dans la premiere colline. Un depart au quart
+    de l'etendue ne vaut donc rien de general.
+
+    COMMENT. (1) -2logL est evaluee sur les quantiles des distances du
+    dispositif, un parametre de portee a la fois, les autres parametres a leur
+    depart. (2) Comparer des candidats a variance NON ajustee ne suffit pas :
+    sur un champ de 60 positions a quatre minima locaux, le candidat le mieux
+    classe a variance de depart menait a la colline a 104.4, celle a 101.8
+    etant un cran plus loin. Les n_garde meilleurs candidats recoivent donc
+    chacun une COURTE descente L-BFGS-B (maxiter_local iterations, sur
+    l'objectif mis a l'echelle et sous les memes bornes que l'ajustement), et
+    l'on part du meilleur point atteint. Cout : une dizaine d'evaluations par
+    candidat retenu, une fois. Ne s'applique qu'au depart AUTOMATIQUE : un
+    theta_init fourni par l'appelant est respecte. Rend (theta, n_eval).
+    """
+    pos = _positions_portee(terms, res, n)
+    if not pos:
+        return th0, 0
+    fixes = set(int(i) for i in (fixed_idx or []))
+    th = np.array(th0, dtype=np.float64)
+    n_eval = 0
+    for k, coord in pos:
+        if k in fixes:
+            continue
+        cands = _candidats_portee(coord)
+        if cands.size == 0:
+            continue
+        cands = np.append(cands, th[k])
+        vals = []
+        for c in cands:
+            t = th.copy()
+            t[k] = c
+            try:
+                v = float(fun_jac(t)[0])
+            except Exception:
+                v = np.nan
+            n_eval += 1
+            vals.append(v if np.isfinite(v) else np.inf)
+        vals = np.asarray(vals)
+        ordre = [int(j) for j in np.argsort(vals) if np.isfinite(vals[j])][:max(int(n_garde), 1)]
+        if not ordre:
+            continue
+        meilleur_th, meilleur_v = th.copy(), vals[-1]
+        if fun_sc is None or maxiter_local <= 0:
+            j = ordre[0]
+            if vals[j] < meilleur_v - 1e-10:
+                meilleur_th[k], meilleur_v = cands[j], vals[j]
+        else:
+            for j in ordre:
+                t = th.copy()
+                t[k] = cands[j]
+                try:
+                    r = minimize(fun_sc, t, jac=True, method="L-BFGS-B", bounds=bornes,
+                                 options=dict(maxiter=int(maxiter_local),
+                                              maxfun=20 * int(maxiter_local)))
+                    v = float(fun_jac(r.x)[0])
+                    n_eval += int(r.nfev) + 1
+                except Exception:
+                    continue
+                if np.isfinite(v) and v < meilleur_v - 1e-10:
+                    meilleur_th, meilleur_v = np.asarray(r.x, dtype=np.float64), v
+        if verbose and meilleur_v < vals[-1] - 1e-10:
+            print("  [portee] depart deplace de %.4g a %.4g (-2logL %.6f -> %.6f)"
+                  % (np.exp(th[k]), np.exp(meilleur_th[k]), vals[-1], meilleur_v), flush=True)
+        th = meilleur_th
+    return th, n_eval
 
 
 def validate(terms, res, y, X):
@@ -345,6 +533,22 @@ def fit_reml(terms, res, y, X, theta_init=None, maxiter=3000,
     if int(maxiter) <= 0:
         theta = np.asarray(th0, dtype=np.float64)
     else:
+        # DEPART DES PORTEES SUR BALAYAGE (cf. _balayage_portee) : seulement
+        # pour le depart automatique, et hors parametres fixes.
+        if theta_init is None:
+            th0, _ = _balayage_portee(fun_jac, th0, terms, res, n, verbose=verbose,
+                                      fixed_idx=fixed_idx, fun_sc=fun_sc, bornes=bornes)
+        # LE POINT DE DEPART DOIT AVOIR UNE VALEUR ET UN GRADIENT FINIS. Avec
+        # un gradient NaN, L-BFGS-B rend le point de depart a l'iteration 0 en
+        # se declarant converge, et rien ne le distinguait d'un ajustement
+        # reussi (cir, 2026-09-28). On refuse explicitement.
+        _v0, _g0 = fun_jac(th0)
+        if not np.isfinite(float(_v0)) or not np.all(np.isfinite(np.asarray(_g0))):
+            raise ValueError(
+                "-2logL ou son gradient n'est pas fini au point de depart "
+                "(valeur %r, %d composante(s) du gradient non finie(s)) : "
+                "l'optimiseur ne peut pas demarrer. Verifier le noyau ou fournir "
+                "theta_init." % (float(_v0), int(np.sum(~np.isfinite(np.asarray(_g0))))))
         # callback=cb : SANS LUI LE RAPPEL EST DU CODE MORT. Il existait, avait
         # l'air de rapporter la progression, et n'a jamais ete passe ici — d'ou
         # 52 minutes d'ajustement sans une ligne sur le modele reel, et aucun

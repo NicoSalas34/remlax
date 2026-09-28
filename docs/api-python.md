@@ -477,6 +477,14 @@ measures the ascent available *locally* and is zero at the top of a secondary
 hill. `n_restarts > 0` perturbs the retained point and keeps the best; the
 gain is reported in `restart_gain`.
 
+**Range kernels (`sph`, `cir`, `lvr`) get a swept start.** When `theta_init`
+is not supplied, `-2 logL` is evaluated over the deciles of the pairwise
+distances of the design for each range parameter, the three best candidates
+receive a short L-BFGS-B descent, and the fit starts from the best point
+(`[portee]` line in the log). The likelihood in a range has a kink at every
+distinct distance and often several hills; see `docs/structures.md`. A start
+whose value or gradient is not finite raises `ValueError`.
+
 **`fixed_idx` removes a parameter from the free subspace without putting it at
 a bound.** The diagnostic receives `fixed_idx` and excludes those coordinates,
 so the Newton decrement is computed on the directions the step can actually

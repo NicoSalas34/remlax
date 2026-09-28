@@ -443,12 +443,28 @@ def level_corr(theta_lv, kind, q, order=0, coord=None, C_fixed=None, parts=None,
             # Modeles a PORTEE : la correlation s'annule exactement au-dela de
             # phi. Le parametre est une distance, pas une correlation : il est
             # donc pris en exp(theta) (positif, non borne).
+            #
+            # GRADIENT AU-DELA DE LA PORTEE. Une premiere ecriture ecretait
+            # t = min(d/phi, 1) puis appliquait la formule. Pour cir, la formule
+            # contient sqrt(1 - t^2) et arcsin(t), dont la derivee est INFINIE
+            # en t = 1 ; la regle de derivation la multiplie par la derivee de
+            # l'ecretage, qui vaut 0 : 0 x inf = NaN. Des qu'une paire depasse
+            # la portee (toujours, en pratique), le gradient entier etait NaN,
+            # L-BFGS-B s'arretait a l'iteration 0 et le solveur rendait le point
+            # de depart comme optimum, sans un mot (test asreml3 B7 du
+            # 2026-09-28 : n_iter = 0, -2logL a 6,4 de l'optimum). On ecrit donc
+            # la formule sur un t SUR (0 hors portee), puis on selectionne :
+            # jnp.where dans les deux sens, la seule ecriture dont le gradient
+            # est fini de chaque cote. sph (polynome) n'avait pas ce defaut ;
+            # il suit la meme ecriture pour n'avoir qu'une convention.
             rg = jnp.exp(theta_lv[0])
-            t = jnp.clip(d_eu / rg, 0.0, 1.0)
+            dedans = d_eu < rg
+            t = jnp.where(dedans, d_eu / rg, 0.0)
             if kind == "sph":
-                return 1.0 - 1.5 * t + 0.5 * t ** 3
-            return 1.0 - (2.0 / jnp.pi) * (t * jnp.sqrt(jnp.clip(1 - t ** 2, 0, None))
-                                           + jnp.arcsin(t))
+                f = 1.0 - 1.5 * t + 0.5 * t ** 3
+            else:
+                f = 1.0 - (2.0 / jnp.pi) * (t * jnp.sqrt(1.0 - t ** 2) + jnp.arcsin(t))
+            return jnp.where(dedans, f, 0.0)
         if kind == "mtrn":
             # Matern ANISOTROPE complet (Haskard et al. 2007), tel qu'asreml
             # l'implemente : portee phi, forme nu, rapport d'anisotropie delta,
