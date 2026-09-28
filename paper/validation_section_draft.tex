@@ -1,0 +1,145 @@
+% Draft replacement for \section{Validation} of paper/remlax.tex.
+% Written 2026-09-28 from validation/results/checks_2026-09-28.csv; not inserted
+% in the manuscript. Every number below is read from that table or from
+% benchmarks/results/bench_2026-09-28_*.csv; docs/validation.md holds the full
+% list of checks, one row per printed verdict.
+
+\section{Validation}\label{sec:validation}
+
+Validation is organised around what a failure would have meant, not around
+test counts. Four levels are used. The first two compare the solver with
+itself; the third with a computation beholden to neither engine; the fourth
+with four programs written by other people. The table of every check, with
+the printed values and the git revision tested, is regenerated from the logs
+by two scripts and published as \emph{docs/validation.md}; the run reported
+here is that of 2026-09-28 on revision \texttt{f576638} plus that day's
+working tree: 399 checks, 387 passed, the 12 failures being three models
+discussed below.
+
+\subsection{Internal agreement}
+
+\emph{tests/R/test\_remlax\_tmb\_parity.R} checks that the two engines read
+$\theta$ identically: that $\Sigma(\theta)$ agrees for \code{iid},
+\code{diag} and \code{us}; that the closed-form \code{ar1} and \code{ar1ar1}
+precisions are exact inverses of the correlation matrices the dense engine
+builds, verified by forming $K^{-1}K$ rather than by inspecting a sparsity
+pattern; and that the analytic log-determinants agree with numerical ones.
+Thirty checks, largest discrepancy $4.4 \times 10^{-16}$. The dense engine
+itself is checked against closed forms in \emph{tests/python}: parameter
+counts and positive semi-definiteness of every $\Sigma$ structure, the
+automatic gradient against central finite differences ($2 \times 10^{-8}$
+relative), the assembled $V$ against a direct Kronecker computation
+($5 \times 10^{-15}$), the balanced one-factor REML against its analytic
+solution ($4 \times 10^{-9}$), and 169 unit tests, one per feature, each
+against an independent numpy reference.
+
+\subsection{Cross-engine agreement, in both directions}
+
+\emph{tests/R/test\_remlax\_tmb\_vs\_dense.R} evaluates each engine at the
+other's optimum. Both directions are needed: an engine could have a correct
+surface along the other's path and be wrong elsewhere. Sixteen checks over
+four designs agree to $2.3 \times 10^{-13}$ on cross-evaluation and
+$10^{-4}$ on the attained optima.
+
+\subsection{An arbiter beholden to neither engine}
+
+Two engines that agree prove less than one engine checked against an
+independent computation. \emph{tests/R/test\_remlax\_tmb\_prec.R} carries a
+REML likelihood written out in dense linear algebra, and it settled three
+disagreements during development that engine-to-engine comparison could not.
+The defect it caught in the precision path is the class of defect an
+estimate-based test cannot see: a missing $\log|K|$, constant in $\theta$, left
+the gradient and the estimates untouched and made every likelihood ratio and
+information criterion wrong.
+
+The same lesson returned on 2026-09-28 from the other side. Comparing
+\code{exp} with \pkg{nlme}'s \code{corExp} showed that every metric
+structure written as $\rho^{d}$ started the optimiser at $\rho = 0$ exactly,
+a point where the gradient is zero by construction, so that L-BFGS-B declared
+convergence without moving; the earlier check of \code{exp} against
+\code{own} had compared two fits by the same engine from the same start. The
+start was moved to $\rho = 0.5$ at the median spacing of the coordinates, and
+the comparison with \pkg{nlme} now agrees to $10^{-9}$ on $-2\ell$.
+
+\subsection{Agreement with established software}
+
+Against \pkg{asreml} 4.2 \citep{asreml}, \pkg{lme4} 2.0 \citep{lme4},
+\pkg{sommer} 4.4 \citep{sommer} and \pkg{nlme} 3.1 \citep{nlme}, in a
+container where all are installed, each comparison is the same model on the
+same simulated data. Agreement is required first on the restricted
+log-likelihood at the optimum, in each program's own constant: $10^{-6}$
+absolute against \pkg{lme4} and \pkg{nlme}, which carry the full REML
+constant; $10^{-5}$ against \pkg{asreml}, which omits $(n-p)\log(2\pi)/2$ and
+stops on its own criterion; differences between nested models only against
+\pkg{sommer}, whose reported value carries a data-dependent constant. Then on
+variance components ($10^{-4}$ relative, $10^{-3}$ for \pkg{asreml}), fixed
+effects and their standard errors ($10^{-6}$ and $10^{-4}$), BLUPs
+($10^{-4}$) and prediction error variances against the mixed-model-equations
+formula written out by hand ($1.6 \times 10^{-14}$; \pkg{lme4}'s
+\code{condVar} follows a different convention, without the uncertainty on
+$\beta$, and is checked against its own formula).
+
+The models covered are: one random factor on three layouts, two and three
+crossed factors on balanced and unbalanced layouts, nesting, correlated and
+independent random slopes, groups of size one to twelve (\pkg{lme4}, 58
+checks); a genomic relationship matrix on one term with BLUPs and prediction
+error variances, three traits with unstructured and diagonal covariances and
+the likelihood ratio between them, additive plus dominance matrices on the
+same factor, a multi-environment design (\pkg{sommer}, 22 checks);
+\code{corAR1}, \code{corCAR1}, AR2, ARMA(1,1), compound symmetry,
+exponential, Gaussian, linear and spherical spatial correlation, an
+unstructured covariance written as \code{corSymm} with \code{varIdent}, and a
+random intercept with an AR1 residual (\pkg{nlme}, 61 checks, largest
+$-2\ell$ gap $9 \times 10^{-9}$); AR1, separable AR1$\times$AR1, two-dimensional
+splines, a covariance shared between two terms, heritability with its
+delta-method standard error, Wald tests, the four saturated
+parameterisations, the linear-variance and anisotropic Mat\'ern kernels,
+user-written kernels, sectioned residuals, prediction with standard errors,
+and Kenward--Roger denominator degrees of freedom against \pkg{pbkrtest}
+(\pkg{asreml}, 65 checks, largest log-likelihood gap $2.9 \times 10^{-8}$).
+A further suite adds ar2, ar3, ma1, ma2, arma, sar, uniform, banded and
+general correlations, the seven two-dimensional metric kernels, the
+non-saturated multi-trait structures with a relationship matrix, the
+separable product $I \otimes \mathrm{AR1} \otimes \mathrm{AR1}$ and the
+multi-trait spatial residual (111 checks). Twenty-three of its 26 models
+match \pkg{asreml}'s log-likelihood to nine decimals, and the reduced-rank
+model to $4 \times 10^{-5}$ (\pkg{remlax} the higher). The three that do not are worth naming, because the diagnosis is the
+useful part. On the spherical and circular kernels \pkg{asreml} does not
+converge: it oscillates between two iterates on the first and stops in the
+first of three hills on the second (local maxima at ranges $5.0$, $7.4$ and
+$10.9$). Held at \pkg{remlax}'s parameters, \pkg{asreml} returns
+\pkg{remlax}'s log-likelihood to the last digit ($3.823231$ and
+$13.875897$), so the two programs compute the same function and only the
+stopping point differs. On MA(2) \pkg{asreml} declares convergence with its
+parameters still moving by 3.5 percent per iteration and stops $0.033$ below
+\pkg{remlax}; asked to hold \pkg{remlax}'s coefficients it re-expresses
+them on another scale, so its printed parameters are not the moving-average
+coefficients of the standard form and the two optima cannot be compared
+point-wise. A REML written out in dense algebra reproduces \pkg{remlax}'s
+value at \pkg{remlax}'s parameters in all three cases. The circular kernel
+also exposed two defects in \pkg{remlax} itself, both fixed in the same
+working tree: a NaN gradient beyond the range that stopped the optimiser at
+its first iteration, and a start that ignored the multimodality of range
+kernels, now replaced by a sweep of the distance deciles. The checks are left
+failing, since they measure agreement with what \pkg{asreml} reports, and
+the diagnostic script is kept beside them.
+
+\subsection{What was not measured}
+
+The CPU/GPU parity sweep over 34 serialised designs, which had passed on
+2026-09-01 with a relative gap of at most $6.4 \times 10^{-15}$, was not
+replayed on 2026-09-28 because no GPU was free; the arithmetic it checks has
+not changed, but that is a statement about the code, not a measurement. The
+structures with no counterpart in any of the four programs, the free
+four-parameter Mat\'ern, user-written kernels and separable products of more
+than three factors, rest on closed-form profiles and on the dense reference.
+
+\subsection{A conditioning limit, made deliberate}
+
+The mixed model equations \eqref{eq:mme} contain $R^{-1}$, so the sparse
+engine degrades as the residual variance approaches zero. Rather than hope an
+optimiser visits that region, the check imposes $\theta$ and reports the
+degradation, which is monotone: at $\sigma_e^2 = 3.4 \times 10^{-4}$ the two
+engines agree to $3.8 \times 10^{-11}$, and at $3.8 \times 10^{-11}$ they
+agree only to $1.7 \times 10^{-4}$. This is structural to the formulation,
+and it is why \pkg{asreml} parameterises the ratio of variances instead.

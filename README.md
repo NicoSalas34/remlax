@@ -285,7 +285,8 @@ Full definitions, positivity constraints and internal parametrisations:
 remlax is checked against asreml, lme4, sommer, pbkrtest, closed-form REML on
 balanced designs, finite-difference gradients, and a random stress sweep; and
 CPU against GPU on a bundle of designs covering every structure. Details and
-measured agreements are in [docs/validation.md](docs/validation.md).
+measured agreements are in [docs/validation.md](docs/validation.md), and
+[docs/validation-summary.md](docs/validation-summary.md) gives them on one page.
 
 <!-- VALIDATION-SUMMARY -->
 

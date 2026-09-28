@@ -293,3 +293,38 @@ def test_initial_theta_a_la_bonne_longueur_pour_les_portees():
         if kind == "sph":
             # portee de depart : le quart de l'etendue des coordonnees
             assert th0[1] == pytest.approx(np.log(0.25 * np.ptp(coord, axis=0).max()))
+
+
+def test_initial_theta_metrique_ne_part_pas_du_point_a_gradient_nul():
+    """Les structures rho^d demarraient a theta = 0, soit rho = |tanh 0| = 0
+    ecrete a 1e-12, un point ou le gradient est nul par construction (clip
+    actif) : L-BFGS-B concluait a la convergence sans bouger. Trouve le
+    2026-09-28 contre nlme::gls(corExp). Deux proprietes : le depart donne une
+    correlation de 0.5 au pas median de l'axe, et un ajustement depuis le depart
+    par defaut retrouve l'optimum d'un depart a chaud pres de la verite."""
+    from remlax.fit import _theta0_rho_metrique
+    coord = np.array([0.0, 2.0, 5.0, 9.0, 14.0])              # pas 2, 3, 4, 5 : mediane 3.5
+    th = _theta0_rho_metrique("exp", 1, coord.reshape(-1, 1))
+    assert abs(np.tanh(th[0]) ** 3.5 - 0.5) < 1e-12
+    th = _theta0_rho_metrique("gau", 1, coord.reshape(-1, 1))
+    assert abs(np.tanh(th[0]) ** 3.5 ** 2 - 0.5) < 1e-12
+    th = _theta0_rho_metrique("aexp", 2, np.column_stack([coord, 3 * coord]))
+    assert abs(np.tanh(th[0]) ** 3.5 - 0.5) < 1e-12 and abs(np.tanh(th[1]) ** 10.5 - 0.5) < 1e-12
+    assert np.allclose(_theta0_rho_metrique("iexp", 1, None), np.arctanh(0.5))
+
+    # Champ 1D exponentiel a positions irregulieres, une observation par unite.
+    rng = np.random.default_rng(6)
+    q = 60
+    coord = np.sort(rng.uniform(0, 30, q))
+    C = 0.75 ** np.abs(coord[:, None] - coord[None, :])
+    y = np.linalg.cholesky(C) @ rng.normal(size=q) + 0.3 * rng.normal(size=q)
+    X = np.ones((q, 1))
+    tm = od.terme_facteur("pos", np.arange(q), q, lvl="exp", coord=coord.reshape(q, 1))
+    res = od.residuelle_iid(q)
+    th0 = initial_theta([tm], res, y)
+    assert abs(np.tanh(th0[1])) > 0.05, th0
+    f_def = fit_reml([tm], res, y, X, hessian=False, blups=False)
+    f_chaud = fit_reml([tm], res, y, X, theta_init=np.array([0.0, np.arctanh(0.75), np.log(0.3)]),
+                       hessian=False, blups=False)
+    assert abs(f_def["neg2_reml"] - f_chaud["neg2_reml"]) < 1e-6, (f_def["neg2_reml"], f_chaud["neg2_reml"])
+    assert f_def["n_iter"] > 0

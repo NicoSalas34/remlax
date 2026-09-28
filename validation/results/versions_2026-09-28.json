@@ -1,0 +1,47 @@
+{
+ "versions": {
+  "R": {
+   "re-measured 2026-09-28, ssh:cluster cpu-dedicated, ige_reml.sif": "4.6.0"
+  },
+  "nlme": {
+   "re-measured 2026-09-28, ssh:cluster cpu-dedicated, ige_reml.sif": "3.1.169"
+  },
+  "lme4": {
+   "re-measured 2026-09-28, ssh:cluster cpu-dedicated, ige_reml.sif": "2.0.1"
+  },
+  "sommer": {
+   "re-measured 2026-09-28, ssh:cluster cpu-dedicated, ige_reml.sif": "4.4.5"
+  },
+  "asreml": {
+   "re-measured 2026-09-28, ssh:cluster cpu-dedicated, ige_reml.sif": "4.2.0.480"
+  },
+  "pbkrtest": {
+   "re-measured 2026-09-28, ssh:cluster cpu-dedicated, ige_reml.sif": "0.5.5"
+  },
+  "jax": {
+   "re-measured 2026-09-28, ssh:cluster cpu-dedicated, ige_reml.sif": "0.11.1"
+  }
+ },
+ "logs": {
+  "01_core.log": "/home/salas/.claude-science/orgs/272a30aa-a064-49b2-85e7-6680deef4d83/workspaces/52c055cf-fff2-4fd6-b649-e7388ad8990a/cluster_logs/01_core.log",
+  "00_pytest.log": "/home/salas/.claude-science/orgs/272a30aa-a064-49b2-85e7-6680deef4d83/workspaces/52c055cf-fff2-4fd6-b649-e7388ad8990a/logs/00_pytest.log",
+  "02_stress_s0.log": "/home/salas/.claude-science/orgs/272a30aa-a064-49b2-85e7-6680deef4d83/workspaces/52c055cf-fff2-4fd6-b649-e7388ad8990a/cluster_logs/02_stress_s0.log",
+  "03_lme4_sommer.log": "/home/salas/.claude-science/orgs/272a30aa-a064-49b2-85e7-6680deef4d83/workspaces/52c055cf-fff2-4fd6-b649-e7388ad8990a/cluster_logs/03_lme4_sommer.log",
+  "07_nlme.log": "/home/salas/.claude-science/orgs/272a30aa-a064-49b2-85e7-6680deef4d83/workspaces/52c055cf-fff2-4fd6-b649-e7388ad8990a/cluster_logs/07_nlme.log",
+  "08_lme4_extra.log": "/home/salas/.claude-science/orgs/272a30aa-a064-49b2-85e7-6680deef4d83/workspaces/52c055cf-fff2-4fd6-b649-e7388ad8990a/cluster_logs/08_lme4_extra.log",
+  "09_sommer_extra.log": "/home/salas/.claude-science/orgs/272a30aa-a064-49b2-85e7-6680deef4d83/workspaces/52c055cf-fff2-4fd6-b649-e7388ad8990a/cluster_logs/09_sommer_extra.log",
+  "04_asreml.log": "/home/salas/.claude-science/orgs/272a30aa-a064-49b2-85e7-6680deef4d83/workspaces/52c055cf-fff2-4fd6-b649-e7388ad8990a/cluster_logs/04_asreml.log",
+  "05_asreml2.log": "/home/salas/.claude-science/orgs/272a30aa-a064-49b2-85e7-6680deef4d83/workspaces/52c055cf-fff2-4fd6-b649-e7388ad8990a/cluster_logs/05_asreml2.log",
+  "15_asreml3.log": "/home/salas/.claude-science/orgs/272a30aa-a064-49b2-85e7-6680deef4d83/workspaces/52c055cf-fff2-4fd6-b649-e7388ad8990a/cluster_logs/15_asreml3.log",
+  "06b_asreml_blup.log": "/home/salas/.claude-science/orgs/272a30aa-a064-49b2-85e7-6680deef4d83/workspaces/52c055cf-fff2-4fd6-b649-e7388ad8990a/cluster_logs/06b_asreml_blup.log",
+  "06_ige.log": "/home/salas/.claude-science/orgs/272a30aa-a064-49b2-85e7-6680deef4d83/workspaces/52c055cf-fff2-4fd6-b649-e7388ad8990a/cluster_logs/06_ige.log",
+  "10_tmb_parity.log": "/home/salas/.claude-science/orgs/272a30aa-a064-49b2-85e7-6680deef4d83/workspaces/52c055cf-fff2-4fd6-b649-e7388ad8990a/logs/10_tmb_parity.log",
+  "11_tmb_vs_dense.log": "/home/salas/.claude-science/orgs/272a30aa-a064-49b2-85e7-6680deef4d83/workspaces/52c055cf-fff2-4fd6-b649-e7388ad8990a/logs/11_tmb_vs_dense.log",
+  "12_tmb_prec.log": "/home/salas/.claude-science/orgs/272a30aa-a064-49b2-85e7-6680deef4d83/workspaces/52c055cf-fff2-4fd6-b649-e7388ad8990a/logs/12_tmb_prec.log"
+ },
+ "missing": [
+  "02_stress_s50.log",
+  "02_stress_s100.log",
+  "21_parite.log"
+ ]
+}

@@ -62,7 +62,8 @@ each fit takes a couple of seconds, so they are quick to replay.
 
 | | contents |
 |---|---|
-| [validation.md](validation.md) | agreement against asreml, lme4, sommer, pbkrtest, closed-form REML, finite-difference gradients, the random stress sweep, and CPU/GPU parity |
+| [validation-summary.md](validation-summary.md) | one page: which structure was compared to which program (asreml, lme4, sommer, nlme, pbkrtest), largest gaps, speed at equal model, the defect this validation found, and the limits |
+| [validation.md](validation.md) | the full table, one row per check, regenerated from the logs of 2026-09-28 (288 checks against asreml, lme4, sommer, nlme, pbkrtest, closed-form REML, the sparse engine) |
 | [benchmarks.md](benchmarks.md) | timings and memory across model sizes on CPU and GPU, from `benchmarks/bench.py` |
 
 Those two pages are written separately from the cluster runs; they are not

@@ -203,3 +203,16 @@ These functions were added for the chapter-3 reproduction. `test (new)` names th
 | `rx_grid_summary`: `by`, n_obs guard, AIC recomputed / checked, `effective` and best_moved, refusals | R/remlax_ratios.R | test-ratios.R (T2-T4) | idem | covered (new) |
 | Python counterparts `remlax.neighbourhood` / `remlax.exposure` and R/Python parity | — | — | — | not covered: not implemented; the functions are pure R and the numerical reference is the IGE pipeline (see validation) |
 | `rx_ratios(jacobian = "solver")` (JAX Jacobian of the structured map) | — | — | — | not covered: not implemented, the call is refused with a message |
+
+## 11. External references added 2026-09-28 (scripts under `tests/R/`, replayed by `validation/`)
+
+These scripts are not run by CI (they need nlme, lme4, sommer or a licensed asreml); their verdict lines are parsed by `validation/parse_logs.py` into `validation/results/checks_<date>.csv`, from which `docs/validation.md` and `docs/validation-summary.md` are generated.
+
+| feature | reference | test | checks (2026-09-28) |
+|---|---|---|---|
+| `ar1`, `exp` (corCAR1), `ar2`, `arma`, `cor`, `exp`, `gau`, `lvr`, `sph` (2D), `us` residual (corSymm + varIdent), `diag` residual (varIdent), random intercept + AR1 residual; -2logL, variance, correlation parameters, beta, SE(beta), BLUP | nlme::gls / nlme::lme | tests/R/test_remlax_nlme.R (12 sections) | 61 |
+| two-column `us` and `diag` terms (random slopes), nested terms, three crossed factors unbalanced, unequal groups; -2logL, components, beta, SE(beta), BLUP, PEV against the MME formula (lme4's condVar against its own convention) | lme4 | tests/R/test_remlax_lme4.R (5 sections) | 30 |
+| GRM term with BLUP and PEV, 3-trait `us` and `diag` with GRM, LRT between them, additive + dominance (two K on one factor), multi-environment `diag(env)` with GRM; sommer logLik constant measured | sommer (tolParConvLL 1e-12) | tests/R/test_remlax_sommer.R (5 sections) | 19 |
+| grouped residual series `ar2`, `ar3`, `ma1`, `ma2`, `arma`, `sar`, `cor`, `corb`, `corg`; 2D kernels `iexp`, `igau`, `ieuc`, `aexp`, `agau`, `sph`, `cir` (also evaluated at asreml's parameters); `us`, `diag`, `fa(1)`, `rr(1)`, `corh`, `ante(1)`, `chol(1)` on 4 traits with a GRM; `sep` id x ar1 x ar1; `us(trait):ar1(row):ar1(col)` | asreml | tests/R/test_remlax_asreml3.R (sections A-E) | see docs/validation.md |
+| speed at equal model: iid, grm, us3, us6, ar1ar1 at n = 500, 2000 (8000 for iid, grm); wall time, evaluations, optimum agreement | asreml, lme4, sommer | benchmarks/bench_vs_reference.R, benchmarks/summarise_bench.py | benchmarks/results/bench_2026-09-28_*.csv |
+| metric `rho^d` structures start away from the zero-gradient point (defect found by the nlme comparison) | closed form + fit from default start = fit from warm start | tests/python/test_vraisemblance_dense.py::test_initial_theta_metrique_ne_part_pas_du_point_a_gradient_nul | covered (new) |
