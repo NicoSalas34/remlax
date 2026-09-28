@@ -30,6 +30,8 @@ export(rx_tmb_available)
 # --- localisation du solveur ---
 export(rx_python_cmd)
 export(rx_solver_args)
+export(rx_python_check)
+export(rx_install_python)
 
 # --- scan GWAS ---
 export(rx_scan)

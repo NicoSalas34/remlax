@@ -750,6 +750,41 @@ NULL
 #' @aliases rx_solver_args
 NULL
 
+#' Checking and installing the Python side
+#'
+#' `rx_python_check()` runs the chosen interpreter once and reports whether it
+#' imports jax, numpy and scipy, with their versions. The result is cached per
+#' command for the session. [rx_fit()], [rx_predict()] and [rx_scan()] call it
+#' before launching the solver and stop with an actionable message otherwise:
+#' the interpreter tried, the `RX_PY` variable to set, and the installation
+#' command. `rx_install_python()` creates a virtual environment with
+#' `python -m venv`, installs jax (or `jax[cuda12]`), numpy and scipy with pip,
+#' checks the import and prints the `RX_PY` line to put in `~/.Renviron`. It
+#' does not modify the session nor `~/.Renviron` itself.
+#'
+#' @param py Python command, split on spaces (default `rx_python_cmd()`).
+#' @param quiet do not print the diagnostic.
+#' @param dir directory of the virtual environment (default `~/.remlax/venv`).
+#' @param cuda install the CUDA 12 build of jax.
+#' @param python base interpreter (>= 3.10) used to create the venv.
+#' @param upgrade reinstall the packages if the venv already exists.
+#' @return `rx_python_check()`: a list with `ok`, `python`, `versions` and
+#'   `message`, invisibly. `rx_install_python()`: the path of the created
+#'   interpreter, invisibly.
+#' @examples
+#' \dontrun{
+#' rx_python_check()
+#' exe <- rx_install_python()          # CPU
+#' Sys.setenv(RX_PY = exe)
+#' }
+#' @usage
+#' rx_python_check(py = rx_python_cmd(), quiet = FALSE)
+#' rx_install_python(dir = path.expand("~/.remlax/venv"), cuda = FALSE,
+#'                   python = "python3", upgrade = FALSE)
+#' @name rx_python_check
+#' @aliases rx_install_python
+NULL
+
 # ------------------------------------------------------------------------------
 
 #' GWAS at fixed V on a fitted model

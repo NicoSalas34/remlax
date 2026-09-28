@@ -51,6 +51,7 @@ rx_scan_solver_args <- function() {
   if (nzchar(Sys.getenv("RX_SCAN_CLI")))
     return(list(args = strsplit(Sys.getenv("RX_SCAN_CLI"), " +")[[1]], env = character(0)))
   py <- rx_python_cmd()
+  .rx_python_assurer(py)
   ok <- suppressWarnings(try(system2(py[1], shQuote(c(py[-1], "-c", "import remlax")),
                                      stdout = FALSE, stderr = FALSE), silent = TRUE))
   if (identical(as.integer(ok), 0L))

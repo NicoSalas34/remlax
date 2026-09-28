@@ -23,6 +23,12 @@ library(remlax)
 rx_solver_args()     # shows which solver copy will be used
 ```
 
+Or let the package create one: `exe <- rx_install_python()` builds
+`~/.remlax/venv` with jax, numpy and scipy (`cuda = TRUE` for the GPU build)
+and prints the `RX_PY` line to keep. `rx_python_check()` reports what the
+chosen interpreter imports; a Python without jax is refused before the solver
+starts, with the interpreter tried and the line to fix.
+
 If the Python package `remlax` is pip-installed under that interpreter, it is
 used; otherwise the copy shipped with the R package is used. The sparse engine
 (`rx_fit_sparse()`) additionally needs `RTMB`.

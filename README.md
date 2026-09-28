@@ -82,8 +82,17 @@ install.packages("rpkg", repos = NULL, type = "source")   # from a clone
 library(remlax); ?rx_reml
 ```
 
-The package still needs a Python interpreter with jax, numpy and scipy; point
-`RX_PY` at it. See [rpkg/README.md](rpkg/README.md).
+The package still needs a Python interpreter with jax, numpy and scipy. Either
+point `RX_PY` at one you have, or let the package create one:
+
+```r
+exe <- rx_install_python()             # ~/.remlax/venv, CPU build; cuda = TRUE for GPU
+Sys.setenv(RX_PY = exe)                # or put RX_PY=<exe> in ~/.Renviron
+rx_python_check()                      # versions of jax, numpy, scipy seen by remlax
+```
+
+A Python without jax is refused before the solver starts, with the
+interpreter tried and the line to fix. See [rpkg/README.md](rpkg/README.md).
 
 The R side never imports Python. It writes the design to a directory as raw
 binary plus a JSON manifest, calls the solver as a subprocess, and reads the

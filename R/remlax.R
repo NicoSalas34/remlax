@@ -898,6 +898,7 @@ rx_fit <- function(model, backend = c("auto", "gpu", "cpu"), dir = NULL,
     writeBin(as.double(theta_init), con, size = 8); close(con)
   }
   py <- rx_python_cmd()
+  .rx_python_assurer(py)
   a <- c(rx_solver_args(), dir, "--backend", backend, "--maxiter", maxiter, "--polish", polish,
          "--restarts", n_restarts,
          "--floor", format(floor, digits = 15), "--ceil", format(ceil, digits = 15),
@@ -996,6 +997,103 @@ rx_python_cmd <- function() {
   sif <- Sys.getenv("IGE_JAX_SIF")
   if (nzchar(sif)) return(c("apptainer", "exec", "--nv", sif, "python3"))
   "python3"
+}
+
+# Cache des verifications d'interpreteur, par commande. Un `import jax` coute
+# une a deux secondes : le payer a chaque ajustement d'une grille serait
+# absurde, le payer une fois par session est invisible.
+.rx_python_cache <- new.env(parent = emptyenv())
+
+#' L'interpreteur choisi porte-t-il jax, numpy et scipy ?
+#'
+#' Sans ce controle, un Python sans jax donnait un traceback Python de dix
+#' lignes finissant par « No module named 'jax' » puis « solveur REML : echec »,
+#' sans jamais dire QUEL interpreteur avait ete essaye ni COMMENT en designer
+#' un autre. C'est arrive au premier essai du paquet installe : python3 du
+#' systeme, pas de jax. Le diagnostic doit nommer l'interpreteur, la variable
+#' RX_PY et la commande d'installation.
+#'
+#' @param py commande Python decoupee (defaut : rx_python_cmd()).
+#' @param quiet ne rien imprimer.
+#' @return liste(ok, python, versions, message), invisible si ok.
+rx_python_check <- function(py = rx_python_cmd(), quiet = FALSE) {
+  cle <- paste(py, collapse = " ")
+  if (!is.null(.rx_python_cache[[cle]])) return(invisible(.rx_python_cache[[cle]]))
+  code <- paste0("import sys\n",
+                 "try:\n    import jax, numpy, scipy\n",
+                 "except Exception as e:\n    print('MANQUE', type(e).__name__, e); sys.exit(3)\n",
+                 "print('OK', jax.__version__, numpy.__version__, scipy.__version__, sys.executable)\n")
+  out <- suppressWarnings(tryCatch(
+    system2(py[1], shQuote(c(py[-1], "-c", code)), stdout = TRUE, stderr = TRUE),
+    error = function(e) structure(conditionMessage(e), status = 127L)))
+  st <- attr(out, "status") %||% 0L
+  ligne <- if (length(out)) out[length(out)] else ""
+  res <- list(ok = identical(as.integer(st), 0L) && startsWith(ligne, "OK "),
+              python = cle, versions = NULL, message = "")
+  if (res$ok) {
+    v <- strsplit(ligne, " ")[[1]]
+    res$versions <- c(jax = v[2], numpy = v[3], scipy = v[4], executable = v[5])
+  } else {
+    res$message <- paste0(
+      "remlax : l'interpreteur Python \"", cle, "\" ne porte pas jax, numpy et scipy",
+      if (nzchar(ligne)) paste0(" (", ligne, ")") else "", ".\n",
+      "  Designer un Python qui les a : Sys.setenv(RX_PY = \"/chemin/vers/python\")\n",
+      "  ou dans ~/.Renviron : RX_PY=/chemin/vers/python\n",
+      "  Pour en creer un : remlax::rx_install_python() (ou pip install jax numpy scipy).")
+  }
+  .rx_python_cache[[cle]] <- res
+  if (!quiet && !res$ok) message(res$message)
+  invisible(res)
+}
+
+# Arret net avant tout lancement du solveur si l'interpreteur ne convient pas.
+.rx_python_assurer <- function(py) {
+  r <- rx_python_check(py, quiet = TRUE)
+  if (!r$ok) stop(r$message, call. = FALSE)
+  invisible(r)
+}
+
+#' Creer un environnement virtuel Python pour le solveur
+#'
+#' Cree `dir` par `python -m venv`, y installe jax, numpy et scipy par pip
+#' (`jax[cuda12]` si cuda = TRUE), verifie l'import, et imprime la ligne
+#' RX_PY a poser. Ne modifie ni ~/.Renviron ni la session : l'utilisateur
+#' choisit ou et comment la conserver. Sans reticulate, par choix.
+#'
+#' @param dir repertoire du venv (defaut ~/.remlax/venv).
+#' @param cuda installer la version CUDA 12 de jax.
+#' @param python interpreteur de base (>= 3.10) servant a creer le venv.
+#' @param upgrade reinstaller si le venv existe deja.
+#' @return chemin de l'interpreteur cree, invisible.
+rx_install_python <- function(dir = path.expand("~/.remlax/venv"), cuda = FALSE,
+                              python = "python3", upgrade = FALSE) {
+  # Chemin ABSOLU : une RX_PY relative se resoudrait contre le repertoire
+  # courant de chaque session, donc tantot un venv, tantot rien.
+  dir <- normalizePath(dir, mustWork = FALSE)
+  exe <- file.path(dir, if (.Platform$OS.type == "windows") "Scripts/python.exe" else "bin/python")
+  if (!file.exists(exe) || upgrade) {
+    if (!file.exists(exe)) {
+      message("remlax : creation du venv ", dir)
+      st <- system2(python, c("-m", "venv", shQuote(dir)))
+      if (!identical(as.integer(st), 0L))
+        stop("remlax : `", python, " -m venv` a echoue (code ", st, "). Python >= 3.10 requis.",
+             call. = FALSE)
+    }
+    paquets <- c(if (cuda) "jax[cuda12]>=0.4.30" else "jax>=0.4.30", "numpy>=1.24", "scipy>=1.10")
+    message("remlax : pip install ", paste(paquets, collapse = " "))
+    st <- system2(exe, c("-m", "pip", "install", "--upgrade", "--quiet", shQuote(paquets)))
+    if (!identical(as.integer(st), 0L))
+      stop("remlax : pip install a echoue (code ", st, ").", call. = FALSE)
+  }
+  rm(list = ls(.rx_python_cache), envir = .rx_python_cache)
+  r <- rx_python_check(exe, quiet = TRUE)
+  if (!r$ok) stop(r$message, call. = FALSE)
+  message("remlax : interpreteur pret : ", exe, "\n",
+          "  jax ", r$versions[["jax"]], ", numpy ", r$versions[["numpy"]],
+          ", scipy ", r$versions[["scipy"]], "\n",
+          "  Pour cette session : Sys.setenv(RX_PY = \"", exe, "\")\n",
+          "  Pour toujours, dans ~/.Renviron : RX_PY=", exe)
+  invisible(exe)
 }
 
 rx_read_result <- function(dir, model = NULL, fixed_theta = NULL) {
@@ -1654,6 +1752,7 @@ rx_predict <- function(fit, classify, levels = NULL, at = NULL,
     wbin("in_theta.bin", fit$theta); wbin("pred_L.bin", L)
     for (nm in names(M)) wbin(paste0("pred_M_", nm, ".bin"), M[[nm]])
     py <- rx_python_cmd()
+    .rx_python_assurer(py)
     a <- c(rx_solver_args(), dir, "--backend", backend, "--only-predict",
            if (!verbose) "--quiet" else NULL)
     st <- system2(py[1], shQuote(c(py[-1], as.character(a))),

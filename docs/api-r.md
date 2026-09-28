@@ -1029,6 +1029,13 @@ counts with `coding = "count"`.
 if `import remlax` succeeds, then `src/remlax/cli.py` relative to
 `R/remlax.R`.
 
+`rx_python_check()` tells whether the chosen interpreter imports jax, numpy
+and scipy, and `rx_fit()` calls it before launching the solver: a Python
+without jax now stops with the interpreter tried, the `RX_PY` line to set and
+the installation command, instead of a Python traceback. `rx_install_python()`
+creates a virtual environment with the three packages (`cuda = TRUE` for the
+GPU build) and prints the `RX_PY` line to keep in `~/.Renviron`.
+
 The coupling goes through **files**, not reticulate. Two reasons: R and JAX
 may live in different containers, and the file makes CPU/GPU parity verifiable
 because both backends then read strictly the same input.
