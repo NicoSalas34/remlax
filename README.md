@@ -289,6 +289,7 @@ Timings and memory for CPU and GPU across model sizes are in
 | [docs/guide/02-multi-trait.md](docs/guide/02-multi-trait.md) | several traits, `us` and `fa`, genomic relationship |
 | [docs/guide/03-spatial.md](docs/guide/03-spatial.md) | separable AR1, metric kernels, 2D splines |
 | [docs/guide/04-explicit-terms.md](docs/guide/04-explicit-terms.md) | weighted incidences, DGE/IGE with shared covariance |
+| [docs/guide/05-chapter3-reproduction.md](docs/guide/05-chapter3-reproduction.md) | neighbourhood incidences, exposures, ratios with standard errors, grid summary; the chapter-3 reproduction scripts |
 | [docs/api-r.md](docs/api-r.md) | R reference: every `rx_*` function, full formula grammar |
 | [docs/api-python.md](docs/api-python.md) | Python reference: every public function |
 | [docs/structures.md](docs/structures.md) | structure catalogue with formulas and parametrisations |
