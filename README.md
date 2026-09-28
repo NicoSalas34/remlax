@@ -222,9 +222,11 @@ Full definitions, positivity constraints and internal parametrisations:
   per iteration (step adapted to the measured evaluation cost) and the Newton
   polishing prints one line per step. A log with no new line for a long time
   means the current evaluation is long, not that the fit has stalled.
-- **CPU fits are bitwise reproducible; GPU fits are not.** On CPU, four
-  independent runs of the same fit on the cluster returned exactly the same
-  log-likelihood. On GPU, XLA reductions are not deterministic across runs:
+- **CPU fits are bitwise reproducible on one machine; GPU fits are not.** On
+  CPU, four independent runs of the same fit on the cluster returned exactly
+  the same log-likelihood. That equality holds for the same binary on the same
+  machine: across jax versions or CPU models the last bit can move (one ulp
+  measured between jax 0.11.2 on two GitHub runners). On GPU, XLA reductions are not deterministic across runs:
   measured on an RTX A1000 with jax 0.11.1, two identical fits agree on
   `-2 logL` to 3e-13 but can stop at a `theta` 2e-8 apart, because the
   rounding noise changes which line-search step is accepted and the

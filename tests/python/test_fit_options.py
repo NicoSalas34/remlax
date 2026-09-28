@@ -59,7 +59,13 @@ def test_theta_init_maxiter_0_polish_0_est_une_evaluation_exacte():
     f = fit_reml(terms, res, y, X, theta_init=th, maxiter=0, polish=0, verbose=False,
                  hessian=False, blups=False)
     assert np.array_equal(f["theta"], th)
-    assert _egal_selon_peripherique(f["neg2_reml"], _n2(terms, res, y, X, th))
+    # DEUX CHEMINS DE CODE, DONC UNE TOLERANCE, meme sur CPU : fit_reml passe par
+    # l'objectif compile, _n2 par un appel direct. Sur un runner GitHub en
+    # Python 3.12 avec jax 0.11.2 les deux differaient d'UN ulp (272.55975663682693
+    # contre 272.5597566368268) alors qu'ils coincidaient en 3.11 et en local.
+    # L'egalite bit a bit n'est due que pour le MEME appel repete sur la meme
+    # machine (test_deux_appels_identiques_meme_resultat_et_polish_0).
+    assert np.isclose(f["neg2_reml"], _n2(terms, res, y, X, th), rtol=1e-12, atol=0)
     assert f["n_iter"] == 0 and f["n_polish"] == 0
     assert "evaluation seule" in f["scipy_message"]
     assert f["logLik"] == pytest.approx(-0.5 * f["neg2_reml"])
