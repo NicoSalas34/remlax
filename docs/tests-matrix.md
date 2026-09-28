@@ -173,3 +173,33 @@ Status: `covered (existing)`, `covered (new)`, `covered (existing + new)`, `not 
 | `backend = 'gpu'` from R without a GPU: explicit error | R rx_fit | — | — | not covered: on the R side (covered by the Python CLI test |
 | rpkg/ synchronised with the live scripts | rpkg/tools/sync_sources.R | rpkg/tests/testthat/test-synchronisation.R |  | covered (existing) |
 
+## 10. Design and post-fit functions (R/remlax_design.R, R/remlax_ratios.R), added 2026-09-28
+
+These functions were added for the chapter-3 reproduction. `test (new)` names the rpkg testthat tests (pure R, CI); `validation` names the scripts under `validation/` that replay the comparison on the real data and outputs of the IGE pipeline when `REMLAX_IGE_REPO` points to them (skip otherwise); their measured results are in `validation/results/ch3_*.csv`.
+
+| feature | where implemented | test (new) | validation (real data, skip without) | status |
+|---|---|---|---|---|
+| `rx_neighbourhood`: neighbour counts on an alternating grid, row sums of `unit` = `n_i`, `level 1 = unit 1` | R/remlax_design.R | rpkg/tests/testthat/test-design.R (T1) | validation/ch3_neighbourhood_vs_ige.R: 10 geometries (the 7 retained ones, decoupled radii, dilution 0.5, rank 1), level and unit incidences, max difference 0 | covered (new) |
+| `rx_neighbourhood`: physical distance with `spacing`, kernels power / exponential / none | R/remlax_design.R | test-design.R (T2) | idem | covered (new) |
+| `rx_neighbourhood`: dilution by the number of neighbours, `level(d) = level(0) / n_i^d`, mean at lambda = 0 | R/remlax_design.R | test-design.R (T3, T4) | idem (dilution 0.5, 1) | covered (new) |
+| `rx_neighbourhood`: L2 normalisation after dilution | R/remlax_design.R | test-design.R (T5) | — (the campaign runs unnormalised) | covered (new) |
+| `rx_neighbourhood`: per-pair parameters (list, named matrix), `pairs`, refusals (missing pair, unknown pair) | R/remlax_design.R | test-design.R (T6) | idem (rank 5/7, 10/8, 3/8, 8/2) | covered (new) |
+| `rx_neighbourhood`: blocks never neighbours, rank 0, refusals (non-integer coord, duplicated id, missing level), sparse/dense parity | R/remlax_design.R | test-design.R (T7, sparse) | idem (12 blocks) | covered (new) |
+| `rx_exposure`: d = 1 at K = I, k = k_identity, c, S, K = I explicit, one neighbour, scale invariance, `rows` and the stacked-model trap, size refusals | R/remlax_design.R | test-design.R (T1-T5) | validation/ch3_ratios_vs_ige.R (b): k_identity vs cube_C_Hauteur.4.csv (3 cells, 3e-14), d / k / c / S / k_IEE vs vx_expositions.csv of mvC7 (7 targets, 5e-13), k_identity vs 06_nuisance_var.csv | covered (new) |
+| `rx_exposure`: model form, K read from the term, `rows = "auto"`, references by label or index, refusals | R/remlax_design.R | test-design.R (forme modele) | idem (model form on modele.rds) | covered (new) |
+| `rx_grm`: VanRaden 1, ploidy, blending, coding count, refusal | R/remlax_design.R | test-design.R | — (the two GRM of the chapter are inputs) | covered (new) |
+| `rx_term(colnames)`: default from `names(Z)`, refusal of wrong length, `dimnames` on `fit$sigmas` and `fit$blups`, levels from column names | R/remlax.R | test-design.R (forme modele); test-ratios.R (rx_term(colnames), skip without jax) | validation/ch3_ratios_vs_ige.R (labels of mvC7) | covered (new) |
+| `fit$se_theta` = `sqrt(2 diag(H_f^-1))` on the free subspace, NA at bounds / fixed / saddle point | R/remlax.R rx_se_theta, rx_read_result | test-ratios.R (T5 solver, T6, T7) | ch3_ratios_vs_ige.R: vs 06_theta_se.csv of mvC7, 198/198, 1e-14 relative | covered (new) |
+| `rx_cor_z`: symmetry at r = 0, table examples, r near 1, Pearson = cor.test, width_max NULL, refusals | R/remlax_ratios.R | test-ratios.R (T1-T5) | ch3_ratios_vs_ige.R (d): three values of tab:supp:cor; Fisher intervals of 121 correlations of mvC7 at 2e-5 (1.96 vs qnorm) | covered (new) |
+| `rx_sigma_of`: us row by row, iid, diag, fa, rr, chol, ante, corh, unknown refused | R/remlax_ratios.R | test-ratios.R | ch3_ratios_vs_ige.R: reconstruction check against fit$sigmas inside rx_ratios | covered (new) |
+| `rx_sigmas_from_theta`: solver order (terms then sections), level parameters skipped, dimnames, length refused | R/remlax_ratios.R | test-ratios.R | idem | covered (new) |
+| `rx_ratios`: SE of a scalar variance = 2 var se_theta, shares sum to 1, exposure NULL vs 1, scale invariance of r, TBV and tau2 formulas, constants multiply estimate and SE alike, check_se | R/remlax_ratios.R | test-ratios.R (T3, T4, T5) | ch3_ratios_vs_ige.R (c): 189 var/prop/h2 of mvC7 at 6e-16 (est.) / 2e-8 (SE), heritabilites_etendues_mv.csv | covered (new) |
+| `rx_ratios`: theta -> Sigma check (permuted theta refused), reference grammar and refusals, jacobian = solver refused | R/remlax_ratios.R | test-ratios.R | — | covered (new) |
+| `rx_ratios`: parameter at a bound out of the free subspace, FLOOR, COND_BOUND, fixed_theta | R/remlax_ratios.R | test-ratios.R (T6) | — (mvC7 has no bounded parameter) | covered (new) |
+| `rx_ratios`: negative curvature, `refuse` (all SE NA) vs `project` (NOT_IDENTIFIED), no Hessian | R/remlax_ratios.R | test-ratios.R (T7) | — | covered (new) |
+| `rx_ratios`: two groups, between effect, `h2_ext_total`, cross TBV with `d_emitter`, tau2 on the receiving denominator, TBV correlations | R/remlax_ratios.R | test-ratios.R | ch3_ratios_vs_ige.R: 106 genetic + 15 residual correlations (est. 6e-16, SE 2e-7, flags identical), 14 TBV variances and 14 tau2 vs mvC7_tbvhomogene / tau2_par_caractere_mv.csv (5e-15) | covered (new) |
+| `rx_ratios` = solver `vpredict` (h2 estimate and SE) | R/remlax_ratios.R | test-ratios.R (T1, skip without jax) | — | covered (new) |
+| `rx_grid_summary`: best, supported, ranges, n_product, missing cells, best_pd | R/remlax_ratios.R | test-ratios.R (T1) | reproduction/chapitre3/04_cube_summary.R on the seven cube_C_<trait>.csv (tab:geom counts) | covered (new) |
+| `rx_grid_summary`: `by`, n_obs guard, AIC recomputed / checked, `effective` and best_moved, refusals | R/remlax_ratios.R | test-ratios.R (T2-T4) | idem | covered (new) |
+| Python counterparts `remlax.neighbourhood` / `remlax.exposure` and R/Python parity | — | — | — | not covered: not implemented; the functions are pure R and the numerical reference is the IGE pipeline (see validation) |
+| `rx_ratios(jacobian = "solver")` (JAX Jacobian of the structured map) | — | — | — | not covered: not implemented, the call is refused with a message |
