@@ -34,7 +34,7 @@ the column order of `Z` and the order of `theta`.
 
 ## Guides
 
-Four step-by-step guides. Every code block was executed and its real output
+Five step-by-step guides. Every code block was executed and its real output
 pasted underneath. The examples are small (a few hundred observations) and
 each fit takes a couple of seconds, so they are quick to replay.
 
@@ -44,6 +44,7 @@ each fit takes a couple of seconds, so they are quick to replay.
 | [2. Multi-trait models](guide/02-multi-trait.md) | long format; a genomic relationship matrix; `us` genetic and residual covariances; component numbering; heritabilities and genetic correlation; parameter counts of `diag`/`us`/`fa`/`rr`/`chol`/`ante`/`corh`; reduced rank, and an aliasing that looks like a model test |
 | [3. Spatial models](guide/03-spatial.md) | separable AR1 as a residual and as a random term; the nugget that vanishes; metric kernels; Matern and its parameter-declaration convention; the duplicated-cell guard; user-defined correlations with `own()`; two-dimensional splines |
 | [4. Explicit terms](guide/04-explicit-terms.md) | why a formula is not enough; `rx_term` with a list of weighted incidences; a DGE/IGE model with a shared covariance; the same model through `str()`; BLUPs of both effects; functions of the shared covariance |
+| [5. Chapter-3 reproduction](guide/05-chapter3-reproduction.md) | a two-species neighbourhood design end to end with `rx_neighbourhood`, `rx_exposure`, `rx_ratios`, `rx_cor_z` and `rx_grid_summary`; the analysis -> script -> figure table; the numerical conventions; the measured differences to the original pipeline |
 
 ---
 

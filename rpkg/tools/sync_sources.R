@@ -140,6 +140,14 @@ x <- inserer_avant(x, "  base <- rx_pkg_dir()",
 x <- ascii(deroxygen(x))
 remlax_scan_R <- c(entete("R/remlax_scan.R"), x)
 
+# ---- R/remlax_design.R et R/remlax_ratios.R ----------------------------------
+# Poses a cote de remlax.R comme remlax_scan.R : du R pur, aucun chemin de solveur
+# a rediriger. Seules les transformations 5 (roxygen) et 7 (ascii) s'appliquent.
+x <- lire(file.path(racine, "R", "remlax_design.R"))
+remlax_design_R <- c(entete("R/remlax_design.R"), ascii(deroxygen(x)))
+x <- lire(file.path(racine, "R", "remlax_ratios.R"))
+remlax_ratios_R <- c(entete("R/remlax_ratios.R"), ascii(deroxygen(x)))
+
 # ---- Python : src/remlax -> inst/python/remlax --------------------------------
 py_src <- file.path(racine, "src", "remlax")
 py_files <- sort(list.files(py_src, pattern = "\\.py$", full.names = FALSE))
@@ -149,7 +157,9 @@ if (!length(py_files)) stop("aucun .py dans ", py_src)
 sorties <- list(
   "R/remlax.R"      = remlax_R,
   "R/remlax_tmb.R"  = remlax_tmb_R,
-  "R/remlax_scan.R" = remlax_scan_R)
+  "R/remlax_scan.R" = remlax_scan_R,
+  "R/remlax_design.R" = remlax_design_R,
+  "R/remlax_ratios.R" = remlax_ratios_R)
 
 ecarts <- character(0)
 for (nm in names(sorties)) {

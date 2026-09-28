@@ -77,7 +77,9 @@ list of \code{Sigma} matrices), \code{sigmas_res} and \code{sigma_res}, \code{rh
 (between-level parameters on the scale actually used), \code{blups} (named list
 of \verb{q x t} matrices), \code{beta}, \code{vbeta}, \code{hessian}, \code{max_grad},
 \code{newton_decrement}, \code{n_neg_eig}, \code{n_null_dir}, \code{cond}, \code{n_at_bound},
-\code{n_fixed_out}, \code{n_par_free}, \code{par_floor}, \code{par_ceil},
+\code{n_fixed_out}, \code{n_par_free}, \code{par_floor}, \code{par_ceil}, \code{fixed_theta},
+\code{se_theta} (standard errors of \code{theta}, \verb{sqrt(2 diag(H^-1))} on the free
+subspace, \code{NA} elsewhere; see \code{\link[=rx_se_theta]{rx_se_theta()}}),
 \code{composantes_degenerees}, \code{composantes_noms}, \code{optim_msg} (read it first:
 \code{ABNORMAL} is a failed line search, not a maximum), and, when requested, \code{vpredict}, \code{wald}, \code{kenward_roger},
 \code{pev}, \code{predictions}. Read fields with \code{[[} rather than \code{$}: \code{$} does

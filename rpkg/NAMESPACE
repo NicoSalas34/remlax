@@ -35,14 +35,30 @@ export(rx_solver_args)
 export(rx_scan)
 export(rx_scan_seuil)
 
+# --- dispositif : incidences de voisinage, expositions, parente ---
+export(rx_neighbourhood)
+export(rx_exposure)
+export(rx_grm)
+
+# --- ratios, erreurs-types, correlations, grille ---
+export(rx_cor_z)
+export(rx_sigma_of)
+export(rx_sigmas_from_theta)
+export(rx_se_theta)
+export(rx_ratios)
+export(rx_grid_summary)
+
 S3method(print, rx_model)
 S3method(print, rx_fit)
 S3method(print, rx_predict)
+S3method(print, rx_neighbourhood)
+S3method(print, rx_ratios)
+S3method(print, rx_grid_summary)
 
 import(Matrix)
 importFrom(jsonlite, toJSON, fromJSON)
 importFrom(stats, as.formula, model.frame, model.matrix, model.response,
            terms, delete.response, na.pass, setNames, var, sd, pchisq, pf,
-           pnorm, qnorm, nlminb, optimHess)
+           pnorm, qnorm, nlminb, optimHess, median, cor.test)
 importFrom(utils, read.csv, str)
 importFrom(methods, as)

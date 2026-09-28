@@ -218,7 +218,14 @@ rx_term <- function(name, Z, K = NULL, struct = "iid", rank = 0L,
                     t = NULL, levels = NULL, level = "auto",
                     dims = NULL, order = 0L, coord = NULL,
                     opts = NULL, expr = NULL, parts = NULL,
-                    Kinv = NULL, Kinv_logdet = NULL) {
+                    Kinv = NULL, Kinv_logdet = NULL, colnames = NULL) {
+  # NOMS DES COLONNES DE SIGMA. Sans eux, tout consommateur d'un Sigma t x t
+  # apparie ses composantes PAR INDICE, et une etape aval qui reetiquette depuis
+  # une liste tenue a part ne peut que verifier la longueur. Les noms voyagent
+  # jusqu'a fit$sigmas (dimnames), fit$blups (colonnes) et fit$composantes_noms.
+  # Par defaut ce sont les noms de la liste Z quand elle en porte.
+  if (is.null(colnames) && is.list(Z) && !is.null(names(Z)) && all(nzchar(names(Z))))
+    colnames <- names(Z)
   if (!is.null(Kinv) && !is.null(K))
     stop("terme '", name, "' : fournir K OU Kinv, pas les deux. K sert au moteur ",
          "dense (facteur de Cholesky), Kinv au moteur creux (precision).")
@@ -243,6 +250,21 @@ rx_term <- function(name, Z, K = NULL, struct = "iid", rank = 0L,
     if (q != round(q)) stop("terme '", name, "' : ncol(Z) n'est pas un multiple de t.")
     q <- as.integer(q)
     Zl <- lapply(seq_len(t), function(a) Zm[, ((a - 1) * q + 1):(a * q), drop = FALSE])
+  }
+  # Des incidences fournies en matrices qui portent des noms de colonnes
+  # definissent les niveaux : K est alors realigne sur eux par nom, et un
+  # niveau absent de K est une erreur. Sans noms, l'appariement reste positionnel.
+  if (is.null(levels) && is.list(Z)) {
+    cn <- colnames(Zl[[1]])
+    if (!is.null(cn) && !anyDuplicated(cn) &&
+        all(vapply(Zl, function(m) identical(colnames(m), cn), logical(1))))
+      levels <- cn
+  }
+  if (!is.null(colnames)) {
+    colnames <- as.character(colnames)
+    if (length(colnames) != t || anyDuplicated(colnames) || anyNA(colnames))
+      stop("terme '", name, "' : `colnames` doit donner ", t, " noms distincts (recu ",
+           length(colnames), ").")
   }
   if (struct == "iid" && t > 1L)
     message("terme '", name, "' : struct='iid' avec t=", t,
@@ -330,7 +352,8 @@ rx_term <- function(name, Z, K = NULL, struct = "iid", rank = 0L,
                  Kinv = Kinv, Kinv_logdet = Kinv_logdet,
                  level = level, dims = dims, order = as.integer(order), coord = coord,
                  opts = opts, expr = expr, parts = parts,
-                 levels = levels, n_par = rx_n_params(struct, t, rank) + n_lvl),
+                 levels = levels, colnames = colnames,
+                 n_par = rx_n_params(struct, t, rank) + n_lvl),
             class = "rx_term")
 }
 
@@ -643,6 +666,14 @@ rx_model <- function(y, X, terms, residual = rx_residual(), name = "modele") {
     stop("aucun terme aleatoire et residuelle iid : il n'y a rien a estimer.")
   for (tm in terms) {
     if (!inherits(tm, "rx_term")) stop("terms doit contenir des objets rx_term.")
+  }
+  # La liste des termes est NOMMEE par leurs noms : rx_exposure() et rx_ratios()
+  # les retrouvent par model$terms[[nom]], et un nom en double serait deja une
+  # collision dans les sorties du solveur.
+  noms_t <- vapply(terms, `[[`, "", "name")
+  if (anyDuplicated(noms_t)) stop("termes en double : ", paste(unique(noms_t[duplicated(noms_t)]), collapse = ", "))
+  if (length(terms)) names(terms) <- noms_t
+  for (tm in terms) {
     # Un terme declare par sa PRECISION n'est pas ajustable par le moteur dense :
     # celui-ci a besoin d'un facteur de K, et le retrouver depuis K^-1 demanderait
     # une inversion dense — exactement ce que la voie creuse evite. On le dit ici
@@ -896,7 +927,34 @@ rx_fit <- function(model, backend = c("auto", "gpu", "cpu"), dir = NULL,
     cat(st, sep = "\n"); stop("solveur REML : echec")
   }
   if (verbose && !identical(as.integer(st), 0L)) stop("solveur REML : echec")
-  rx_read_result(dir)
+  rx_read_result(dir, model = model, fixed_theta = fixed_theta)
+}
+
+# ERREURS-TYPES SUR theta. Le Hessien rendu est celui de -2 logL, donc
+# cov(theta) = 2 H^-1 sur le sous-espace LIBRE : ni a une borne (lue dans
+# par_floor / par_ceil, jamais recodee), ni fixe par fixed_theta. Ailleurs NA.
+# Une valeur propre negative de H_f signale un point de selle : les erreurs-types
+# y sont NA plutot qu'un nombre sans sens. Verifie contre le vpredict du solveur
+# (test-ratios.R) et contre 06_theta_se.csv du chapitre 3.
+rx_se_theta <- function(theta, hessian, par_floor = -12, par_ceil = 12,
+                        fixed_theta = NULL, tol_bound = 1e-7) {
+  p <- length(theta)
+  se <- rep(NA_real_, p)
+  if (is.null(hessian) || !p) return(se)
+  H <- as.matrix(hessian)
+  if (nrow(H) != p || ncol(H) != p) return(se)
+  libre <- !(theta <= par_floor + tol_bound | theta >= par_ceil - tol_bound)
+  if (length(fixed_theta)) libre[as.integer(fixed_theta)] <- FALSE
+  if (!any(libre)) return(se)
+  Hf <- (H[libre, libre, drop = FALSE] + t(H[libre, libre, drop = FALSE])) / 2
+  if (!all(is.finite(Hf))) return(se)
+  ev <- eigen(Hf, symmetric = TRUE, only.values = TRUE)$values
+  if (min(ev) <= 1e-12 * max(abs(ev), 1)) return(se)
+  Vi <- tryCatch(solve(Hf), error = function(e) NULL)
+  if (is.null(Vi)) return(se)
+  d <- diag(Vi)
+  se[libre] <- ifelse(d > 0, sqrt(2 * d), NA_real_)
+  se
 }
 
 rx_here <- function() if (requireNamespace("here", quietly = TRUE)) here::here("R") else "R"
@@ -940,7 +998,7 @@ rx_python_cmd <- function() {
   "python3"
 }
 
-rx_read_result <- function(dir) {
+rx_read_result <- function(dir, model = NULL, fixed_theta = NULL) {
   f <- file.path(dir, "result.json")
   if (!file.exists(f)) stop("resultat introuvable : ", f)
   r <- jsonlite::fromJSON(f, simplifyVector = TRUE)
@@ -1009,6 +1067,26 @@ rx_read_result <- function(dir) {
     q_ <- as.integer(round(sqrt(length(v))))
     if (q_ * q_ == length(v)) r[["hessian"]] <- matrix(v, q_, q_)
     else warning(sprintf("out_hessian a %d valeurs, non carre : ignore", length(v)))
+  }
+  # Erreurs-types sur theta, sur le sous-espace libre ; NA sans Hessien.
+  r[["fixed_theta"]] <- if (length(fixed_theta)) as.integer(fixed_theta) else integer(0)
+  r[["se_theta"]] <- rx_se_theta(r[["theta"]], r[["hessian"]],
+                                 r[["par_floor"]] %||% -12, r[["par_ceil"]] %||% 12,
+                                 r[["fixed_theta"]])
+  # Noms des colonnes de Sigma et des BLUP, quand les termes en portent.
+  if (!is.null(model) && !is.null(model[["terms"]])) {
+    for (tm in model[["terms"]]) {
+      cn <- tm[["colnames"]]; nm <- tm[["name"]]
+      S <- r[["sigmas"]][[nm]]
+      if (!is.null(S) && !is.null(cn) && length(cn) == nrow(S))
+        dimnames(r[["sigmas"]][[nm]]) <- list(cn, cn)
+      U <- r[["blups"]][[nm]]
+      if (!is.null(U)) {
+        if (!is.null(cn) && length(cn) == ncol(U)) colnames(r[["blups"]][[nm]]) <- cn
+        lv <- tm[["levels"]]
+        if (!is.null(lv) && length(lv) == nrow(U)) rownames(r[["blups"]][[nm]]) <- lv
+      }
+    }
   }
   class(r) <- "rx_fit"; r
 }

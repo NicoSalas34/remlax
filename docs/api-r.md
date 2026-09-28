@@ -773,7 +773,249 @@ between models. Use `logLik_asreml` when comparing.
 
 ---
 
-## 12. Environment variables
+## 12. Design and post-fit functions (`R/remlax_design.R`, `R/remlax_ratios.R`)
+
+Two files sit next to `R/remlax.R`, like `R/remlax_scan.R`: they assume it has
+been sourced and add nothing to the solver. They are pure R (Matrix only). The
+API knows groups, units, levels, terms and components; it does not know
+species, traits or indirect genetic effects. The chapter-3 reproduction in
+`reproduction/chapitre3/` shows how a two-species neighbourhood design is
+written with them; the numerical checks against the reference pipeline are in
+`validation/ch3_*.R` and in
+[docs/guide/05-chapter3-reproduction.md](guide/05-chapter3-reproduction.md).
+
+### `rx_neighbourhood()`
+
+```r
+rx_neighbourhood(coord, group, block = NULL, level = NULL, id = NULL,
+                 rank, reach = 0, dilution = 0,
+                 kernel = c("power", "exponential", "none"),
+                 window = c("chebyshev", "euclidean"),
+                 spacing = c(1, 1), normalise = FALSE,
+                 pairs = NULL, output = c("level", "unit", "both"), sparse = TRUE)
+```
+
+Distance-weighted incidences of the neighbours of every unit, for every pair
+(receiving group, emitting group), written `"receiver<-emitter"`. `coord` holds
+integer grid positions (row, column); `spacing` converts them to physical
+units. For units `i` (group `a`) and `j` (group `b`) of the same `block`:
+
+```
+delta_ij = sqrt((s_1 (row_i - row_j))^2 + (s_2 (col_i - col_j))^2)
+m_ij     = |row_i - row_j| <= r_ab  and  |col_i - col_j| <= r_ab  and  delta_ij > 0
+w_ij     = m_ij delta_ij^(-lambda_ab)                      (kernel = "power")
+n_i      = number of j with m_ij = 1
+unit[i, j]  = w_ij / n_i^d_ab
+level[i, g] = (sum over j with level_j = g of w_ij) / n_i^d_ab
+```
+
+The window is taken in grid indices, the weight on the physical distance:
+with `spacing = c(5, 5)` a first-order neighbour in the same column weighs
+`5^-lambda` and the diagonal one `50^(-lambda/2)`. Dilution divides by the
+NUMBER of neighbours, not by the sum of weights, and is applied before the
+optional L2 normalisation. `rank`, `reach` and `dilution` accept a scalar, a
+named `G x G` matrix (rows = receiver) or a list named by pair; a pair missing
+from a named form is an error. Level names are returned exactly as given: the
+caller makes them agree with the row names of `K`.
+
+Returns a list of class `rx_neighbourhood`: `level` and `unit` (one matrix per
+pair, row names = `id` of the receivers), `n_neighbours`, `params` (the values
+actually used, one row per pair). Built on the full design, then restricted to
+the observed rows before entering `rx_term()`:
+
+```r
+nb <- rx_neighbourhood(design[, c("row", "col")], design$species, block = design$plot,
+                       level = design$genotype, id = design$id,
+                       rank = list("A<-A" = 5, "A<-B" = 7), reach = 0, dilution = 0,
+                       spacing = c(5, 5))
+Z_within <- nb$level[["A<-A"]][obs_ids, ]
+```
+
+Checked against the reference constructor of the chapter-3 pipeline on the
+real design, 10 geometries including decoupled radii and dilution 0.5: maximal
+difference `0` on both the level and the unit incidences
+(`validation/results/ch3_neighbourhood_vs_ige.csv`).
+
+### `rx_exposure()`
+
+```r
+rx_exposure(Z_direct, Z_indirect, K = NULL, rows = NULL, K_direct = K)
+rx_exposure(model, direct = "term:label", indirect = "term:label", rows = "auto")
+```
+
+The four exposure functionals of a (direct, indirect) pair, averaged over
+`rows`:
+
+```
+d          = mean_i (Z_d K_d Z_d')_ii          (1 at K = I)
+k          = mean_i (Z_n K Z_n')_ii            (weighted convention)
+k_identity = mean_i sum_g Z_n[i, g]^2          (K = I convention)
+c          = mean_i (Z_d K Z_n')_ii            (NA across two groups)
+S          = mean_i sum_g Z_n[i, g]
+n_eff      = S^2 d / k
+```
+
+A component of variance `s2_I` on the indirect incidence brings `k s2_I` to the
+phenotypic variance, the direct one `d s2_D`, the covariance enters with
+coefficient `2 c`, and the total genetic value of a level is
+`sqrt(d) (u_D + S u_I)`. In the model form `K` is read from the term that
+carries the indirect incidence and `rows = "auto"` selects the rows where the
+direct incidence is non-zero, which is what restricts a stacked multi-target
+model to the observations of one target. Averaging over all rows of a stacked
+model divides every statistic by the share of the rows that belong to the
+target.
+
+Component references are `"term"` (one column), `"term[i]"` or
+`"term:label"`, the labels being the `colnames` given to `rx_term()`.
+
+### `rx_term(colnames = )` and `fit$se_theta`
+
+`rx_term()` accepts `colnames`, the names of the `t` columns of `Sigma`; by
+default the names of the list `Z` when it has them. They come back as
+`dimnames(fit$sigmas[[name]])` and as the column names of
+`fit$blups[[name]]`. When the matrices of a list `Z` carry column names, those
+names define the levels and `K` is re-aligned on them by name.
+
+`rx_read_result()` now adds `fit$se_theta`, computed by `rx_se_theta()`:
+`sqrt(2 diag(H_f^-1))` on the free subspace, where `H` is the Hessian of
+`-2 logL` (hence the factor 2), a parameter is free when it is neither at a
+bound (read from `fit$par_floor` / `fit$par_ceil`) nor held by `fixed_theta`;
+`NA` elsewhere, and `NA` everywhere when `H_f` has a non-positive eigenvalue.
+Checked against the solver's own `vpredict` (`SE(V1) = 2 V1 se_theta_1`) and
+against the standard errors of the chapter-3 multi-trait fit at `1e-14`.
+
+### `rx_sigmas_from_theta()` and `rx_sigma_of()`
+
+The map from `theta` to every `Sigma`, on the R side, with the solver's
+parametrisation (`theta` is a log standard deviation; `us` is `L L'`, `L`
+lower triangular filled row by row, diagonal `exp(theta)`; `fa`, `rr`,
+`chol`, `ante`, `corh` as in `structures.py`). Terms come first, then the
+residual sections, named `"residual"` or `"residual:<section>"`, with the
+trait levels as `dimnames`. `rx_ratios()` checks this map against
+`fit$sigmas` at `1e-8` before differentiating anything: a permuted `theta`
+fails there.
+
+### `rx_ratios()`
+
+```r
+rx_ratios(fit, components, exposure = NULL, model = NULL,
+          quantities = c("variances", "shares", "h2", "h2_ext", "tau2",
+                         "correlations", "residual_correlations", "tbv"),
+          scale = TRUE, level = 0.95, width_max = 1.5,
+          jacobian = "numeric", curvature = c("project", "refuse"),
+          bound_tol = 1e-7, dep_bound = 0.05, step = 1e-5)
+```
+
+One map `q(theta)` from the solver's `theta` to every requested quantity,
+written once and differentiated once (central finite differences), so that
+every standard error comes from the same `SE = sqrt(J V J')` with `V = 2 H^-1`
+on the free subspace. `components` names the components of each target:
+
+| column | content |
+|---|---|
+| `target` | name of the target (a trait) |
+| `direct` | reference of the direct component, `"term:label"` |
+| `indirect_within` | indirect component received from the same group, `NA` if none; must live in the same term as `direct` |
+| `indirect_between` | indirect component received from the other group (it lives in the other group's term), `NA` if none |
+| `other` | additive components of the phenotypic variance, references separated by `+`: `"spat_1+iee_1+residual:A:height"` |
+
+`exposure`, one row per target, carries `d`, `k_within`, `k_between`, `c`,
+`S_within`, `S_between` and `k_other` (`"ref=value+ref=value"`), typically
+from `rx_exposure()`. With `exposure = NULL` every constant is 1 and the
+column `scaled` says so. Per target:
+
+```
+V_D = d s2_D    V_IW = k_within s2_IW    V_IB = k_between s2_IB    V_o = k_o s2_o
+C   = c cov(D, IW)
+V_P = V_D + V_IW + V_IB + sum V_o + 2 C          V_S = V_P - 2 C
+share_x        = V_x / V_S                        (they sum to 1)
+h2             = V_D / V_P
+h2_ext_within  = (V_D + 2 C + V_IW) / V_P
+h2_indirect_between = V_IB / V_P
+h2_ext_total   = h2_ext_within + h2_indirect_between
+r_direct_indirect = cov / sqrt(s2_D s2_IW)       (raw components, never rescaled)
+```
+
+Total genetic values are quadratic forms of the emitting `Sigma`:
+`sqrt(d)` on the direct column and `sqrt(d) S_within` on the within column
+for the own value, `sqrt(d_emitter) S_between` on the between column for the
+value exerted on the other group, `d_emitter` being the mean `d` of the
+targets whose direct effect lives in that term. `tau2 = Var(TBV) / V_P` of the
+RECEIVING target. Correlations of every genetic `Sigma` and of every
+multi-trait residual section are added with Fisher intervals from
+`rx_cor_z()`.
+
+The result is a long data frame of class `rx_ratios` (`target`, `quantity`,
+`component`, `estimate`, `se`, `z`, `ci_low`, `ci_high`, `flag`,
+`dep_bound`, `dep_excluded`, `scaled`, `convention`). Flags: `OK`,
+`NOT_ESTIMATED` (variance exactly zero or undefined), `FLOOR` (its `theta` at
+the bound), `COND_BOUND` (more than `dep_bound` of the Jacobian on bounded
+parameters), `NOT_IDENTIFIED` (more than half of the Jacobian on directions of
+negative curvature that `curvature = "project"` removed), `NOT_ESTIMABLE`
+(correlation whose Fisher interval is wider than `width_max`), `NO_HESSIAN`.
+Attributes: `V`, `free`, `se_theta`, `check_se` (median ratio of the
+recomputed `se_theta` to `fit$se_theta`, the only guard against a wrong
+factor 2).
+
+On the chapter-3 multi-trait fit (198 parameters, 12 760 observations) the
+450 quantities agree with the reference pipeline: estimates at `6e-16`,
+standard errors at `2e-8` relative for variances, shares and heritabilities,
+`2e-7` for correlations (the reference differentiates by Richardson
+extrapolation, this function by central differences), Fisher intervals at
+`2e-5` (the reference multiplies by 1.96, this function by `qnorm(0.975)`),
+non-estimable flags identical, TBV and tau2 at `5e-15`
+(`validation/results/ch3_ratios_vs_ige.csv`).
+
+### `rx_cor_z()`
+
+```r
+rx_cor_z(r, se = NULL, n = NULL, level = 0.95, width_max = 1.5, clamp = 0.999999)
+```
+
+`se_z = se / max(1 - r^2, 1e-8)` (delta method) or `1 / sqrt(n - 3)`
+(Pearson), `ci = tanh(atanh(r) -+ q se_z)`. The interval is asymmetric and
+stays in `[-1, 1]`; one wider than `width_max` is flagged non-informative
+(`informative = FALSE`). The `z` column is the ratio of the correlation to its
+standard error on the correlation scale, which is what a table reports; the
+`z_fisher` column is `atanh(r)`. With `n` the interval equals
+`cor.test()`'s.
+
+### `rx_grid_summary()`
+
+```r
+rx_grid_summary(table, coords, aic = "AIC", loglik = "logLik", n_par = "n_par",
+                by = NULL, tol = 2, pd = "pd_hessian", n_at_bound = "n_at_bound",
+                n_par_free = "n_par_free", n_obs = "n_obs", effective = FALSE)
+```
+
+AIC summary of a grid of fits, one row per fit, `coords` naming the columns
+that define a cell. `AIC = 2 p - 2 logLik` is recomputed when absent and
+checked (`1e-6`) when present. Per `by` group: `best` (argmin), `supported`
+(`AIC - min <= tol`, with `delta_aic`), `ranges` (min, max, number of distinct
+values of each coordinate over the supported set, the brackets of a table of
+retained geometries), `n_supported` and `n_product` (the product of the
+marginal counts, to say whether the set is a Cartesian product), `counts`
+(cells, duplicates, missing cells against the Cartesian product of the observed
+values, non-PD Hessians, cells with a component at a bound), `best_pd` (best
+cell with a PD Hessian and its AIC distance to `best`), `delta` (the full
+table). `effective = TRUE` repeats the summary under
+`AIC_eff = 2 n_par_free - 2 logLik` and flags `best_moved`. The function stops
+when `n_obs` varies inside a group: grids of different sizes do not compare.
+
+### `rx_grm()`
+
+```r
+rx_grm(M, ploidy = 2, blend = 0, coding = c("fraction", "count"))
+```
+
+VanRaden's first method at any ploidy: `D = M k`, `p = colMeans(D) / k`,
+`Z = D - k p`, `G = Z Z' / (k sum p (1 - p))`, then
+`(1 - blend) G + blend I`. `M` holds doses as a fraction of the ploidy, or as
+counts with `coding = "count"`.
+
+---
+
+## 13. Environment variables
 
 | variable | meaning |
 |---|---|
@@ -793,7 +1035,7 @@ because both backends then read strictly the same input.
 
 ---
 
-## 13. A trap worth knowing
+## 14. A trap worth knowing
 
 `$` performs **partial matching** on R lists. When a `sigmas_res` field was
 added to the result, the expression `r$sigmas` — not yet created at that point

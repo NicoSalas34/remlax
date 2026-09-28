@@ -8,7 +8,7 @@ rx_term(name, Z, K = NULL, struct = "iid", rank = 0L,
         t = NULL, levels = NULL, level = "auto",
         dims = NULL, order = 0L, coord = NULL,
         opts = NULL, expr = NULL, parts = NULL,
-        Kinv = NULL, Kinv_logdet = NULL)
+        Kinv = NULL, Kinv_logdet = NULL, colnames = NULL)
 }
 \arguments{
 \item{name}{key of the term in every output.}
@@ -59,6 +59,11 @@ only. A term declared by \code{Kinv} without \code{K} cannot be fitted by \code{
 
 \item{Kinv_logdet}{log-determinant of \code{Kinv}, if already known; computed
 otherwise.}
+
+\item{colnames}{names of the \code{t} columns of \code{Sigma}; by default the names of
+the list \code{Z} when it has them. They are carried to \code{dimnames(fit$sigmas[[name]])}
+and to the columns of \code{fit$blups[[name]]}, and \code{\link[=rx_exposure]{rx_exposure()}} and
+\code{\link[=rx_ratios]{rx_ratios()}} refer to components by them (\code{"name:label"}).}
 }
 \value{
 An object of class \code{rx_term}.

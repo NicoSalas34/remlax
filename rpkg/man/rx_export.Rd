@@ -6,16 +6,22 @@
 \title{Serialise a model for the solver, and read a result back}
 \usage{
 rx_export(model, dir)
-rx_read_result(dir)
+rx_read_result(dir, model = NULL, fixed_theta = NULL)
 }
 \arguments{
-\item{model}{an \link{rx_model} object.}
+\item{model}{an \link{rx_model} object. In \code{rx_read_result()} it is optional: when
+given, the column names of the terms (\code{colnames} of \code{\link[=rx_term]{rx_term()}}) are set as
+\code{dimnames} on \code{sigmas} and \code{blups}.}
 
 \item{dir}{directory.}
+
+\item{fixed_theta}{1-based indices of parameters held fixed during the fit;
+they are excluded from the free subspace of \code{se_theta}.}
 }
 \value{
 \code{rx_export()} returns \code{dir} invisibly. \code{rx_read_result()} returns an
-object of class \code{rx_fit} (see \code{\link[=rx_fit]{rx_fit()}}).
+object of class \code{rx_fit} (see \code{\link[=rx_fit]{rx_fit()}}), with \code{se_theta} computed by
+\code{\link[=rx_se_theta]{rx_se_theta()}}.
 }
 \description{
 \code{rx_export()} writes \code{manifest.json} plus one \verb{<name>.bin} (float64 or int32,

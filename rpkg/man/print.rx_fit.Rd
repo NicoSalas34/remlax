@@ -4,11 +4,17 @@
 \alias{print.rx_fit}
 \alias{print.rx_model}
 \alias{print.rx_predict}
+\alias{print.rx_neighbourhood}
+\alias{print.rx_ratios}
+\alias{print.rx_grid_summary}
 \title{Print methods}
 \usage{
 \method{print}{rx_fit}(x, ...)
 \method{print}{rx_model}(x, ...)
 \method{print}{rx_predict}(x, ...)
+\method{print}{rx_neighbourhood}(x, ...)
+\method{print}{rx_ratios}(x, ...)
+\method{print}{rx_grid_summary}(x, ...)
 }
 \arguments{
 \item{x}{the object.}

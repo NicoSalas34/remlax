@@ -176,7 +176,9 @@ NULL
 #'   (between-level parameters on the scale actually used), `blups` (named list
 #'   of `q x t` matrices), `beta`, `vbeta`, `hessian`, `max_grad`,
 #'   `newton_decrement`, `n_neg_eig`, `n_null_dir`, `cond`, `n_at_bound`,
-#'   `n_fixed_out`, `n_par_free`, `par_floor`, `par_ceil`,
+#'   `n_fixed_out`, `n_par_free`, `par_floor`, `par_ceil`, `fixed_theta`,
+#'   `se_theta` (standard errors of `theta`, `sqrt(2 diag(H^-1))` on the free
+#'   subspace, `NA` elsewhere; see [rx_se_theta()]),
 #'   `composantes_degenerees`, `composantes_noms`, `optim_msg` (read it first:
 #'   `ABNORMAL` is a failed line search, not a maximum), and, when requested, `vpredict`, `wald`, `kenward_roger`,
 #'   `pev`, `predictions`. Read fields with `[[` rather than `$`: `$` does
@@ -301,12 +303,16 @@ NULL
 #' @details `struct = "iid"` with `t > 1` is accepted with a message: it means
 #'   one variance shared by the `t` columns.
 #' @seealso [rx_model()], [rx_residual()]
+#' @param colnames names of the `t` columns of `Sigma`; by default the names of
+#'   the list `Z` when it has them. They are carried to `dimnames(fit$sigmas[[name]])`
+#'   and to the columns of `fit$blups[[name]]`, and [rx_exposure()] and
+#'   [rx_ratios()] refer to components by them (`"name:label"`).
 #' @usage
 #' rx_term(name, Z, K = NULL, struct = "iid", rank = 0L,
 #'         t = NULL, levels = NULL, level = "auto",
 #'         dims = NULL, order = 0L, coord = NULL,
 #'         opts = NULL, expr = NULL, parts = NULL,
-#'         Kinv = NULL, Kinv_logdet = NULL)
+#'         Kinv = NULL, Kinv_logdet = NULL, colnames = NULL)
 #' @name rx_term
 NULL
 
@@ -363,15 +369,266 @@ NULL
 #' `column = (a - 1) q + level`. `rx_read_result()` reads `result.json` and the
 #' binary arrays the solver wrote in the same directory.
 #'
-#' @param model an [rx_model] object.
+#' @param model an [rx_model] object. In `rx_read_result()` it is optional: when
+#'   given, the column names of the terms (`colnames` of [rx_term()]) are set as
+#'   `dimnames` on `sigmas` and `blups`.
 #' @param dir directory.
+#' @param fixed_theta 1-based indices of parameters held fixed during the fit;
+#'   they are excluded from the free subspace of `se_theta`.
 #' @return `rx_export()` returns `dir` invisibly. `rx_read_result()` returns an
-#'   object of class `rx_fit` (see [rx_fit()]).
+#'   object of class `rx_fit` (see [rx_fit()]), with `se_theta` computed by
+#'   [rx_se_theta()].
 #' @usage
 #' rx_export(model, dir)
-#' rx_read_result(dir)
+#' rx_read_result(dir, model = NULL, fixed_theta = NULL)
 #' @name rx_export
 #' @aliases rx_read_result
+NULL
+
+# ------------------------------------------------------------------------------
+
+#' Distance-weighted neighbourhood incidences
+#'
+#' Builds, for every pair (receiving group, emitting group), the incidence of
+#' the neighbours of each unit: by level (weights summed over the units of each
+#' level, `n_r x q_e`) and by unit (`n_r x n_e`). Units of different blocks are
+#' never neighbours. The window is taken in grid indices (`|d_row| <= rank`
+#' and `|d_col| <= rank`, the unit itself excluded); the weight is taken on the
+#' physical distance `delta = sqrt((s_1 d_row)^2 + (s_2 d_col)^2)`. Dilution
+#' divides each row by `n_i^dilution`, `n_i` being the NUMBER of neighbours of
+#' the unit in the emitting group; it is applied before the optional L2
+#' normalisation. Level names are returned as given.
+#'
+#' @param coord `n x 2` matrix or data frame of INTEGER grid positions (row, column).
+#' @param group factor of length `n`: the class of each unit.
+#' @param block factor of length `n` or `NULL`: two units of different blocks are
+#'   never neighbours.
+#' @param level factor of length `n`: the level at which weights are summed in the
+#'   by-level output. Required unless `output = "unit"`.
+#' @param id unit identifiers, used as row names. Default `seq_len(n)`.
+#' @param rank radius in grid steps: a scalar, a named `G x G` matrix (rows =
+#'   receiving group, columns = emitting group), or a list named by pair
+#'   `"receiver<-emitter"`.
+#' @param reach kernel exponent `lambda`, same forms as `rank`. `0` gives unit weights.
+#' @param dilution exponent `d`, same forms as `rank`.
+#' @param kernel `"power"` (`delta^-lambda`), `"exponential"`
+#'   (`exp(-lambda (delta - delta_0))`, `delta_0 = min(spacing)`) or `"none"`.
+#' @param window `"chebyshev"` (square in grid indices) or `"euclidean"`
+#'   (`delta <= rank * min(spacing)`).
+#' @param spacing `c(row_step, col_step)` in physical units.
+#' @param normalise divide each row by its L2 norm after dilution.
+#' @param pairs `NULL` (all `G^2` pairs) or a character vector of `"receiver<-emitter"`.
+#' @param output `"level"`, `"unit"` or `"both"`.
+#' @param sparse return `dgCMatrix` objects.
+#' @return An object of class `rx_neighbourhood`: `level` and `unit` (lists of
+#'   matrices named by pair), `n_neighbours` (list of integer vectors), `params`
+#'   (one row per pair with the parameters actually used).
+#' @seealso [rx_exposure()], [rx_term()]
+#' @usage
+#' rx_neighbourhood(coord, group, block = NULL, level = NULL, id = NULL,
+#'                  rank, reach = 0, dilution = 0,
+#'                  kernel = c("power", "exponential", "none"),
+#'                  window = c("chebyshev", "euclidean"),
+#'                  spacing = c(1, 1), normalise = FALSE,
+#'                  pairs = NULL, output = c("level", "unit", "both"),
+#'                  sparse = TRUE)
+#' @name rx_neighbourhood
+NULL
+
+#' Exposure functionals of a (direct, indirect) pair of incidences
+#'
+#' Averages over `rows`: `d = mean((Z_d K_d Z_d')_ii)`, `k = mean((Z_n K Z_n')_ii)`,
+#' `k_identity = mean(sum_g Z_n[i, g]^2)`, `c = mean((Z_d K Z_n')_ii)`,
+#' `S = mean(sum_g Z_n[i, g])`, `n_eff = S^2 d / k`. The phenotypic variance
+#' brought by an indirect component of variance `s2_I` is `k s2_I`, by the
+#' direct component `d s2_D`, and the direct-indirect covariance enters with
+#' coefficient `2 c`; the total genetic value of a level is `sqrt(d) (u_D + S u_I)`.
+#'
+#' Two forms. Matrix form: `rx_exposure(Z_direct, Z_indirect, K, rows, K_direct)`.
+#' Model form: `rx_exposure(model, direct = "term:label", indirect = "term:label",
+#' rows = "auto")`, where `K` is read from the term of the indirect incidence,
+#' `K_direct` from the term of the direct one, and `rows = "auto"` selects the
+#' rows where the direct incidence is non-zero (the observations of one target in
+#' a stacked model).
+#'
+#' @param Z_direct `n x q` incidence of the direct effect, `NULL`, or an
+#'   [rx_model] / `rx_fit` carrying its model.
+#' @param Z_indirect `n x q_e` incidence of the indirect effect.
+#' @param K `q_e x q_e` relationship matrix of the emitting group; `NULL` for identity.
+#' @param rows row indices to average over; `NULL` for all; `"auto"` in the model form.
+#' @param K_direct relationship matrix of the direct effect's group; defaults to `K`.
+#' @param direct,indirect component references `"term:label"`, `"term[i]"` or
+#'   `"term"` (model form).
+#' @return A list: `d`, `k`, `k_identity`, `c`, `S`, `n_eff`, `n_rows`,
+#'   `convention` (`"K"` or `"identity"`). `c` is `NA` without a direct incidence
+#'   or when the two groups differ.
+#' @seealso [rx_neighbourhood()], [rx_ratios()]
+#' @usage
+#' rx_exposure(Z_direct = NULL, Z_indirect = NULL, K = NULL, rows = NULL,
+#'             K_direct = K, direct = NULL, indirect = NULL)
+#' @name rx_exposure
+NULL
+
+#' Genomic relationship matrix (VanRaden method 1, any ploidy)
+#'
+#' `D = M k` (or `M` with `coding = "count"`), `p = colMeans(D) / k`,
+#' `Z = D - k p`, `G = Z Z' / (k sum p (1 - p))`, then
+#' `G_b = (1 - blend) G + blend I`.
+#'
+#' @param M individuals x markers matrix of allele doses, as a FRACTION of the
+#'   ploidy (`coding = "fraction"`) or as counts `0..k` (`coding = "count"`).
+#' @param ploidy ploidy `k`.
+#' @param blend share of the identity added.
+#' @param coding `"fraction"` or `"count"`.
+#' @return A `q x q` matrix with the row names of `M` and an attribute
+#'   `"denominator"`.
+#' @usage
+#' rx_grm(M, ploidy = 2, blend = 0, coding = c("fraction", "count"))
+#' @name rx_grm
+NULL
+
+# ------------------------------------------------------------------------------
+
+#' Confidence intervals of correlations on Fisher's z scale
+#'
+#' `se_z = se / max(1 - r^2, 1e-8)` (delta method) or `1 / sqrt(n - 3)`
+#' (Pearson); `ci = tanh(atanh(r) -+ q se_z)`. An interval wider than
+#' `width_max` is flagged non-informative. The reported `z` is the ratio of
+#' the correlation to its standard error, on the correlation scale, not
+#' `atanh(r)` divided by `se_z`.
+#'
+#' @param r correlations.
+#' @param se standard errors of `r` on the correlation scale; exclusive with `n`.
+#' @param n sample size of a Pearson correlation.
+#' @param level confidence level.
+#' @param width_max width above which the interval is declared non-informative;
+#'   `NULL` not to judge.
+#' @param clamp bound applied to `r` before `atanh`.
+#' @return A data frame: `r`, `se`, `z`, `z_fisher`, `se_z`, `ci_low`, `ci_high`,
+#'   `width`, `informative`, `method`, `level`, `width_max`.
+#' @usage
+#' rx_cor_z(r, se = NULL, n = NULL, level = 0.95, width_max = 1.5,
+#'          clamp = 0.999999)
+#' @name rx_cor_z
+NULL
+
+#' The map from theta to the covariance matrices
+#'
+#' `rx_sigma_of()` rebuilds one `Sigma` (`t x t`) from the theta of one
+#' structure, with the solver's parametrisation: `theta` is a log standard
+#' deviation, `us` is `L L'` with `L` lower triangular filled row by row,
+#' diagonal `exp(theta)`. `rx_sigmas_from_theta()` splits a full `theta` in the
+#' solver's order (terms, then residual sections) and returns every matrix with
+#' `dimnames` (the `colnames` of the terms, the trait levels of the residual).
+#' Residual sections are named `"residual"` or `"residual:<section>"`.
+#' `rx_se_theta()` gives `sqrt(2 diag(H_f^-1))` on the free subspace (neither
+#' at a bound read from `par_floor` / `par_ceil` nor fixed), `NA` elsewhere and
+#' `NA` everywhere when `H_f` has a non-positive eigenvalue.
+#'
+#' @param th,theta theta vector (of one structure, or the whole model).
+#' @param struct,t,rank structure, dimension, rank.
+#' @param model an [rx_model].
+#' @param hessian Hessian of `-2 logL`.
+#' @param par_floor,par_ceil bounds actually used by the solver.
+#' @param fixed_theta 1-based indices of fixed parameters.
+#' @param tol_bound tolerance for declaring a parameter at a bound.
+#' @return A matrix, a named list of matrices, or a numeric vector.
+#' @usage
+#' rx_sigma_of(th, struct, t, rank = 0L)
+#' rx_sigmas_from_theta(theta, model)
+#' rx_se_theta(theta, hessian, par_floor = -12, par_ceil = 12,
+#'             fixed_theta = NULL, tol_bound = 1e-7)
+#' @name rx_sigmas_from_theta
+#' @aliases rx_sigma_of rx_se_theta
+NULL
+
+#' Ratios, shares, heritabilities, tau2, correlations, and their standard errors
+#'
+#' One map `q(theta)` from the solver's theta to every requested quantity,
+#' differentiated once by central finite differences; standard errors follow
+#' from `SE = sqrt(J V J')` with `V = 2 H^-1` on the free subspace. Exposure
+#' constants (`d`, `k`, `c`, `S`, see [rx_exposure()]) multiply a quantity and
+#' its standard error alike. Before any derivative the map is checked against
+#' `fit$sigmas` at `1e-8`.
+#'
+#' Formulas, per target: `V_D = d s2_D`, `V_IW = k_within s2_IW`,
+#' `V_IB = k_between s2_IB`, `V_o = k_o s2_o`, `C = c cov_DI`;
+#' `V_P = V_D + V_IW + V_IB + sum V_o + 2 C`; shares are `V_x / (V_P - 2 C)`;
+#' `h2 = V_D / V_P`, `h2_ext_within = (V_D + 2 C + V_IW) / V_P`,
+#' `h2_ext_total = h2_ext_within + V_IB / V_P`; `r_direct_indirect` on the raw
+#' components. Total genetic values: `sqrt(d)` on the direct column and
+#' `sqrt(d) S_within` on the indirect column of the emitting `Sigma`;
+#' `sqrt(d_emitter) S_between` for the effect exerted on the other group;
+#' `tau2 = Var(TBV) / V_P` of the RECEIVING target.
+#'
+#' @param fit an `rx_fit` with `theta`, `hessian`, `par_floor`, `par_ceil` (and
+#'   `fixed_theta`, `se_theta` when present).
+#' @param components data frame, one row per target: `target`, `direct`,
+#'   `indirect_within` (`NA` if none), `indirect_between` (`NA` if none), `other`
+#'   (references separated by `+`, additive components of the phenotypic
+#'   variance). References are `"term"`, `"term[i]"`, `"term:label"`,
+#'   `"residual"`, `"residual:section"`, `"residual:section[i]"`,
+#'   `"residual:section:label"`.
+#' @param exposure data frame, one row per target: `target`, `d`, `k_within`,
+#'   `k_between`, `c`, `S_within`, `S_between`, `k_other`
+#'   (`"ref=value+ref=value"`). `NULL` sets every constant to 1 and the column
+#'   `scaled` to `FALSE`.
+#' @param model the [rx_model] when `fit` does not carry it.
+#' @param quantities subset of `"variances"`, `"shares"`, `"h2"`, `"h2_ext"`,
+#'   `"tau2"`, `"correlations"`, `"residual_correlations"`, `"tbv"`.
+#' @param scale apply `exposure`.
+#' @param level,width_max passed to [rx_cor_z()] for correlations.
+#' @param jacobian `"numeric"`; `"solver"` is not implemented.
+#' @param curvature `"project"` (invert on the positive-curvature directions and
+#'   flag `NOT_IDENTIFIED` what depends on the excluded ones) or `"refuse"`
+#'   (every standard error `NA`) when `H` has a negative eigenvalue.
+#' @param bound_tol tolerance for declaring a parameter at a bound.
+#' @param dep_bound share of the Jacobian on bounded parameters above which a
+#'   quantity is flagged `COND_BOUND`.
+#' @param step relative step of the finite differences.
+#' @return A data frame of class `rx_ratios`, one row per quantity: `target`,
+#'   `quantity`, `component`, `estimate`, `se`, `z`, `ci_low`, `ci_high`, `flag`
+#'   (`OK`, `NOT_ESTIMATED`, `FLOOR`, `COND_BOUND`, `NOT_IDENTIFIED`,
+#'   `NOT_ESTIMABLE`, `NO_HESSIAN`), `dep_bound`, `dep_excluded`, `scaled`,
+#'   `convention`. Attributes `V`, `free`, `se_theta`, `check_se` (median ratio
+#'   to `fit$se_theta`), `sigmas`, `exposure`.
+#' @seealso [rx_exposure()], [rx_cor_z()], [rx_sigmas_from_theta()]
+#' @usage
+#' rx_ratios(fit, components, exposure = NULL, model = NULL,
+#'           quantities = c("variances", "shares", "h2", "h2_ext", "tau2",
+#'                          "correlations", "residual_correlations", "tbv"),
+#'           scale = TRUE, level = 0.95, width_max = 1.5,
+#'           jacobian = c("numeric", "solver"), curvature = c("project", "refuse"),
+#'           bound_tol = 1e-7, dep_bound = 0.05, step = 1e-5)
+#' @name rx_ratios
+NULL
+
+#' AIC summary of a grid of fits
+#'
+#' `AIC = 2 p - 2 logLik` (recomputed when absent, checked when present);
+#' best cell = argmin AIC; supported set = cells with `AIC - min <= tol`;
+#' marginal ranges of each coordinate over the supported set; counts of cells,
+#' missing cells against the Cartesian product of the observed coordinate values,
+#' non-PD Hessians and cells with a component at a bound; best PD cell and its
+#' AIC distance to the best. With `effective = TRUE` the same summary under
+#' `AIC_eff = 2 n_par_free - 2 logLik` and a `best_moved` flag per group.
+#'
+#' @param table data frame, one row per fit.
+#' @param coords names of the columns that define a cell.
+#' @param aic,loglik,n_par column names.
+#' @param by column(s) separating non-comparable grids (the function stops when
+#'   `n_obs` varies inside a group).
+#' @param tol width of the supported set in AIC units.
+#' @param pd,n_at_bound,n_par_free,n_obs optional column names.
+#' @param effective also summarise under `AIC_eff`.
+#' @return An object of class `rx_grid_summary`: `best`, `supported`, `ranges`,
+#'   `n_supported` (with `n_product`), `counts`, `best_pd`, `delta` (the full
+#'   table with `delta_aic` and `supported`), and `effective` when requested.
+#' @usage
+#' rx_grid_summary(table, coords, aic = "AIC", loglik = "logLik", n_par = "n_par",
+#'                 by = NULL, tol = 2, pd = "pd_hessian", n_at_bound = "n_at_bound",
+#'                 n_par_free = "n_par_free", n_obs = "n_obs", effective = FALSE)
+#' @name rx_grid_summary
 NULL
 
 # ------------------------------------------------------------------------------
@@ -558,6 +815,9 @@ NULL
 #' \method{print}{rx_fit}(x, ...)
 #' \method{print}{rx_model}(x, ...)
 #' \method{print}{rx_predict}(x, ...)
+#' \method{print}{rx_neighbourhood}(x, ...)
+#' \method{print}{rx_ratios}(x, ...)
+#' \method{print}{rx_grid_summary}(x, ...)
 #' @name print.rx_fit
-#' @aliases print.rx_model print.rx_predict
+#' @aliases print.rx_model print.rx_predict print.rx_neighbourhood print.rx_ratios print.rx_grid_summary
 NULL
