@@ -10,6 +10,9 @@
   both conventions, AIC, BIC, convergence, variance components with standard
   errors (delta method, exact Jacobian) and `P`/`U`/`B`/`F` codes, fixed
   effects, and BLUPs with `coef = TRUE`.
+* `spl2d(x, y, nseg =, deg =, pord =, name =)` in the random formula of
+  `rx_reml()`: a two-dimensional P-spline surface whose null part joins the
+  fixed effects; `rx_predict()` averages it over the field.
 * `rx_validate()` and the validation vignette compare the fits with 'lme4',
   'nlme' and 'sommer'; precomputed comparisons with 'asreml' are shipped in
   `inst/extdata`.

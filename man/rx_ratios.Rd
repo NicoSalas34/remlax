@@ -78,6 +78,7 @@ components. Total genetic values: \code{sqrt(d)} on the direct column and
 }
 \examples{
 \dontshow{if (rx_python_check(quiet = TRUE)$ok) withAutoprint(\{ # examplesIf}
+\donttest{
 set.seed(1)
 d <- data.frame(gid = factor(rep(1:30, each = 4)), x = rnorm(120))
 d$y <- 1 + 0.5 * d$x + rnorm(30)[d$gid] + rnorm(120)
@@ -86,6 +87,7 @@ fit <- rx_fit(m, backend = "cpu", verbose = FALSE)
 comp <- data.frame(target = "y", direct = "gid", indirect_within = NA,
                    indirect_between = NA, other = "residual")
 rx_ratios(fit, comp, model = m, quantities = c("variances", "h2"))
+}
 \dontshow{\}) # examplesIf}
 }
 \seealso{

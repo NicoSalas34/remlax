@@ -54,6 +54,7 @@ multi-trait term is warned about and dropped from the random part.
 }
 \examples{
 \dontshow{if (rx_python_check(quiet = TRUE)$ok) withAutoprint(\{ # examplesIf}
+\donttest{
 set.seed(2026)
 d <- expand.grid(gid = factor(1:60), bloc = factor(1:4))
 d$trt <- factor(rep(c("a", "b"), length.out = nrow(d)))
@@ -61,6 +62,7 @@ d$y <- 12 + 0.5 * (d$trt == "b") + rnorm(60)[d$gid] + rnorm(nrow(d))
 fit <- rx_reml(y ~ trt, random = ~ gid, data = d, backend = "cpu",
                verbose = FALSE)
 rx_predict(fit, classify = "trt")
+}
 \dontshow{\}) # examplesIf}
 }
 \seealso{

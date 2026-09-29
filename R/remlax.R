@@ -1620,7 +1620,20 @@ rx_reml <- function(fixed, random = NULL, residual = "units", data,
   }
   tr <- if (is.character(trait) && length(trait) == 1L) data[[trait]] else trait
   un <- if (is.character(unit)  && length(unit)  == 1L) data[[unit]]  else unit
-  terms_l <- .rx_parse_random(random, data, trait = tr)
+  # spl2d() dans `random` : une surface lisse donne TROIS termes aleatoires et
+  # des colonnes FIXES (la partie nulle). On l'extrait avant l'analyse des autres
+  # termes, sur les donnees deja nettoyees, et la partie nulle rejoint X comme
+  # un terme fixe a part entiere (un seul test de Wald pour ses colonnes).
+  spl <- .rx_extraire_spl2d(random, data, trait = tr)
+  random <- spl$random
+  if (!is.null(spl$X)) {
+    asg <- attr(X, "assign"); lab <- attr(X, "termes"); ctr <- attr(X, "contrasts")
+    X <- cbind(X, spl$X)
+    attr(X, "assign") <- c(asg, max(asg) + as.integer(factor(spl$groups, levels = unique(spl$groups))))
+    attr(X, "termes") <- c(lab, unique(spl$groups))
+    attr(X, "contrasts") <- ctr
+  }
+  terms_l <- c(.rx_parse_random(random, data, trait = tr), spl$terms)
   res_obj <- .rx_parse_residual(residual, data,
                                 trait = if (!is.null(trait)) trait else tr,
                                 unit  = if (!is.null(unit))  unit  else un)
@@ -1637,7 +1650,63 @@ rx_reml <- function(fixed, random = NULL, residual = "units", data,
   fit$xlevels <- stats::.getXlevels(terms(fixed, data = data),
                                     model.frame(fixed, data, na.action = stats::na.pass))
   fit$call    <- match.call()
+  fit$spl2d   <- if (!is.null(spl$X)) list(columns = colnames(spl$X), terms = unique(spl$groups))
   fit
+}
+
+# Extrait les termes spl2d(x, y, nseg =, deg =, pord =, name =) d'une formule
+# aleatoire. Rend la formule restante (NULL si plus rien), les termes aleatoires
+# des surfaces, leur partie nulle et, par colonne, le terme d'origine.
+.rx_extraire_spl2d <- function(random, data, trait = NULL) {
+  vide <- list(random = random, terms = list(), X = NULL, groups = character())
+  if (is.null(random)) return(vide)
+  env <- environment(random); if (is.null(env)) env <- parent.frame()
+  tt <- attr(terms(random, keep.order = TRUE), "term.labels")
+  est <- vapply(tt, function(txt) {
+    e <- str2lang(txt); is.call(e) && as.character(e[[1]]) %in% c("spl2d", "spl2D")
+  }, logical(1))
+  if (!any(est)) return(vide)
+  if (!is.null(trait) && nlevels(factor(trait)) > 1L)
+    stop("spl2d() : surface multi-caractere non prise en charge par la formule. ",
+         "Construire la base par rx_spl2d() et passer par rx_model().", call. = FALSE)
+  coord <- function(a, quoi) {
+    v <- eval(a, data, env)
+    if (is.factor(v)) {
+      v2 <- suppressWarnings(as.numeric(as.character(v)))
+      if (anyNA(v2)) stop("spl2d() : la coordonnee ", quoi, " est un facteur a niveaux non ",
+                          "numeriques ; donner une coordonnee numerique.", call. = FALSE)
+      v <- v2
+    }
+    if (!is.numeric(v) || length(v) != nrow(data) || anyNA(v))
+      stop("spl2d() : la coordonnee ", quoi, " doit etre numerique, complete, de longueur ",
+           nrow(data), ".", call. = FALSE)
+    v
+  }
+  termes <- list(); Xs <- list(); grp <- character(); vus <- character()
+  for (txt in tt[est]) {
+    e <- str2lang(txt); args <- as.list(e)[-1]
+    nm <- names(args); if (is.null(nm)) nm <- rep("", length(args))
+    pos <- args[nm == ""]; opt <- args[nm != ""]
+    xa <- opt$x; ya <- opt$y; ip <- 1L
+    if (is.null(xa)) { if (length(pos) < ip) stop("spl2d() : coordonnee x manquante.", call. = FALSE)
+                       xa <- pos[[ip]]; ip <- ip + 1L }
+    if (is.null(ya)) { if (length(pos) < ip) stop("spl2d() : coordonnee y manquante.", call. = FALSE)
+                       ya <- pos[[ip]] }
+    ev <- function(a, def) if (is.null(a)) def else eval(a, env)
+    nseg <- as.integer(ev(opt$nseg, c(6L, 6L)))
+    prefix <- as.character(ev(opt$name, if (!length(vus)) "spl" else paste0("spl", length(vus) + 1L)))
+    if (prefix %in% vus) stop("spl2d() : deux surfaces portent le nom '", prefix, "'.", call. = FALSE)
+    vus <- c(vus, prefix)
+    s <- rx_spl2d(coord(xa, "x"), coord(ya, "y"), nseg = nseg,
+                  deg = as.integer(ev(opt$deg, 3L)), pord = as.integer(ev(opt$pord, 2L)),
+                  prefix = prefix)
+    termes <- c(termes, s$terms); Xs[[length(Xs) + 1L]] <- s$X
+    grp <- c(grp, rep(txt, ncol(s$X)))
+  }
+  reste <- tt[!est]
+  list(random = if (length(reste)) stats::as.formula(paste("~", paste(reste, collapse = " + ")),
+                                                      env = env) else NULL,
+       terms = termes, X = do.call(cbind, Xs), groups = grp)
 }
 
 # ==============================================================================
@@ -1779,6 +1848,11 @@ rx_predict <- function(fit, classify, levels = NULL, at = NULL,
   }
   grille <- expand.grid(vals, stringsAsFactors = FALSE, KEEP.OUT.ATTRS = FALSE)
   Xg <- stats::model.matrix(tt, grille, xlev = fit$xlevels)
+  # Colonnes fixes d'une spl2d() : centrees, donc a zero elles moyennent la
+  # surface sur le champ, comme une covariable tenue a sa moyenne.
+  if (!is.null(fit$spl2d$columns))
+    Xg <- cbind(Xg, matrix(0, nrow(Xg), length(fit$spl2d$columns),
+                           dimnames = list(NULL, fit$spl2d$columns)))
   if (ncol(Xg) != length(fit$beta))
     stop("rx_predict : la grille donne ", ncol(Xg), " colonnes pour ",
          length(fit$beta), " coefficients. Un facteur a-t-il des niveaux absents ",

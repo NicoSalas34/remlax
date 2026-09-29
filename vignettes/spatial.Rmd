@@ -434,6 +434,20 @@ The three random blocks each carry **their own** variance, which is what makes
 the smoothing anisotropic: a field is allowed to be rough across rows and
 smooth across columns.
 
+The same surface can be written directly in the formula of `rx_reml()`. The
+null part then joins the fixed effects as one term, and `rx_predict()` holds it
+at zero, which averages the surface over the field:
+
+```r
+fs <- rx_reml(y ~ 1, random = ~ gid + spl2d(coln, rown, nseg = c(6, 6)),
+              data = d, backend = "cpu", verbose = FALSE)
+names(fs$sigmas)        # "gid" "spl_x" "spl_y" "spl_xy"
+```
+
+Both routes give the same fit to `1e-8` on the log-likelihood. The formula
+route covers one trait; for several traits, build the basis with `rx_spl2d()`
+and assemble the model with `rx_model()`.
+
 ```r
 X <- cbind("(Intercept)" = 1, sp$X)
 mod <- rx_model(d$y, X,

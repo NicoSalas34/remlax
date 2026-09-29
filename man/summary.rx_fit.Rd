@@ -57,6 +57,7 @@ variance parameters that are not fixed: \verb{AIC = -2 logL + 2 k} and
 }
 \examples{
 \dontshow{if (rx_python_check(quiet = TRUE)$ok) withAutoprint(\{ # examplesIf}
+\donttest{
 set.seed(2026)
 d <- expand.grid(gid = factor(1:60), bloc = factor(1:4))
 d$y <- 12 + rnorm(60)[d$gid] + rnorm(4, 0, 0.6)[d$bloc] + rnorm(nrow(d))
@@ -65,6 +66,7 @@ fit <- rx_reml(y ~ 1, random = ~ gid + bloc, data = d, backend = "cpu",
 s <- summary(fit)
 s
 s$varcomp
+}
 \dontshow{\}) # examplesIf}
 }
 \seealso{

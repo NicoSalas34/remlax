@@ -99,6 +99,7 @@ such a term, or supply \code{K} to \code{\link[=rx_term]{rx_term()}}.
 }
 \examples{
 \dontshow{if (rx_python_check(quiet = TRUE)$ok) withAutoprint(\{ # examplesIf}
+\donttest{
 set.seed(1)
 d <- data.frame(gid = factor(rep(1:30, each = 4)), x = rnorm(120))
 d$y <- 1 + 0.5 * d$x + rnorm(30)[d$gid] + rnorm(120)
@@ -106,6 +107,7 @@ m <- rx_model(d$y, cbind(1, d$x), terms = list(rx_term("gid", d$gid)))
 f <- rx_fit(m, backend = "cpu", verbose = FALSE)
 f$logLik
 f$sigmas
+}
 \dontshow{\}) # examplesIf}
 }
 \seealso{

@@ -82,7 +82,12 @@ NULL
 #'   `corb(f, order = )`, `corg`, `exp`, `gau`, `lvr`, `iexp`, `igau`, `ieuc`,
 #'   `sph`, `cir`, `aexp`, `agau`, `mtrn`, `own(expr = , n_par = )`, and the
 #'   separable `ar1(row):ar1(col)`. `str()` puts one covariance over several
-#'   terms. The complete table is in `docs/api-r.md` of the repository.
+#'   terms. `spl2d(x, y, nseg = c(6, 6), deg = 3, pord = 2, name = "spl")` adds
+#'   a smooth two-dimensional surface over numeric coordinates, built by
+#'   [rx_spl2d()]: its three smooth parts become random terms `<name>_x`,
+#'   `<name>_y` and `<name>_xy`, each with its own variance, and its null part
+#'   joins the fixed effects as one term. The complete grammar is described in
+#'   `vignette("r-interface", package = "remlax")`.
 #' @param residual `"units"`, `"diag"`, `"us"`, or a one-sided formula such as
 #'   `~ ar1(row):ar1(col)` or `~ dsum(~ units | section)`.
 #' @param data a data frame.
@@ -100,9 +105,13 @@ NULL
 #'   `model`, `fixed`, `data`, `xlevels` and `call`, which [rx_predict()] needs.
 #' @details Incomplete rows are dropped with a message. `attr(X, "assign")` is
 #'   restored after that, otherwise a Wald test would examine each column in
-#'   isolation instead of the whole term.
+#'   isolation instead of the whole term. The null part of a `spl2d()` surface
+#'   is centred, so [rx_predict()] holds it at zero, which averages the surface
+#'   over the field. A `spl2d()` surface is available for a single trait only;
+#'   for several traits, build it with [rx_spl2d()] and use [rx_model()].
 #' @seealso [rx_fit()], [rx_model()], [rx_predict()]
 #' @examplesIf rx_python_check(quiet = TRUE)$ok
+#' \donttest{
 #' set.seed(2026)
 #' d <- expand.grid(gid = factor(1:30), bloc = factor(1:3))
 #' g <- rnorm(30, 0, sqrt(1.5)); b <- rnorm(3, 0, sqrt(0.4))
@@ -111,6 +120,7 @@ NULL
 #'                backend = "cpu", verbose = FALSE)
 #' fit
 #' fit$sigmas$gid
+#' }
 #' @usage
 #' rx_reml(fixed, random = NULL, residual = "units", data,
 #'         trait = NULL, unit = NULL,
@@ -185,6 +195,7 @@ NULL
 #'   such a term, or supply `K` to [rx_term()].
 #' @seealso [rx_reml()], [rx_fit_sparse()], [rx_read_result()]
 #' @examplesIf rx_python_check(quiet = TRUE)$ok
+#' \donttest{
 #' set.seed(1)
 #' d <- data.frame(gid = factor(rep(1:30, each = 4)), x = rnorm(120))
 #' d$y <- 1 + 0.5 * d$x + rnorm(30)[d$gid] + rnorm(120)
@@ -192,6 +203,7 @@ NULL
 #' f <- rx_fit(m, backend = "cpu", verbose = FALSE)
 #' f$logLik
 #' f$sigmas
+#' }
 #' @usage
 #' rx_fit(model, backend = c("auto", "gpu", "cpu"), dir = NULL,
 #'        maxiter = 3000L, polish = 25L, n_restarts = 0L,
@@ -660,6 +672,7 @@ NULL
 #'   to `fit$se_theta`), `sigmas`, `exposure`.
 #' @seealso [rx_exposure()], [rx_cor_z()], [rx_sigmas_from_theta()]
 #' @examplesIf rx_python_check(quiet = TRUE)$ok
+#' \donttest{
 #' set.seed(1)
 #' d <- data.frame(gid = factor(rep(1:30, each = 4)), x = rnorm(120))
 #' d$y <- 1 + 0.5 * d$x + rnorm(30)[d$gid] + rnorm(120)
@@ -668,6 +681,7 @@ NULL
 #' comp <- data.frame(target = "y", direct = "gid", indirect_within = NA,
 #'                    indirect_between = NA, other = "residual")
 #' rx_ratios(fit, comp, model = m, quantities = c("variances", "h2"))
+#' }
 #' @usage
 #' rx_ratios(fit, components, exposure = NULL, model = NULL,
 #'           quantities = c("variances", "shares", "h2", "h2_ext", "tau2",
@@ -743,6 +757,7 @@ NULL
 #'   multi-trait term is warned about and dropped from the random part.
 #' @seealso [rx_reml()]
 #' @examplesIf rx_python_check(quiet = TRUE)$ok
+#' \donttest{
 #' set.seed(2026)
 #' d <- expand.grid(gid = factor(1:60), bloc = factor(1:4))
 #' d$trt <- factor(rep(c("a", "b"), length.out = nrow(d)))
@@ -750,6 +765,7 @@ NULL
 #' fit <- rx_reml(y ~ trt, random = ~ gid, data = d, backend = "cpu",
 #'                verbose = FALSE)
 #' rx_predict(fit, classify = "trt")
+#' }
 #' @usage
 #' rx_predict(fit, classify, levels = NULL, at = NULL,
 #'            average = c("equal", "proportional"), weights = NULL,
@@ -999,6 +1015,7 @@ NULL
 #'   `vpredict` and `wald` when requested in the fit.
 #' @seealso [rx_reml()], [rx_fit()]
 #' @examplesIf rx_python_check(quiet = TRUE)$ok
+#' \donttest{
 #' set.seed(2026)
 #' d <- expand.grid(gid = factor(1:60), bloc = factor(1:4))
 #' d$y <- 12 + rnorm(60)[d$gid] + rnorm(4, 0, 0.6)[d$bloc] + rnorm(nrow(d))
@@ -1007,6 +1024,7 @@ NULL
 #' s <- summary(fit)
 #' s
 #' s$varcomp
+#' }
 #' @usage
 #' \method{summary}{rx_fit}(object, coef = FALSE, ...)
 #' \method{print}{summary.rx_fit}(x, digits = max(4L, getOption("digits") - 3L), ...)

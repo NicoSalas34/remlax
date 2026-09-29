@@ -19,7 +19,12 @@ structures \code{ar1(f)}, \code{ar2}, \code{ar3}, \code{sar}, \code{ma1}, \code{
 \code{corb(f, order = )}, \code{corg}, \code{exp}, \code{gau}, \code{lvr}, \code{iexp}, \code{igau}, \code{ieuc},
 \code{sph}, \code{cir}, \code{aexp}, \code{agau}, \code{mtrn}, \code{own(expr = , n_par = )}, and the
 separable \code{ar1(row):ar1(col)}. \code{str()} puts one covariance over several
-terms. The complete table is in \code{docs/api-r.md} of the repository.}
+terms. \code{spl2d(x, y, nseg = c(6, 6), deg = 3, pord = 2, name = "spl")} adds
+a smooth two-dimensional surface over numeric coordinates, built by
+\code{\link[=rx_spl2d]{rx_spl2d()}}: its three smooth parts become random terms \verb{<name>_x},
+\verb{<name>_y} and \verb{<name>_xy}, each with its own variance, and its null part
+joins the fixed effects as one term. The complete grammar is described in
+\code{vignette("r-interface", package = "remlax")}.}
 
 \item{residual}{\code{"units"}, \code{"diag"}, \code{"us"}, or a one-sided formula such as
 \code{~ ar1(row):ar1(col)} or \code{~ dsum(~ units | section)}.}
@@ -51,10 +56,14 @@ an asreml-like grammar, assembles an \link{rx_model} and calls \code{\link[=rx_f
 \details{
 Incomplete rows are dropped with a message. \code{attr(X, "assign")} is
 restored after that, otherwise a Wald test would examine each column in
-isolation instead of the whole term.
+isolation instead of the whole term. The null part of a \code{spl2d()} surface
+is centred, so \code{\link[=rx_predict]{rx_predict()}} holds it at zero, which averages the surface
+over the field. A \code{spl2d()} surface is available for a single trait only;
+for several traits, build it with \code{\link[=rx_spl2d]{rx_spl2d()}} and use \code{\link[=rx_model]{rx_model()}}.
 }
 \examples{
 \dontshow{if (rx_python_check(quiet = TRUE)$ok) withAutoprint(\{ # examplesIf}
+\donttest{
 set.seed(2026)
 d <- expand.grid(gid = factor(1:30), bloc = factor(1:3))
 g <- rnorm(30, 0, sqrt(1.5)); b <- rnorm(3, 0, sqrt(0.4))
@@ -63,6 +72,7 @@ fit <- rx_reml(y ~ 1, random = ~ gid + iid(bloc), data = d,
                backend = "cpu", verbose = FALSE)
 fit
 fit$sigmas$gid
+}
 \dontshow{\}) # examplesIf}
 }
 \seealso{
