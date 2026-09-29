@@ -438,7 +438,12 @@ rx_residual <- function(struct = "iid", trait = NULL, unit = NULL, rank = 0L,
                                   trait = .rx_sub(trait, idx, data, names(data)),
                                   unit  = .rx_sub(unit, idx, data, names(data)))
         s$rows <- idx
-        s$name <- make.names(paste(niv, collapse = "_"))
+        # Nom de section : le niveau s'il est deja un nom R valide ("A"), sinon
+        # prefixe par la variable ("bloc_1" et non "X1", que make.names fabrique
+        # a partir d'un niveau numerique et que personne ne reconnait).
+        brut <- paste(niv, collapse = "_")
+        s$name <- if (identical(make.names(brut), brut)) brut
+                  else make.names(paste0(sec_var, "_", brut))
         secs[[k]] <- s
       }
       vus <- unlist(lapply(secs, `[[`, "rows"))
@@ -911,12 +916,7 @@ rx_fit <- function(model, backend = c("auto", "gpu", "cpu"), dir = NULL,
          if (isTRUE(pev)) "--pev" else
            if (is.character(pev) && length(pev)) c("--pev-termes", paste(pev, collapse = ",")) else NULL,
          if (!verbose) "--quiet" else NULL)
-  st <- .rx_system2(py[1], shQuote(c(py[-1], as.character(a))),
-                     stdout = if (verbose) "" else TRUE, stderr = if (verbose) "" else TRUE)
-  if (!verbose && !is.null(attr(st, "status")) && attr(st, "status") != 0)
-    stop(paste(c("solveur REML : echec. Sortie du solveur :", utils::tail(st, 40)),
-               collapse = "\n"), call. = FALSE)
-  if (verbose && !identical(as.integer(st), 0L)) stop("solveur REML : echec")
+  .rx_lancer(py, a, verbose, "solveur REML : echec")
   rx_read_result(dir, model = model, fixed_theta = fixed_theta)
 }
 
@@ -1026,6 +1026,30 @@ rx_python_cmd <- function() {
   system2(command, args, ...)
 }
 
+# Lance le solveur et arrete avec son message s'il echoue. En mode verbeux la
+# progression (stdout) s'affiche en direct et la sortie d'erreur va dans un
+# fichier temporaire : sous R, capturer stderr forcerait aussi la capture de
+# stdout. Sans cela, un echec ne rendait que « echec » sans la cause.
+.rx_lancer <- function(py, a, verbose, quoi) {
+  err <- tempfile("rx_err_"); on.exit(unlink(err), add = TRUE)
+  # backend = "cpu" : JAX ne doit pas toucher au GPU. Sinon il l'initialise quand
+  # meme et tente d'en reserver 75 % de la memoire, ce qui echoue bruyamment
+  # (CUDA_ERROR_OUT_OF_MEMORY) des qu'un autre processus occupe la carte.
+  ib <- match("--backend", a)
+  env <- if (!is.na(ib) && identical(as.character(a[ib + 1L]), "cpu"))
+    c(JAX_PLATFORMS = "cpu") else character()
+  st <- suppressWarnings(.rx_system2(py[1], shQuote(c(py[-1], as.character(a))),
+                                     stdout = if (verbose) "" else TRUE,
+                                     stderr = if (verbose) err else TRUE, env = env))
+  code <- if (verbose) as.integer(st) else as.integer(attr(st, "status") %||% 0L)
+  sortie <- if (verbose) { if (file.exists(err)) readLines(err, warn = FALSE) else character() } else st
+  if (!identical(code, 0L))
+    stop(paste(c(paste0(quoi, ". Sortie du solveur :"), utils::tail(sortie, 40)),
+               collapse = "\n"), call. = FALSE)
+  if (verbose && length(sortie)) message(paste(sortie, collapse = "\n"))
+  invisible(sortie)
+}
+
 # Cache des verifications d'interpreteur, par commande. Un `import jax` coute
 # une a deux secondes : le payer a chaque ajustement d'une grille serait
 # absurde, le payer une fois par session est invisible.
@@ -1045,7 +1069,18 @@ rx_python_cmd <- function() {
 # @return liste(ok, python, versions, message), invisible si ok.
 rx_python_check <- function(py = rx_python_cmd(), quiet = FALSE) {
   cle <- paste(py, collapse = " ")
-  if (!is.null(.rx_python_cache[[cle]])) return(invisible(.rx_python_cache[[cle]]))
+  res <- .rx_python_cache[[cle]]
+  if (is.null(res)) res <- .rx_python_sonder(py, cle)
+  if (!quiet) {
+    if (res$ok) message("remlax : ", res$versions[["executable"]], " : jax ", res$versions[["jax"]],
+                        ", numpy ", res$versions[["numpy"]], ", scipy ", res$versions[["scipy"]])
+    else message(res$message)
+  }
+  invisible(res)
+}
+
+# Lance l'interpreteur une fois et met le resultat en cache.
+.rx_python_sonder <- function(py, cle) {
   code <- paste0("import sys\n",
                  "try:\n    import jax, numpy, scipy\n",
                  "except Exception as e:\n    print('MANQUE', type(e).__name__, e); sys.exit(3)\n",
@@ -1069,8 +1104,7 @@ rx_python_check <- function(py = rx_python_cmd(), quiet = FALSE) {
       "  Pour en creer un : remlax::rx_install_python() (ou pip install jax numpy scipy).")
   }
   .rx_python_cache[[cle]] <- res
-  if (!quiet && !res$ok) message(res$message)
-  invisible(res)
+  res
 }
 
 # Arret net avant tout lancement du solveur si l'interpreteur ne convient pas.
@@ -1258,8 +1292,21 @@ print.rx_fit <- function(x, ...) {
     cat(sprintf("  Sigma[%s] %dx%d, diagonale : %s\n", nm, nrow(S), ncol(S),
                 paste(format(diag(S), digits = 4), collapse = " ")))
   }
-  if (!is.null(x$sigma_res))
+  # Residuelle : une ligne par section. Avec dsum, n'afficher que la premiere
+  # laissait croire a une residuelle unique.
+  sr <- x$sigmas_res
+  if (length(sr) > 1L) {
+    for (nm in names(sr))
+      cat(sprintf("  residuelle[%s] : %s\n", nm,
+                  paste(format(diag(as.matrix(sr[[nm]])), digits = 4), collapse = " ")))
+  } else if (!is.null(x$sigma_res))
     cat(sprintf("  residuelle : %s\n", paste(format(diag(as.matrix(x$sigma_res)), digits = 4), collapse = " ")))
+  # Correspondance V1, V2, ... des expressions vpredict, pour qu'on sache ce
+  # que l'on a divise par quoi.
+  cp <- x$vpredict$composantes
+  if (!is.null(cp) && NROW(cp))
+    cat("  composantes (vpredict) : ",
+        paste(sprintf("V%d = %s", cp$i, cp$nom), collapse = ", "), "\n", sep = "")
   if (!is.null(x$vpredict) && length(x$vpredict$predictions)) {
     cat("  vpredict :\n")
     pr <- x$vpredict$predictions
@@ -1814,11 +1861,7 @@ rx_predict <- function(fit, classify, levels = NULL, at = NULL,
     .rx_python_assurer(py)
     a <- c(rx_solver_args(), dir, "--backend", backend, "--only-predict",
            if (!verbose) "--quiet" else NULL)
-    st <- .rx_system2(py[1], shQuote(c(py[-1], as.character(a))),
-                       stdout = if (verbose) "" else TRUE, stderr = if (verbose) "" else TRUE)
-    if (!is.null(attr(st, "status")) && attr(st, "status") != 0)
-      stop(paste(c("rx_predict : le solveur a echoue. Sortie du solveur :", utils::tail(st, 40)),
-                 collapse = "\n"), call. = FALSE)
+    .rx_lancer(py, a, verbose, "rx_predict : le solveur a echoue")
     rr <- rx_read_result(dir)
     val <- as.numeric(rr$predictions$valeur); Cv <- rr$predictions$cov
   }

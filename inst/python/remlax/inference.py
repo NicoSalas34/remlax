@@ -185,6 +185,35 @@ def components_from_theta(theta, terms, res):
     return jnp.stack(out)
 
 
+VPREDICT_FONCTIONS = ("sqrt", "log", "exp", "abs")
+
+
+def check_vpredict(expressions, terms, res):
+    """Verifie les expressions vpredict AVANT l'ajustement.
+
+    Sans ce controle, une expression citant une composante absente (V3 dans un
+    modele qui n'en a que deux) n'echouait qu'apres l'optimisation, par un
+    NameError Python qui ne disait pas quelles composantes existaient.
+    Leve ValueError avec la liste V1 = nom, V2 = nom, ...
+    """
+    import ast
+    noms = component_names(terms, res)
+    permis = {"V%d" % (i + 1) for i in range(len(noms))} | set(VPREDICT_FONCTIONS)
+    liste = ", ".join("V%d = %s" % (i + 1, n) for i, n in enumerate(noms))
+    for nom, expr in expressions:
+        try:
+            arbre = ast.parse(expr, mode="eval")
+        except SyntaxError as e:
+            raise ValueError("vpredict '%s' : expression illisible \"%s\" (%s). "
+                             "Composantes du modele : %s." % (nom, expr, e.msg, liste))
+        inconnus = sorted({n.id for n in ast.walk(arbre) if isinstance(n, ast.Name)} - permis)
+        if inconnus:
+            raise ValueError("vpredict '%s' : %s inconnu(s) dans \"%s\". Ce modele a %d "
+                             "composante(s) : %s. Fonctions admises : %s."
+                             % (nom, ", ".join(inconnus), expr, len(noms), liste,
+                                ", ".join(VPREDICT_FONCTIONS)))
+
+
 def vpredict(theta, H, terms, res, expressions, free=None):
     """Fonctions des composantes et leurs erreurs-types.
 

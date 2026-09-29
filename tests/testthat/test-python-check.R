@@ -44,3 +44,34 @@ test_that("pendant R CMD check, un seul fil de calcul est demande", {
   Sys.setenv(`_R_CHECK_LIMIT_CORES_` = "false")
   expect_null(remlax:::.rx_threads())
 })
+
+test_that("une expression vpredict fautive est refusee avant l'ajustement, avec la liste des composantes", {
+  skip_if_not(rx_python_check(quiet = TRUE)$ok, "pas de Python avec jax")
+  set.seed(1)
+  d <- data.frame(gid = factor(rep(1:20, each = 3)))
+  d$y <- rnorm(20)[d$gid] + rnorm(60)
+  for (v in c(FALSE, TRUE))
+    expect_error(suppressMessages(capture.output(
+      rx_reml(y ~ 1, random = ~ gid, data = d, vpredict = c(h2 = "V1/(V1+V2+V3)"),
+              backend = "cpu", verbose = v))),
+      "V3 inconnu.*V1 = gid, V2 = residuelle")
+})
+
+test_that("rx_python_check() confirme l'interpreteur quand il convient", {
+  skip_if_not(rx_python_check(quiet = TRUE)$ok, "pas de Python avec jax")
+  expect_message(rx_python_check(), "jax .*numpy .*scipy")
+  expect_silent(rx_python_check(quiet = TRUE))
+})
+
+test_that("dsum : sections nommees d'apres la variable, toutes imprimees, V numerotes", {
+  skip_if_not(rx_python_check(quiet = TRUE)$ok, "pas de Python avec jax")
+  set.seed(3)
+  d <- expand.grid(gid = factor(1:20), bloc = factor(1:3))
+  d$y <- rnorm(20)[d$gid] + rnorm(nrow(d), sd = c(0.8, 1, 1.3)[d$bloc])
+  f <- rx_reml(y ~ bloc, random = ~ gid, residual = ~ dsum(~ units | bloc), data = d,
+               vpredict = c(h2 = "V1/(V1+V2)"), backend = "cpu", verbose = FALSE)
+  expect_identical(names(f$sigmas_res), c("bloc_1", "bloc_2", "bloc_3"))
+  out <- capture.output(print(f))
+  expect_length(grep("^  residuelle\\[bloc_", out), 3L)
+  expect_true(any(grepl("V1 = gid, V2 = bloc_1, V3 = bloc_2, V4 = bloc_3", out, fixed = TRUE)))
+})

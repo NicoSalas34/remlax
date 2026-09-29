@@ -85,6 +85,22 @@ def main(argv=None):
                   % (t["name"], t["struct"], t["t"], t["q"],
                      "K=I" if t["LK"] is None else "K fournie"), flush=True)
 
+    # Les expressions vpredict sont lues et verifiees AVANT l'ajustement : une
+    # faute de nom ne doit pas couter une optimisation entiere.
+    exprs = []
+    if a.vpredict:
+        for bloc in a.vpredict.split(";"):
+            if not bloc.strip():
+                continue
+            nom, _, ex = bloc.partition("=")
+            exprs.append((nom.strip(), ex.strip()))
+        from remlax.inference import check_vpredict
+        try:
+            check_vpredict(exprs, terms, res)
+        except ValueError as e:
+            print("[remlax] ERREUR : %s" % e, file=sys.stderr, flush=True)
+            return 2
+
     fixe = None
     if a.fixed_theta:
         fixe = [int(v) - 1 for v in a.fixed_theta.split(",") if v.strip()]
@@ -115,13 +131,7 @@ def main(argv=None):
     if a.only_predict and len(r["theta"]) != len(r["composantes_noms"]) and not a.quiet:
         print("[remlax] mode predict seul : %d parametre(s) relus"
               % len(r["theta"]), flush=True)
-    if a.vpredict:
-        exprs = []
-        for bloc in a.vpredict.split(";"):
-            if not bloc.strip():
-                continue
-            nom, _, ex = bloc.partition("=")
-            exprs.append((nom.strip(), ex.strip()))
+    if exprs:
         libre = np.ones(len(r["theta"]), dtype=bool)
         if fixe:
             libre[np.array(fixe)] = False
