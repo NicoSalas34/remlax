@@ -468,25 +468,78 @@ own coordinates, its own five variances and its own null part. A surface is
 zero on the plots of the other blocks. `at.levels = c("B1", "B3")` restricts
 the surfaces to some blocks.
 
+The field above has no blocks, so we cut it into two blocks of eight rows,
+96 plots each:
+
 ```r
-fb <- rx_reml(y ~ bloc, random = ~ gid + spl2d(col, row, nseg = c(5, 8), at = bloc),
-              data = g, backend = "cpu", verbose = FALSE)
-names(fb$spl2d$surfaces)     # "spl_B1" "spl_B2" "spl_B3"
-names(fb$sigmas)[2:6]        # "spl_B1_fx" "spl_B1_fy" "spl_B1_fx_y" "spl_B1_x_fy" "spl_B1_fx_fy"
-tr <- rx_spatial_trend(fb, surface = "all")        # columns surface, level, col, row, trend
-plot(fb, surface = "all", file = "blocks.pdf")     # one page per block
+d$bloc <- factor(ifelse(d$rown <= 8, "B1", "B2"))
+fb <- rx_reml(y ~ bloc, random = ~ gid + spl2d(coln, rown, nseg = c(6, 4), at = bloc),
+              data = d, backend = "cpu", verbose = FALSE)
+names(fb$spl2d$surfaces)
+names(fb$sigmas)
+```
+
+```
+[1] "spl_B1" "spl_B2"
+ [1] "gid"          "spl_B1_fx"    "spl_B1_fy"    "spl_B1_fx_y"  "spl_B1_x_fy"
+ [6] "spl_B1_fx_fy" "spl_B2_fx"    "spl_B2_fy"    "spl_B2_fx_y"  "spl_B2_x_fy"
+[11] "spl_B2_fx_fy"
+```
+
+Each block has 12 columns and 8 rows, hence `nseg = c(6, 4)`. `summary(fb)`
+gives the variances and the dimensions block by block:
+
+```
+             component bound      Effective Nominal Ratio
+gid          6.993e-01     P         34.277      47 0.729
+spl_B1_fx    3.775e-11     B          0.000       7 0.000
+spl_B1_fy    7.703e-02     P          0.092       5 0.018
+spl_B1_fx_y  8.338e+00     P          2.086       7 0.298
+spl_B1_x_fy  1.415e-10     B          0.000       5 0.000
+spl_B1_fx_fy 3.746e+00     P          3.557      35 0.102
+spl_B2_fx    4.468e+00     P          2.264       7 0.323
+spl_B2_fy    5.064e-09     B          0.000       5 0.000
+spl_B2_fx_y  1.674e+02     P          4.266       7 0.609
+spl_B2_x_fy  1.956e-10     B          0.000       5 0.000
+spl_B2_fx_fy 2.455e+00     P          2.292      35 0.065
+residuelle   8.923e-01     P        135.166     184 0.735
+```
+
+(An extract of the two tables, rounded and placed side by side; `summary()`
+prints them in full, one after the other.) Four of the ten spline variances sit at their boundary. That is
+the expected price of five variances per block on 96 plots.
+
+The trend of every block comes out in one data frame, and the maps in one
+file, one page per block:
+
+```r
+tr <- rx_spatial_trend(fb, surface = "all", grid = c(50, 50))
+head(tr, 3)
+plot(fb, surface = "all", file = "blocks.pdf")   # blocks.png gives blocks_spl_B1.png, ...
+rx_predict(fb, classify = "bloc")
+```
+
+```
+  surface level    coln rown     trend
+1  spl_B1    B1 1.00000    1 0.4957208
+2  spl_B1    B1 1.22449    1 0.6008337
+3  spl_B1    B1 1.44898    1 0.7018502
+
+Predictions
+ bloc predicted.value std.error estimable
+   B1         8.31541  0.173008      TRUE
+   B2         8.09149  0.210150      TRUE
 ```
 
 The null part of a block holds `x`, `y` and `x * y`, not the constant: the
 block mean comes from `bloc` in the fixed formula, as above, or from a random
-block effect. Without either, `rx_reml()` says so.
+block effect. Without either, `rx_reml()` says so. The prediction of a block
+holds its null part at zero, which averages the surface over that block.
 
 Two differences with 'sommer' are deliberate. In `spl2Dc()`, each block has a
 single variance, and the null part is penalised with the rest of the surface.
 Here each block keeps the PS-ANOVA of 'SpATS': five variances, and a null part
-among the fixed effects. The price is five variances per block. On small
-blocks, several of them will sit at their boundary, which the `B` code of
-`summary()` shows.
+among the fixed effects.
 
 ### Output in the manner of SpATS
 
