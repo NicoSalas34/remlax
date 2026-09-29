@@ -176,7 +176,8 @@ genotypes, `us9` 500, `us12` 500 and 2000); in four of them asreml had not
 declared convergence at `maxit = 100`. Continued with `update()`
 (`benchmarks/verif_ecarts_asreml.R`), asreml moves toward remlax's value in
 all five and never passes it; on `ige` it reaches it to 4e-8 after 4
-updates, on the others it is still moving after 40.
+updates; on the other four its log-likelihood is still rising after 40
+updates, including `us9`, where asreml reports convergence throughout.
 
 ## Defects found by this validation, and fixed
 

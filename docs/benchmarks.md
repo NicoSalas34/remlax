@@ -168,20 +168,27 @@ continues it with `update()` until its log-likelihood moves by less than 1e-6
 or 40 updates (log `benchmarks/results/verif_ecarts_asreml_2026-09-29.log`,
 values in `verif_ecarts_asreml.json`):
 
-| case | n | genotypes | variance parameters | gap in the benchmark (asreml converge flag) | gap after continuing asreml |
+| case | n | genotypes | variance parameters | gap in the benchmark (asreml converge flag) | gap after continuing asreml (converge flag) |
 |---|---|---|---|---|---|
 | ige | 500 | 126 | 8 | -0.029 (FALSE) | -4e-8 after 4 updates (TRUE) |
-| usK6 | 2000 | 8 | 43 | -0.033 (FALSE) | -0.0012 after 40 updates, still moving |
-| us9 | 500 | 27 | 91 | -0.046 (TRUE) | -0.011 after 40 updates, still moving |
-| us12 | 500 | 20 | 157 | -0.062 (FALSE) | -0.037 after 40 updates, still moving |
-| us12 | 2000 | 83 | 157 | -1.339 (FALSE) | -1.30 after 40 updates, still moving |
+| usK6 | 2000 | 8 | 43 | -0.033 (FALSE) | -0.0012 after 40 updates (FALSE) |
+| us9 | 500 | 27 | 91 | -0.046 (TRUE) | -0.011 after 40 updates (TRUE) |
+| us12 | 500 | 20 | 157 | -0.062 (FALSE) | -0.037 after 40 updates (FALSE) |
+| us12 | 2000 | 83 | 157 | -1.339 (FALSE) | -1.30 after 40 updates (FALSE) |
+
+After 40 updates the log-likelihood of asreml was still changing by more than
+1e-6 per update in the four cases that did not stop earlier, including `us9`,
+where asreml reports convergence at every step.
 
 The gap is asreml minus remlax. In four of the five cases asreml had not
-declared convergence at `maxit = 100`; in the fifth (`us9`) it had, 0.046
-below the top. In every case asreml moves toward remlax's value when it is
-allowed to continue and never passes it; on `ige` it reaches it to 4e-8. The
-gaps are therefore asreml's stopping, not a difference in the likelihood
-being maximised. They concern heavily parameterised models on few
+declared convergence at `maxit = 100`. In the fifth (`us9`) it declares
+convergence 0.046 below remlax, and still declares it after 40 more updates
+that raise its log-likelihood by 0.035: its movement criterion is met while
+the likelihood is still rising. In every case asreml moves toward remlax's
+value when it is allowed to continue and never passes it; on `ige` it
+reaches it to 4e-8. The gaps are therefore consistent with asreml stopping
+short of the maximum of the same likelihood; only `ige` was followed all the
+way to agreement. They concern heavily parameterised models on few
 genotypes (8 to 83 genotypes for 43 to 157 parameters), where the average
 information steps become small; on `us12` at n = 2000 asreml progresses by
 about 1e-3 per update.
