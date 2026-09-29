@@ -1,0 +1,49 @@
+Package: remlax
+Type: Package
+Title: Generic, Differentiable REML Solver for Linear Mixed Models
+Version: 0.1.0
+Authors@R: person(given = "Nicolas", family = "Salas",
+                  email = "nicolas.salas@supagro.fr",
+                  role = c("aut", "cre"))
+Description: R interface to the 'remlax' solver, which maximises the restricted
+    likelihood of linear mixed models with an asreml-like formula grammar. The
+    likelihood is formed on the dense marginal covariance and differentiated
+    automatically by a 'JAX' solver that runs unchanged on CPU or GPU. The R side
+    builds and checks the design, writes it to a directory as raw binary plus a
+    JSON manifest, calls the solver as a subprocess, and reads the result back.
+    Covariance structures follow the ASReml-R catalogue (idv, idh, corgh, fa,
+    rr, chol, ante, corh; ar1, ar2, ar3, ma, arma, corb, corg, exp, gau, sph,
+    cir, Matern, separable products). A second, sparse engine built on 'RTMB'
+    covers the subset of structures whose precision is sparse and known in
+    closed form. The Python solver ships with the package; a Python (>= 3.10)
+    interpreter with 'jax', 'numpy' and 'scipy' must be available, and
+    rx_install_python() creates one on request. The validation against
+    'asreml', 'lme4', 'sommer' and 'nlme' is shipped as a vignette, and
+    rx_validate() reruns the comparisons against the CRAN packages.
+License: GPL (>= 3)
+URL: https://github.com/NicoSalas34/remlax
+BugReports: https://github.com/NicoSalas34/remlax/issues
+Encoding: UTF-8
+Depends: R (>= 4.1)
+Imports:
+    methods,
+    Matrix,
+    jsonlite,
+    stats,
+    tools,
+    utils
+Suggests:
+    RTMB,
+    TMB,
+    testthat (>= 3.0.0),
+    lme4,
+    nlme,
+    sommer,
+    knitr,
+    rmarkdown
+SystemRequirements: Python (>= 3.10) with jax (>= 0.4.30), numpy (>= 1.24)
+    and scipy (>= 1.10); optionally a CUDA build of jax for GPU fitting.
+VignetteBuilder: knitr
+Config/testthat/edition: 3
+Roxygen: list(markdown = TRUE)
+Config/roxygen2/version: 8.1.0

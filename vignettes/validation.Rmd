@@ -1,0 +1,189 @@
+---
+title: "Validation: remlax against asreml, lme4, sommer and nlme"
+output: rmarkdown::html_vignette
+vignette: >
+  %\VignetteIndexEntry{Validation: remlax against asreml, lme4, sommer and nlme}
+  %\VignetteEngine{knitr::rmarkdown}
+  %\VignetteEncoding{UTF-8}
+---
+
+```{r setup, include = FALSE}
+knitr::opts_chunk$set(collapse = TRUE, comment = "#>", fig.width = 7, fig.height = 4.2)
+library(remlax)
+checks <- rx_validation_results("checks")
+pairs <- rx_validation_results("pairs")
+bench <- rx_validation_results("benchmark")
+vers <- attr(checks, "versions")
+a_python <- isTRUE(tryCatch(rx_python_check(quiet = TRUE)$ok, error = function(e) FALSE))
+```
+
+This vignette answers one question: does remlax compute the same restricted
+likelihood, and reach the same optimum, as the programs a reader already
+trusts? Every comparison below is the same model fitted to the same data by
+remlax and by a reference program.
+
+The tables are read from files shipped with the package
+(`rx_validation_results()`). They are copies of the results of the
+validation campaign held in the repository
+[remlax-validation](https://github.com/NicoSalas34/remlax-validation), which
+contains the scripts that produce them. Part of that campaign needs an asreml
+licence and a computing cluster, so it cannot run when the package is built.
+The last section shows how to rerun the comparisons against lme4, nlme and
+sommer on your own machine with `rx_validate()`.
+
+Campaign of `r vers$date`, remlax revision `r vers$remlax_revision`.
+Reference software: `r paste(names(vers$versions), unlist(vers$versions), collapse = ", ")`.
+
+## What agreement means
+
+The restricted log-likelihood at the optimum must agree to `1e-6` absolute
+(`1e-5` against asreml, which stops on its own criterion), variance
+components to `1e-4` relative (`1e-3` against asreml), fixed effects to `1e-6`
+relative, BLUPs to `1e-4` absolute and standard errors to `1e-4` relative.
+Iteration counts are never compared.
+
+Each program reports the log-likelihood with its own constant. lme4 and nlme
+carry the full REML constant and equal `fit$logLik`. asreml omits
+`(n - p)/2 log(2 pi)` and equals `fit$logLik_asreml`. sommer rescales the
+response internally, so its value carries a data-dependent constant and only
+its estimates, or differences of log-likelihood between two models, are
+compared.
+
+## The checks, by reference
+
+```{r by-reference}
+checks$group <- sub(" .*", "", checks$reference)
+tab <- aggregate(verdict ~ group, data = checks,
+                 FUN = function(v) c(checks = length(v), passed = sum(v == "pass"),
+                                     failed = sum(v != "pass")))
+tab <- data.frame(reference = tab$group, tab$verdict)
+tab[order(-tab$checks), ]
+```
+
+`r nrow(checks)` checks, `r sum(checks$verdict == "pass")` passed. The
+references called `internal`, `dense`, `independent` and `properties` are
+closed forms, the sparse engine of the package compared with its dense
+engine at a common parameter, a REML written longhand in dense algebra, and
+properties that have no external reference (finite likelihood, positive
+definite covariance).
+
+## Largest gaps
+
+For each program, the largest gap between remlax and the reference over all
+compared quantities: absolute on the log-likelihood, relative on the
+estimates. The three models discussed in the next section are shown apart.
+
+```{r gaps}
+pairs$remlax <- as.numeric(pairs$remlax); pairs$reference <- as.numeric(pairs$reference)
+ecart <- ifelse(pairs$kind == "logLik", abs(pairs$remlax - pairs$reference),
+                abs(pairs$remlax - pairs$reference) / pmax(abs(pairs$reference), 1e-8))
+a_part <- grepl("^(ma2|sph|cir) ", pairs$check)
+g <- aggregate(ecart[!a_part], by = list(software = pairs$software[!a_part],
+                                          quantity = pairs$kind[!a_part]),
+               FUN = function(x) signif(max(x, na.rm = TRUE), 2))
+names(g)[3] <- "largest gap"
+g$n <- aggregate(ecart[!a_part], by = list(pairs$software[!a_part], pairs$kind[!a_part]), FUN = length)$x
+g[order(g$software, g$quantity), ]
+```
+
+```{r figure, fig.cap = "Estimates of remlax against the reference program, one point per compared quantity (log scales, absolute values). The three models discussed below are drawn as open circles."}
+est <- pairs[pairs$kind == "estimate" & is.finite(pairs$remlax) & is.finite(pairs$reference) &
+             abs(pairs$reference) > 1e-6 & abs(pairs$remlax) > 1e-6, ]
+cols <- c(asreml = "#7f7f7f", lme4 = "#1f77b4", nlme = "#2ca02c", sommer = "#d62728")
+part <- grepl("^(ma2|sph|cir) ", est$check)
+op <- par(mar = c(4, 4, 1, 1))
+plot(abs(est$reference), abs(est$remlax), log = "xy", pch = ifelse(part, 1, 19), cex = 0.7,
+     col = cols[est$software], xlab = "|reference estimate|", ylab = "|remlax estimate|")
+abline(0, 1, lty = 2, col = "grey40")
+legend("topleft", legend = names(cols), col = cols, pch = 19, bty = "n", cex = 0.85)
+par(op)
+```
+
+## The checks that fail, and why
+
+```{r fails}
+f <- checks[checks$verdict != "pass", c("section", "check", "detail")]
+f$section <- sub(" :.*", "", f$section)
+f
+```
+
+All `r nrow(f)` failures are in the asreml suite and concern three models,
+the moving-average residual `ma2`, and the spherical (`sph`) and circular
+(`cir`) kernels on an irregular two-dimensional field. They are left as
+failures on purpose: the tolerance was not widened to make them pass.
+
+A diagnostic compared each model with an independent REML written in dense
+algebra, and held asreml at remlax's parameters.
+
+- `sph`: asreml reports non-convergence and oscillates between two values.
+  Held at remlax's parameters it returns remlax's log-likelihood to the last
+  digit. Same likelihood; asreml did not converge.
+- `cir`: asreml reports non-convergence and stops in the first of three local
+  maxima of the likelihood in the range (ranges 5.0, 7.4 and 10.9). remlax
+  reaches the highest one, 3.03 log-likelihood units above. Held at remlax's
+  parameters, asreml returns remlax's value.
+- `ma2`: asreml declares convergence while its parameters still move by 3.5 %
+  per iteration, 0.033 below remlax. Its `cor1`/`cor2` components are not the
+  moving-average coefficients of the standard form, so the parameters cannot
+  be compared directly; the dense REML reproduces remlax's value exactly.
+
+In every case remlax's log-likelihood is the higher one, and an independent
+computation confirms it.
+
+## Speed at equal model
+
+The benchmark fitted ten models, from 2 to 157 variance parameters, at sizes
+from 500 to 16000 observations, with asreml on 4 CPU cores, remlax on the same
+4 cores and remlax on one NVIDIA A100. Wall time in seconds of the complete
+call, for the size axis (4 replicates per genotype, 2 for the multi-trait
+models):
+
+```{r speed}
+b <- bench[bench$status == "ok" & ((bench$reps == 4 & !grepl("^us", bench$case)) |
+                                  (bench$reps == 2 & grepl("^us", bench$case))), ]
+w <- reshape(b[, c("case", "n_nom", "serie", "wall_s")], idvar = c("case", "n_nom"),
+             timevar = "serie", direction = "wide")
+names(w) <- sub("wall_s.", "", names(w), fixed = TRUE)
+w <- w[order(match(w$case, unique(bench$case)), w$n_nom), ]
+w[, -(1:2)] <- lapply(w[, -(1:2)], function(x) signif(x, 3))
+rownames(w) <- NULL
+w
+```
+
+On classical designs asreml hardly depends on n: it solves sparse mixed
+model equations whose size is the number of effects. remlax factorises the
+dense `n x n` covariance matrix at every evaluation, so its cost grows as
+`n^3`, and it is slower than asreml there. Where the problem is dense for
+asreml, many genotypes for few replicates, a dense genomic relationship
+matrix, weighted neighbourhood incidences, asreml's equations fill in, and
+remlax on a GPU becomes faster. On the neighbourhood model (`ige`, a
+single-species reduction of the model of Salas et al. 2026) the A100 is
+ahead from n = 2000 and about 7 to 8 times faster at n = 8000 and 16000, at
+the same log-likelihood to `1e-6`. The complete benchmark, with compilation
+time, time per iteration and per evaluation, and a density axis at fixed n,
+is in the remlax-validation repository.
+
+In the benchmark no remlax fit has a lower log-likelihood than the asreml
+fit it is paired with. Where remlax is higher by more than `1e-3` (five small,
+heavily parameterised cases), asreml continued with `update()` moves toward
+remlax's value and never passes it.
+
+## Rerun the comparisons on your machine
+
+`rx_validate()` refits a subset of the campaign against the reference
+packages available on CRAN (lme4, nlme, sommer) and returns one row per
+check. It needs the Python solver (see `rx_python_check()`), so it is not run
+when this vignette is built without Python.
+
+```{r rerun, eval = a_python}
+v <- rx_validate(verbose = FALSE)
+v[, c("reference", "case", "quantity", "gap", "tolerance", "pass")]
+attr(v, "versions")
+```
+
+To rerun the full campaign, including asreml and the benchmark, clone
+remlax-validation and follow its README.
+
+Salas N, Montazeaud G, Bourke PM, Baranger A, David J (2026). Multispecies
+mixtures: an individual-centered quantitative genetic framework for complex
+plant neighborhoods. bioRxiv. doi:10.64898/2026.05.27.728303.

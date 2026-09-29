@@ -1,0 +1,351 @@
+---
+title: "Multi-trait models"
+output: rmarkdown::html_vignette
+vignette: >
+  %\VignetteIndexEntry{Multi-trait models}
+  %\VignetteEngine{knitr::rmarkdown}
+  %\VignetteEncoding{UTF-8}
+---
+
+<!-- Code blocks are shown, not run: CRAN builds vignettes without Python.
+     Every block was executed with remlax and its output pasted underneath. -->
+
+Several traits, `us` and the reduced-rank structures, and a genomic
+relationship matrix.
+
+All blocks were executed with `backend = "cpu"` and their real output pasted
+underneath.
+
+---
+
+## Long format
+
+Multi-trait data go in **long format**: one row per unit x trait, one response
+column, one trait column. That is preferred over a `cbind()` of responses
+because it handles traits measured on different subsets of units with nothing
+special — which is the rule as soon as phenotyping is incomplete.
+
+Two columns matter beyond the response:
+
+- `trait =` names the trait factor. It drives the columns of `Sigma`.
+- `unit =` names the unit identifier. Two rows sharing a unit are correlated
+  under a `us` residual; that is what makes the residual covariance between
+  traits estimable.
+
+---
+
+## A genomic relationship matrix
+
+```r
+source("R/remlax.R")
+set.seed(11)
+
+n_gen <- 80; n_mark <- 300
+M  <- matrix(rbinom(n_gen * n_mark, 2, 0.3), n_gen, n_mark)
+p  <- colMeans(M) / 2
+Ms <- scale(M, center = 2 * p, scale = FALSE)
+K  <- tcrossprod(Ms) / (2 * sum(p * (1 - p)))     # VanRaden 1
+K  <- K + diag(1e-6, n_gen)
+dimnames(K) <- list(seq_len(n_gen), seq_len(n_gen))
+```
+
+```
+K : 80 x 80, diagonale moyenne 0.9937
+```
+
+`K` must carry `dimnames` matching the levels of the grouping factor. remlax
+reorders it onto those levels, and a missing level is an error, not a silent
+drop. If `K` is not positive definite — which a GRM frequently is not, with
+identical genotypes or more markers than individuals — a bent Cholesky is
+used and the amount added is reported.
+
+The small ridge added above is the usual precaution; without it the Cholesky
+would trigger the bending message.
+
+```r
+G  <- matrix(c(1.2, 0.6, 0.6, 0.8), 2, 2)     # true genetic covariance
+E  <- matrix(c(1.0, 0.2, 0.2, 1.5), 2, 2)     # true residual covariance
+LK <- t(chol(K))
+u  <- LK %*% matrix(rnorm(n_gen * 2), n_gen, 2) %*% chol(G)
+e  <- matrix(rnorm(n_gen * 2), n_gen, 2) %*% chol(E)
+Y  <- matrix(c(3, 7), n_gen, 2, byrow = TRUE) + u + e
+
+d <- data.frame(unite = factor(rep(seq_len(n_gen), 2)),
+                gid   = factor(rep(seq_len(n_gen), 2)),
+                trait = factor(rep(c("t1", "t2"), each = n_gen)),
+                y     = as.numeric(Y))
+head(d, 3)
+```
+
+```
+  unite gid trait        y
+1     1   1    t1 3.935307
+2     2   2    t1 5.648938
+3     3   3    t1 3.281512
+nrow = 160
+```
+
+---
+
+## Unstructured genetic and residual covariances
+
+```r
+fit <- rx_reml(fixed    = y ~ trait,
+               random   = ~ us(gid, K = K),
+               residual = ~ us(trait):units,
+               data = d, trait = "trait", unit = "unite",
+               backend = "cpu", verbose = FALSE)
+print(fit)
+```
+
+```
+Ajustement REML (cpu) : logLik -291.247351 | 6 parametres | 160 obs | 2.0 s
+  max|grad| 6.15e-07 | decrement de Newton 2.81e-15 | 0 valeur(s) propre(s) negative(s)
+  Sigma[gid] 2x2, diagonale : 2.1361 0.2002
+  residuelle : 0.563 1.967
+```
+
+`us(gid, K = K)` is a single term with `t = 2` columns — one incidence per
+trait, built automatically from the trait factor — a free `2 x 2` covariance
+between them, and `K` between the 80 levels. `~ us(trait):units` gives the
+residual a free `2 x 2` covariance between traits of the same unit.
+
+```r
+Ghat <- fit$sigmas$gid; Rhat <- fit$sigma_res
+round(Ghat, 4)
+round(Rhat, 4)
+```
+
+```
+       [,1]   [,2]
+[1,] 2.1361 0.4164
+[2,] 0.4164 0.2002
+
+       [,1]   [,2]
+[1,] 0.5630 0.3265
+[2,] 0.3265 1.9671
+
+correlation genetique   0.6368
+correlation residuelle  0.3102
+```
+
+The genetic correlation is recovered at 0.64 against a true 0.61; the
+variances are further off, particularly for trait 2 (0.20 against 0.8). Eighty
+genotypes is not many for a `2 x 2` genetic covariance, and the standard
+errors below say so plainly.
+
+---
+
+## Component numbering for a matrix structure
+
+```r
+fit$composantes_noms
+```
+
+```
+[1] "gid[1,1]"        "gid[2,1]"        "gid[2,2]"        "residuelle[1,1]"
+[5] "residuelle[2,1]" "residuelle[2,2]"
+```
+
+For a `t`-column term the components are the **lower triangle of Sigma**, row
+by row: `[1,1]`, `[2,1]`, `[2,2]`, `[3,1]`, `[3,2]`, `[3,3]`, and so on. The
+residual follows in the same layout.
+
+**The number of components is not the number of free parameters.** The lower
+triangle is enumerated whatever the structure, because those are the
+quantities a `vpredict` expression refers to. A `diag` residual on three
+traits has 3 free parameters and 6 component names, three of which are
+structurally zero.
+
+---
+
+## Heritabilities and genetic correlation
+
+```r
+f2 <- rx_reml(y ~ trait, random = ~ us(gid, K = K),
+              residual = ~ us(trait):units, data = d,
+              trait = "trait", unit = "unite",
+              vpredict = c(h2_t1 = "V1/(V1+V4)",
+                           h2_t2 = "V3/(V3+V6)",
+                           rg    = "V2/sqrt(V1*V3)"),
+              backend = "cpu", verbose = FALSE)
+f2$vpredict$composantes
+f2$vpredict$predictions
+```
+
+```
+  i             nom    valeur
+1 1        gid[1,1] 2.1360812
+2 2        gid[2,1] 0.4163982
+3 3        gid[2,2] 0.2001556
+4 4 residuelle[1,1] 0.5630491
+5 5 residuelle[2,1] 0.3264990
+6 6 residuelle[2,2] 1.9670976
+
+    nom     expression     valeur        se
+1 h2_t1     V1/(V1+V4) 0.79139612 0.2844880
+2 h2_t2     V3/(V3+V6) 0.09235449 0.3958083
+3    rg V2/sqrt(V1*V3) 0.63681917 1.2196191
+```
+
+Read the standard errors before the estimates. The genetic correlation has a
+standard error of 1.22 on an estimate of 0.64: this design does not identify
+it. The heritability of trait 2 has a standard error four times its estimate.
+Only `h2_t1` is worth quoting, and even there the interval is wide.
+
+That is the honest reading, and it is what the delta method is for. A
+`vpredict` value without its standard error says nothing.
+
+---
+
+## How many parameters does each structure cost?
+
+`rx_n_params()` answers without fitting anything.
+
+```r
+do.call(rbind, lapply(c(2, 4, 6, 8), function(t)
+  data.frame(t = t,
+             diag  = rx_n_params("diag", t),
+             us    = rx_n_params("us", t),
+             fa2   = rx_n_params("fa", t, 2),
+             rr2   = rx_n_params("rr", t, 2),
+             chol1 = rx_n_params("chol", t, 1),
+             ante1 = rx_n_params("ante", t, 1),
+             corh  = rx_n_params("corh", t))))
+```
+
+```
+ t diag us fa2 rr2 chol1 ante1 corh
+ 2    2  3   5   3     3     3    3
+ 4    4 10  11   7     7     7    5
+ 6    6 21  17  11    11    11    7
+ 8    8 36  23  15    15    15    9
+```
+
+Two readings of that table save time later.
+
+**`fa(k)` is not always cheaper than `us`.** It pays `t` specific variances on
+top of its loadings, so at `t = 4` a rank-2 factor-analytic model costs 11
+parameters against 10 unstructured. The saving starts at `t = 5` for `k = 2`.
+
+**`rr(k)` is the structure that actually reduces the count**, at the price of
+a singular `Sigma`. That is legitimate here: `V` is assembled as `B B'`, so a
+rank-deficient component does not make `V` singular provided another term or
+the residual completes it.
+
+---
+
+## Reduced rank, and an aliasing that looks like a test
+
+Four traits, 70 genotypes, a genetic covariance simulated as rank 2 plus a
+diagonal.
+
+```r
+set.seed(4)
+n_gen <- 70; nt <- 4
+Lam <- matrix(c(1.0, 0.8, 0.5, 0.2,
+                0.0, 0.4, 0.9, 0.6), nt, 2)
+G   <- tcrossprod(Lam) + diag(0.15, nt)
+u   <- matrix(rnorm(n_gen * nt), n_gen, nt) %*% chol(G)
+e   <- matrix(rnorm(n_gen * nt), n_gen, nt) %*% diag(sqrt(c(.8,.9,1.1,1.0)))
+d4  <- data.frame(unite = factor(rep(seq_len(n_gen), nt)),
+                  gid   = factor(rep(seq_len(n_gen), nt)),
+                  trait = factor(rep(paste0("t", seq_len(nt)), each = n_gen)),
+                  y     = as.numeric(u + e))
+
+f_us <- rx_reml(y ~ trait, random = ~ us(gid), residual = ~ diag(trait):units,
+                data = d4, trait = "trait", unit = "unite",
+                backend = "cpu", verbose = FALSE)
+f_rr <- rx_reml(y ~ trait, random = ~ rr(gid, rank = 2), residual = ~ diag(trait):units,
+                data = d4, trait = "trait", unit = "unite",
+                backend = "cpu", verbose = FALSE)
+```
+
+```
+us     : logLik  -457.8032, 14 parametres
+rr(2)  : logLik  -457.8032, 11 parametres
+LRT    : chi2 = -0.0000, 3 ddl, p = 1.0000
+```
+
+The two likelihoods are equal to the last digit. That is not "the reduced-rank
+model is as good"; it is an **aliasing**. `us` and `rr(2)` differ by a
+diagonal, and the residual `diag(trait)` already carries a free diagonal, so
+that difference is absorbed. The three extra parameters of `us` are not
+unhelpful, they are unidentified. A likelihood-ratio test between these two
+models is meaningless.
+
+```r
+round(f_us$sigmas$gid, 3)
+round(f_rr$sigmas$gid, 3)
+```
+
+```
+Sigma us :
+       [,1]  [,2]  [,3]   [,4]
+[1,]  1.178 0.777 0.952 -0.032
+[2,]  0.777 1.451 1.286  0.323
+[3,]  0.952 1.286 2.035  0.592
+[4,] -0.032 0.323 0.592  0.797
+
+Sigma rr(2) :
+       [,1]  [,2]  [,3]   [,4]
+[1,]  0.958 0.777 0.952 -0.032
+[2,]  0.777 0.918 1.286  0.323
+[3,]  0.952 1.286 1.864  0.592
+[4,] -0.032 0.323 0.592  0.426
+```
+
+The off-diagonals are identical; the difference is purely diagonal, exactly as
+the aliasing predicts.
+
+```
+rang(Sigma rr) = 2 (valeurs propres : 3.49e+00 6.72e-01 1.07e-16 -1.63e-16)
+```
+
+`rr(2)` delivers what it promises: a genetic covariance of rank 2, with two
+numerically zero eigenvalues. The slightly negative one is rounding at `1e-16`
+and is not a positive-definiteness failure — `Sigma` is built as `Gam Gam'`
+and cannot have a genuinely negative eigenvalue.
+
+To compare a reduced-rank genetic structure against `us` honestly, make the
+residual something the diagonal cannot hide in — an `iid` residual, or a
+residual whose structure is fixed by design.
+
+### The rr parameter count
+
+`rr(k)` here costs `n_loadings(t, k)` parameters, not `k*t` as in the ASReml-R
+manual. `Gamma` is constrained to be lower trapezoidal. Without that
+constraint it is defined only up to a `k x k` rotation, the likelihood has a
+flat ridge of dimension `k(k-1)/2` and the Hessian is singular by exactly that
+much. The fitted model is identical; the parameter count and every standard
+error derived from the Hessian are not. The same constraint applies to `fa`.
+
+---
+
+## Correspondence with asreml
+
+| asreml | remlax |
+|---|---|
+| `idv(trait)` | `iid(gid)` with `trait =` |
+| `idh(trait)` | `diag(gid)` |
+| `corgh(trait)` | `us(gid)` |
+| `corh(trait)` | `corh(gid)` |
+| `fa(trait, k)` | `fa(gid, rank = k)` |
+| `rr(trait, k)` | `rr(gid, rank = k)` |
+| `chol(trait, k)` | `chol(gid, rank = k)` |
+| `ante(trait, k)` | `ante(gid, rank = k)` |
+| `vm(gid, K)` | `vm(gid, K = K)`, or `K =` on any structure |
+
+asreml writes the structure over traits and the one over genotypes as a
+product, `corgh(trait):vm(gid, K)`. remlax writes a single term whose `Sigma`
+is over traits and whose `K` is over genotypes: `us(gid, K = K)`. It is the
+same model.
+
+---
+
+## Next
+
+- [3. Spatial models](spatial.html) — separable AR1, metric kernels, 2D
+  splines.
+- [4. Explicit terms](explicit-terms.html) — weighted incidences and shared
+  covariances.

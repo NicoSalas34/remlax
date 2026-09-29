@@ -1,5 +1,5 @@
 # ==============================================================================
-# remlax_design.R — incidences de voisinage et fonctionnelles d'exposition,
+# remlax_design.R - incidences de voisinage et fonctionnelles d'exposition,
 # POSE A COTE de R/remlax.R
 # ==============================================================================
 # Ce fichier n'est pas source par R/remlax.R et n'en modifie rien. Il le
@@ -70,28 +70,28 @@
   if (sparse) M else as.matrix(M)
 }
 
-#' Incidences de voisinage ponderees par la distance
-#'
-#' @param coord matrice ou data.frame n x 2 de positions ENTIERES (ligne, colonne)
-#' @param group facteur de longueur n : la classe de chaque unite
-#' @param block facteur de longueur n ou NULL : deux unites de blocs differents
-#'   ne sont jamais voisines
-#' @param level facteur de longueur n : le niveau auquel les poids sont sommes
-#'   dans la sortie par niveau (requis si output contient "level")
-#' @param id identifiants des unites (noms de lignes des sorties)
-#' @param rank rayon en pas de grille : scalaire, matrice G x G nommee, ou liste
-#'   nommee par paire "recevant<-emettant"
-#' @param reach exposant lambda du noyau, memes formes
-#' @param dilution exposant d de la dilution, memes formes
-#' @param kernel "power" (delta^-lambda), "exponential" (exp(-lambda (delta -
-#'   delta_0)), delta_0 = plus petit pas physique) ou "none" (w = 1)
-#' @param window "chebyshev" (carre en indices) ou "euclidean" (delta <= r min(spacing))
-#' @param spacing c(pas_ligne, pas_colonne) en unite physique
-#' @param normalise diviser chaque ligne par sa norme L2 APRES la dilution
-#' @param pairs NULL (toutes les paires) ou vecteur de "recevant<-emettant"
-#' @param output "level", "unit" ou "both"
-#' @param sparse rendre des dgCMatrix
-#' @return liste de classe rx_neighbourhood : level, unit, n_neighbours, params
+# Incidences de voisinage ponderees par la distance
+#
+# @param coord matrice ou data.frame n x 2 de positions ENTIERES (ligne, colonne)
+# @param group facteur de longueur n : la classe de chaque unite
+# @param block facteur de longueur n ou NULL : deux unites de blocs differents
+#   ne sont jamais voisines
+# @param level facteur de longueur n : le niveau auquel les poids sont sommes
+#   dans la sortie par niveau (requis si output contient "level")
+# @param id identifiants des unites (noms de lignes des sorties)
+# @param rank rayon en pas de grille : scalaire, matrice G x G nommee, ou liste
+#   nommee par paire "recevant<-emettant"
+# @param reach exposant lambda du noyau, memes formes
+# @param dilution exposant d de la dilution, memes formes
+# @param kernel "power" (delta^-lambda), "exponential" (exp(-lambda (delta -
+#   delta_0)), delta_0 = plus petit pas physique) ou "none" (w = 1)
+# @param window "chebyshev" (carre en indices) ou "euclidean" (delta <= r min(spacing))
+# @param spacing c(pas_ligne, pas_colonne) en unite physique
+# @param normalise diviser chaque ligne par sa norme L2 APRES la dilution
+# @param pairs NULL (toutes les paires) ou vecteur de "recevant<-emettant"
+# @param output "level", "unit" ou "both"
+# @param sparse rendre des dgCMatrix
+# @return liste de classe rx_neighbourhood : level, unit, n_neighbours, params
 rx_neighbourhood <- function(coord, group, block = NULL, level = NULL, id = NULL,
                              rank, reach = 0, dilution = 0,
                              kernel = c("power", "exponential", "none"),
@@ -293,21 +293,21 @@ print.rx_neighbourhood <- function(x, ...) {
        K = if (is.null(tm[["LK"]])) NULL else tm[["LK"]] %*% t(tm[["LK"]]))
 }
 
-#' Fonctionnelles d'exposition d'une paire (incidence directe, incidence indirecte)
-#'
-#' Deux formes. Forme matricielle : rx_exposure(Z_direct, Z_indirect, K, rows,
-#' K_direct). Forme modele : rx_exposure(model, direct = "terme:etiquette",
-#' indirect = "terme:etiquette", rows = "auto"), ou K est lu dans le terme de
-#' l'incidence indirecte et K_direct dans celui de l'incidence directe.
-#'
-#' @param Z_direct incidence n x q de l'effet direct, ou NULL, ou un rx_model / rx_fit
-#' @param Z_indirect incidence n x q_e de l'effet indirect
-#' @param K parente q_e x q_e du groupe EMETTANT, NULL pour l'identite
-#' @param rows indices des lignes a moyenner ; NULL = toutes ; "auto" = lignes
-#'   ou Z_direct est non nulle (forme modele)
-#' @param K_direct parente du groupe de l'effet direct, par defaut K
-#' @param direct,indirect references "terme:etiquette" ou "terme[i]" (forme modele)
-#' @return liste : d, k, k_identity, c, S, n_eff, n_rows, convention
+# Fonctionnelles d'exposition d'une paire (incidence directe, incidence indirecte)
+#
+# Deux formes. Forme matricielle : rx_exposure(Z_direct, Z_indirect, K, rows,
+# K_direct). Forme modele : rx_exposure(model, direct = "terme:etiquette",
+# indirect = "terme:etiquette", rows = "auto"), ou K est lu dans le terme de
+# l'incidence indirecte et K_direct dans celui de l'incidence directe.
+#
+# @param Z_direct incidence n x q de l'effet direct, ou NULL, ou un rx_model / rx_fit
+# @param Z_indirect incidence n x q_e de l'effet indirect
+# @param K parente q_e x q_e du groupe EMETTANT, NULL pour l'identite
+# @param rows indices des lignes a moyenner ; NULL = toutes ; "auto" = lignes
+#   ou Z_direct est non nulle (forme modele)
+# @param K_direct parente du groupe de l'effet direct, par defaut K
+# @param direct,indirect references "terme:etiquette" ou "terme[i]" (forme modele)
+# @return liste : d, k, k_identity, c, S, n_eff, n_rows, convention
 rx_exposure <- function(Z_direct = NULL, Z_indirect = NULL, K = NULL, rows = NULL,
                         K_direct = K, direct = NULL, indirect = NULL) {
   meme_groupe <- TRUE
@@ -388,13 +388,13 @@ rx_exposure <- function(Z_direct = NULL, Z_indirect = NULL, K = NULL, rows = NUL
 # ------------------------------------------------------------------------------
 # Matrice de parente genomique (VanRaden 1, ploidie quelconque, blending)
 # ------------------------------------------------------------------------------
-#' @param M matrice individus x marqueurs de doses alleliques, codees en
-#'   FRACTION de la ploidie (0, 1/k, ..., 1) ; avec `coding = "count"` les doses
-#'   sont en nombre d'alleles (0..k)
-#' @param ploidy ploidie k
-#' @param blend part de l'identite ajoutee : G_b = (1 - blend) G + blend I
-#' @param coding "fraction" ou "count"
-#' @return matrice q x q avec les rownames de M ; attribut "denominator"
+# @param M matrice individus x marqueurs de doses alleliques, codees en
+#   FRACTION de la ploidie (0, 1/k, ..., 1) ; avec `coding = "count"` les doses
+#   sont en nombre d'alleles (0..k)
+# @param ploidy ploidie k
+# @param blend part de l'identite ajoutee : G_b = (1 - blend) G + blend I
+# @param coding "fraction" ou "count"
+# @return matrice q x q avec les rownames de M ; attribut "denominator"
 rx_grm <- function(M, ploidy = 2, blend = 0, coding = c("fraction", "count")) {
   coding <- match.arg(coding)
   M <- as.matrix(M)

@@ -1,0 +1,25 @@
+bibentry(
+  bibtype = "Manual",
+  title   = "remlax: Generic, Differentiable REML Solver for Linear Mixed Models",
+  author  = person("Nicolas", "Salas"),
+  year    = "2026",
+  note    = paste("R package version", meta$Version),
+  url     = "https://github.com/NicoSalas34/remlax",
+  textVersion = paste0("Salas N (2026). remlax: Generic, Differentiable REML Solver for Linear ",
+                       "Mixed Models. R package version ", meta$Version,
+                       ". https://github.com/NicoSalas34/remlax")
+)
+bibentry(
+  bibtype = "Article",
+  title   = paste("Multispecies Mixtures: An Individual-Centered Quantitative Genetic",
+                  "Framework for Complex Plant Neighborhoods"),
+  author  = c(person("Nicolas", "Salas"), person("Germain", "Montazeaud"),
+              person("Peter M.", "Bourke"), person("Alain", "Baranger"), person("Jacques", "David")),
+  journal = "bioRxiv",
+  year    = "2026",
+  doi     = "10.64898/2026.05.27.728303",
+  textVersion = paste("Salas N, Montazeaud G, Bourke PM, Baranger A, David J (2026).",
+                      "Multispecies Mixtures: An Individual-Centered Quantitative Genetic",
+                      "Framework for Complex Plant Neighborhoods. bioRxiv.",
+                      "doi:10.64898/2026.05.27.728303")
+)

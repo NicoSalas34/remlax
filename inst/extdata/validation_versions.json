@@ -1,0 +1,19 @@
+{
+ "date": "2026-09-28",
+ "remlax_revision": "f576638 and the fixes of 2026-09-28 (3a5a0eb)",
+ "environment": "apptainer image on a Linux cluster, 4 CPU cores; GPU runs on one NVIDIA A100 80GB",
+ "versions": {
+  "R": "4.6.0",
+  "nlme": "3.1.169",
+  "lme4": "2.0.1",
+  "sommer": "4.4.5",
+  "asreml": "4.2.0.480",
+  "pbkrtest": "0.5.5",
+  "jax": "0.11.1"
+ },
+ "benchmark": {
+  "date": "2026-09-28/29",
+  "remlax_revision": "9a51c79"
+ },
+ "source": "https://github.com/NicoSalas34/remlax-validation"
+}

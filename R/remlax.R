@@ -1,5 +1,5 @@
 # ==============================================================================
-# remlax — INTERFACE R D'UN SOLVEUR REML GENERIQUE
+# remlax - INTERFACE R D'UN SOLVEUR REML GENERIQUE
 # ==============================================================================
 #
 # Ce fichier decrit des MODELES ; il n'en ajuste aucun. Il construit les
@@ -35,7 +35,7 @@
 # restreinte), donc l'optimum, et un schema de type Newton pour y finir.
 # CE QU'IL NE PARTAGE PAS : asreml utilise l'information moyenne (AI-REML) des
 # la premiere iteration ; ici L-BFGS-B fait l'approche et Newton le polissage.
-# Les estimes coincident, le chemin non — et le nombre d'iterations non plus.
+# Les estimes coincident, le chemin non - et le nombre d'iterations non plus.
 #
 # CONVENTION D'ORDRE DES COLONNES (partagee avec structures.py) :
 #     colonne de Z = (col - 1) * q + niveau     -> NIVEAU le plus rapide
@@ -43,19 +43,8 @@
 # autre modele, sans aucune erreur visible : ne pas y toucher.
 # ==============================================================================
 
-suppressPackageStartupMessages({ library(Matrix); library(jsonlite) })
+# (paquet : Matrix et jsonlite sont importes par NAMESPACE)
 
-# Repertoire de CE fichier, capture au moment du source(). Sert a retrouver le
-# solveur Python dans l'arborescence du depot quand le paquet n'est pas installe.
-# `sys.frame(i)$ofile` n'existe que pendant un source() : on parcourt la pile
-# d'appels, du plus recent au plus ancien, et on retient le premier trouve.
-.RX_FILE_DIR <- local({
-  for (i in rev(seq_len(sys.nframe()))) {
-    of <- sys.frame(i)$ofile
-    if (!is.null(of)) return(dirname(normalizePath(of)))
-  }
-  NA_character_
-})
 
 # Structures de Sigma (annexe C du manuel ASReml-R 4.2). Correspondances :
 #   iid = idv   diag = idh   us = corgh   fa(k)   rr(k)   chol(k)   ante(k)   corh
@@ -88,18 +77,18 @@ rx_n_params <- function(struct, t, rank = 0L) {
 # ==============================================================================
 # 2. TERMES
 # ==============================================================================
-#' Terme aleatoire
-#'
-#' @param name   nom (sert de cle dans les sorties)
-#' @param Z      incidence. Trois formes acceptees :
-#'               - un vecteur (facteur/caractere) de longueur n : incidence
-#'                 indicatrice, t = 1 ;
-#'               - une LISTE de t matrices n x q : une par colonne de Sigma ;
-#'               - une matrice n x (t*q) deja empilee, avec `t` fourni.
-#' @param K      parente entre niveaux (q x q, dimnames = niveaux) ou NULL = I
-#' @param struct "iid" | "diag" | "us" | "fa"
-#' @param rank   rang de la structure FA
-#' @param levels niveaux, si Z est fourni en matrice (sinon deduits du facteur)
+# Terme aleatoire
+#
+# @param name   nom (sert de cle dans les sorties)
+# @param Z      incidence. Trois formes acceptees :
+#               - un vecteur (facteur/caractere) de longueur n : incidence
+#                 indicatrice, t = 1 ;
+#               - une LISTE de t matrices n x q : une par colonne de Sigma ;
+#               - une matrice n x (t*q) deja empilee, avec `t` fourni.
+# @param K      parente entre niveaux (q x q, dimnames = niveaux) ou NULL = I
+# @param struct "iid" | "diag" | "us" | "fa"
+# @param rank   rang de la structure FA
+# @param levels niveaux, si Z est fourni en matrice (sinon deduits du facteur)
 # Catalogue des structures ENTRE NIVEAUX (correlations), aligne sur l'annexe C
 # du manuel ASReml-R 4.2. La VARIANCE vit dans Sigma : `ar1v` d'asreml = ici
 # struct="iid" + level="ar1" ; `ar1h` = struct="diag" + level="ar1".
@@ -112,8 +101,8 @@ RX_LEVEL_STRUCTURES <- c("id", "fixed", "cor", "corb", "corg",
                          # replique independamment par bloc s'ecrit
                          # id (x) ar1 (x) ar1 : trois facteurs, dont le premier
                          # n'apporte AUCUN parametre, donc les correlations sont
-                         # PARTAGEES entre les repliques. C'est ce que le moteur
-                         # d'IGE_analysis estime, et ce que `ar1ar1` ne peut pas
+                         # PARTAGEES entre les repliques. C'est le champ du modele
+                         # de Salas et al. (2026), et ce que `ar1ar1` ne peut pas
                          # exprimer. `parts` porte la liste (famille, dimension).
                          "sep")
 RX_LEVEL_NP <- c(id = 0L, fixed = 0L, cor = 1L, ar1 = 1L, ar2 = 2L, ar3 = 3L,
@@ -130,7 +119,7 @@ RX_METRIQUES_2D <- c("iexp", "igau", "ieuc", "sph", "cir",
                      "aexp", "agau", "mtrn")
 RX_METRIQUES <- c(RX_METRIQUES_1D, RX_METRIQUES_2D)
 
-#' Nombre de parametres d'une structure entre niveaux (doit suivre levels.py)
+# Nombre de parametres d'une structure entre niveaux (doit suivre levels.py)
 rx_n_level <- function(level, order = 0L, opts = NULL, parts = NULL) {
   # PRODUIT SEPARABLE : la somme des parametres de ses facteurs. `id` en apporte
   # zero, ce qui est precisement ce qui rend les correlations PARTAGEES entre
@@ -171,8 +160,8 @@ rx_n_level <- function(level, order = 0L, opts = NULL, parts = NULL) {
   RX_LEVEL_NP[[level]]
 }
 
-#' Argument facon asreml : 3 = estime en partant de 3 ; "3 F" = fixe a 3 ;
-#' absent = fixe au defaut. C'est la regle du manuel, reprise telle quelle.
+# Argument facon asreml : 3 = estime en partant de 3 ; "3 F" = fixe a 3 ;
+# absent = fixe au defaut. C'est la regle du manuel, reprise telle quelle.
 .rx_arg_vs <- function(x, defaut, estime_si_absent = FALSE) {
   if (is.null(x)) return(list(est = estime_si_absent, val = defaut))
   if (is.numeric(x)) return(list(est = TRUE, val = as.numeric(x)))
@@ -198,22 +187,22 @@ rx_n_level <- function(level, order = 0L, opts = NULL, parts = NULL) {
   o
 }
 
-#' @param Kinv PRECISION entre niveaux, K^-1, en matrice creuse (dgCMatrix).
-#'   Alternative a `K` et destinee au moteur CREUX, qui n'a jamais besoin de K
-#'   ni de sa Cholesky : les equations du modele mixte contiennent G^-1, donc
-#'   K^-1. C'est ce qui permet de fournir une parente genealogique par les regles
-#'   de Henderson, ou A^-1 est creuse — environ cinq non-nuls par individu — sans
-#'   jamais former A ni la factoriser. Fournir `K` ne permet pas cela : `LK` est
-#'   un facteur DENSE, et l'inverse d'une matrice creuse est generalement plein.
-#'
-#'   `Kinv_logdet` permet de passer log|K| quand il est connu (Henderson le donne
-#'   en somme de termes locaux) ; sinon il est calcule une fois par une Cholesky
-#'   creuse. Il ne depend d'aucun parametre, donc c'est une constante de
-#'   l'optimisation.
-#'
-#'   Le moteur DENSE ignore `Kinv` : il lui faudrait inverser pour retrouver K,
-#'   ce qui annulerait tout l'interet. Un terme ainsi declare n'est donc ajustable
-#'   que par le moteur creux, et rx_model le signale.
+# @param Kinv PRECISION entre niveaux, K^-1, en matrice creuse (dgCMatrix).
+#   Alternative a `K` et destinee au moteur CREUX, qui n'a jamais besoin de K
+#   ni de sa Cholesky : les equations du modele mixte contiennent G^-1, donc
+#   K^-1. C'est ce qui permet de fournir une parente genealogique par les regles
+#   de Henderson, ou A^-1 est creuse - environ cinq non-nuls par individu - sans
+#   jamais former A ni la factoriser. Fournir `K` ne permet pas cela : `LK` est
+#   un facteur DENSE, et l'inverse d'une matrice creuse est generalement plein.
+#
+#   `Kinv_logdet` permet de passer log|K| quand il est connu (Henderson le donne
+#   en somme de termes locaux) ; sinon il est calcule une fois par une Cholesky
+#   creuse. Il ne depend d'aucun parametre, donc c'est une constante de
+#   l'optimisation.
+#
+#   Le moteur DENSE ignore `Kinv` : il lui faudrait inverser pour retrouver K,
+#   ce qui annulerait tout l'interet. Un terme ainsi declare n'est donc ajustable
+#   que par le moteur creux, et rx_model le signale.
 rx_term <- function(name, Z, K = NULL, struct = "iid", rank = 0L,
                     t = NULL, levels = NULL, level = "auto",
                     dims = NULL, order = 0L, coord = NULL,
@@ -333,7 +322,7 @@ rx_term <- function(name, Z, K = NULL, struct = "iid", rank = 0L,
          "correlation (variables : d, dx, dy, lag, I, J, p1..pk).")
   n_lvl <- rx_n_level(level, order, opts, parts = parts)
   # Validation de Kinv : c'est une matrice CREUSE q x q symetrique. On verifie la
-  # taille et la symetrie du MOTIF, pas les valeurs — une precision fournie par
+  # taille et la symetrie du MOTIF, pas les valeurs - une precision fournie par
   # l'utilisateur peut legitimement etre stockee en triangle.
   if (!is.null(Kinv)) {
     Kinv <- methods::as(methods::as(Kinv, "CsparseMatrix"), "generalMatrix")
@@ -344,7 +333,7 @@ rx_term <- function(name, Z, K = NULL, struct = "iid", rank = 0L,
     if (dens > 0.5)
       message("terme '", name, "' : Kinv est remplie a ",
               sprintf("%.0f %%", 100 * dens), ". Le moteur creux n'y gagnera ",
-              "rien — c'est le cas d'une parente genomique, dont l'inverse est ",
+              "rien - c'est le cas d'une parente genomique, dont l'inverse est ",
               "plein. Voir remlax.sparsity pour le diagnostic.")
   }
   structure(list(name = name, Zl = Zl, t = as.integer(t), q = as.integer(q),
@@ -357,11 +346,11 @@ rx_term <- function(name, Z, K = NULL, struct = "iid", rank = 0L,
             class = "rx_term")
 }
 
-#' Structure residuelle
-#' @param struct "iid" | "diag" | "us"
-#' @param trait  facteur de caractere (longueur n) ; NULL = un seul caractere
-#' @param unit   identifiant d'unite : deux observations de la MEME unite sur
-#'               des caracteres differents sont correlees sous `us`.
+# Structure residuelle
+# @param struct "iid" | "diag" | "us"
+# @param trait  facteur de caractere (longueur n) ; NULL = un seul caractere
+# @param unit   identifiant d'unite : deux observations de la MEME unite sur
+#               des caracteres differents sont correlees sous `us`.
 rx_residual <- function(struct = "iid", trait = NULL, unit = NULL, rank = 0L,
                         level = "id", order = 0L, coord = NULL, n_unit = NULL,
                         dims = NULL, opts = NULL, expr = NULL, sections = NULL,
@@ -483,7 +472,7 @@ rx_residual <- function(struct = "iid", trait = NULL, unit = NULL, rank = 0L,
   # `trait` et `unit` peuvent arriver comme NOM de colonne ou comme VECTEUR.
   # Le parseur a besoin du NOM pour reconnaitre `diag(trait)` dans la formule :
   # sans lui, `trait` etait pris pour un facteur d'UNITE et la residuelle
-  # devenait iid avec 4 "unites" au lieu de 180 — un modele completement
+  # devenait iid avec 4 "unites" au lieu de 180 - un modele completement
   # different, sans aucune erreur visible. On retrouve donc le nom quand seul
   # le vecteur est fourni, en le cherchant parmi les colonnes de `data`.
   .nom_de <- function(x) {
@@ -596,7 +585,7 @@ rx_residual <- function(struct = "iid", trait = NULL, unit = NULL, rank = 0L,
       # residuelle ~ mtrn(x, y, phi = ..., nu = ...) repartait donc sans aucune
       # option, donc sans aucun parametre estime et avec les valeurs par defaut
       # (phi = 1, nu = 0.5). Quatre jeux de parametres differents donnaient la
-      # MEME vraisemblance, a -19.5572007 — le signe qu'aucun n'arrivait.
+      # MEME vraisemblance, a -19.5572007 - le signe qu'aucun n'arrivait.
       if (f == "mtrn") lvl_opts <- .rx_mtrn_opts(args, env)
       if (f == "own") {
         lvl_expr <- as.character(eval(args$expr, env))
@@ -676,7 +665,7 @@ rx_model <- function(y, X, terms, residual = rx_residual(), name = "modele") {
   for (tm in terms) {
     # Un terme declare par sa PRECISION n'est pas ajustable par le moteur dense :
     # celui-ci a besoin d'un facteur de K, et le retrouver depuis K^-1 demanderait
-    # une inversion dense — exactement ce que la voie creuse evite. On le dit ici
+    # une inversion dense - exactement ce que la voie creuse evite. On le dit ici
     # plutot que de laisser le solveur echouer plus loin sur un LK manquant.
     if (!is.null(tm$Kinv) && is.null(tm$LK))
       attr(terms, "creux_seulement") <- TRUE
@@ -837,12 +826,12 @@ rx_export <- function(model, dir) {
 # ==============================================================================
 # 5. AJUSTEMENT : delegation au solveur JAX
 # ==============================================================================
-#' @param backend "auto" | "gpu" | "cpu" — choix de MACHINE, jamais de modele.
-#' @param vpredict expressions sur les composantes, facon asreml :
-#'   c(h2 = "V1/(V1+V2)", rg = "V2/sqrt(V1*V3)"). Les Vi sont numerotees dans
-#'   l'ordre rendu par `fit$composantes_noms`.
-#' @param wald TRUE pour les tests de Wald sur les effets fixes
-#' @param fixed_theta indices (1-based) des parametres a FIXER a leur depart
+# @param backend "auto" | "gpu" | "cpu" - choix de MACHINE, jamais de modele.
+# @param vpredict expressions sur les composantes, facon asreml :
+#   c(h2 = "V1/(V1+V2)", rg = "V2/sqrt(V1*V3)"). Les Vi sont numerotees dans
+#   l'ordre rendu par `fit$composantes_noms`.
+# @param wald TRUE pour les tests de Wald sur les effets fixes
+# @param fixed_theta indices (1-based) des parametres a FIXER a leur depart
 rx_fit <- function(model, backend = c("auto", "gpu", "cpu"), dir = NULL,
                    maxiter = 3000L, polish = 25L, n_restarts = 0L,
                    hessian = TRUE, blups = TRUE, pev = FALSE,
@@ -936,7 +925,7 @@ rx_fit <- function(model, backend = c("auto", "gpu", "cpu"), dir = NULL,
 # par_floor / par_ceil, jamais recodee), ni fixe par fixed_theta. Ailleurs NA.
 # Une valeur propre negative de H_f signale un point de selle : les erreurs-types
 # y sont NA plutot qu'un nombre sans sens. Verifie contre le vpredict du solveur
-# (test-ratios.R) et contre 06_theta_se.csv du chapitre 3.
+# (test-ratios.R).
 rx_se_theta <- function(theta, hessian, par_floor = -12, par_ceil = 12,
                         fixed_theta = NULL, tol_bound = 1e-7) {
   p <- length(theta)
@@ -958,39 +947,35 @@ rx_se_theta <- function(theta, hessian, par_floor = -12, par_ceil = 12,
   se
 }
 
-rx_here <- function() if (requireNamespace("here", quietly = TRUE)) here::here("R") else "R"
+rx_here <- function() system.file(package = "remlax")
 
-#' Repertoire de l'interface R, quelle que soit la facon dont elle a ete chargee.
-rx_pkg_dir <- function() {
-  if (!is.na(.RX_FILE_DIR)) return(.RX_FILE_DIR)
-  rx_here()
-}
+# Repertoire de l'interface R, quelle que soit la facon dont elle a ete chargee.
+rx_pkg_dir <- function() system.file(package = "remlax")
 
-#' Localisation du solveur Python : les arguments a passer AVANT le repertoire
-#' du paquet serialise.
-#'
-#' Trois voies, dans cet ordre :
-#'   1. $RX_CLI            explicite : chemin d'un cli.py, ou "-m remlax.cli"
-#'   2. paquet installe    `-m remlax.cli` si `import remlax` reussit — voie a
-#'                         preferer, elle ne suppose rien du repertoire courant
-#'   3. arborescence       src/remlax/cli.py a cote de R/remlax.R (depot non
-#'                         installe), ou l'ancien scripts/gpu/remlax/cli.py
+# Localisation du solveur Python : les arguments a passer AVANT le repertoire
+# du modele serialise.
+#
+# Deux voies, dans cet ordre :
+#   1. $RX_CLI            explicite : chemin d'un cli.py, ou "-m remlax.cli"
+#   2. la copie livree    inst/python/remlax/cli.py du paquet installe
+#
+# LA COPIE LIVREE PASSE AVANT UN PAQUET PYTHON INSTALLE. Une version precedente
+# preferait `-m remlax.cli` des que `import remlax` reussissait : un remlax
+# installe par pip sous l'interpreteur choisi repondait alors a la place du
+# moteur livre avec l'interface R, sans que rien ne dise laquelle des deux
+# versions avait calcule. L'interface et le moteur sont desormais toujours ceux
+# du meme paquet ; RX_CLI reste la voie pour en essayer un autre.
 rx_solver_args <- function() {
   if (nzchar(Sys.getenv("RX_CLI"))) return(strsplit(Sys.getenv("RX_CLI"), " +")[[1]])
-  py <- rx_python_cmd()
-  ok <- suppressWarnings(try(system2(py[1], shQuote(c(py[-1], "-c", "import remlax")),
-                                     stdout = FALSE, stderr = FALSE), silent = TRUE))
-  if (identical(as.integer(ok), 0L)) return(c("-m", "remlax.cli"))
-  base <- rx_pkg_dir()
-  cands <- c(file.path(base, "..", "src", "remlax", "cli.py"),
-             file.path(base, "..", "scripts", "gpu", "remlax", "cli.py"),
-             file.path("src", "remlax", "cli.py"))
-  for (p in cands) if (file.exists(p)) return(normalizePath(p))
-  stop("solveur Python introuvable. Installer le paquet (`pip install -e .`), ",
-       "ou definir $RX_CLI, ou lancer depuis la racine du depot.")
+  # cli.py place lui-meme son repertoire parent sur sys.path : le lancement par
+  # chemin suffit, sans PYTHONPATH.
+  inst <- system.file("python", "remlax", "cli.py", package = "remlax")
+  if (nzchar(inst)) return(inst)
+  stop("solveur Python introuvable dans le paquet installe (inst/python/remlax). ",
+       "Reinstaller remlax, ou definir RX_CLI.", call. = FALSE)
 }
 
-#' Commande Python : $RX_PY, sinon $IGE_JAX_CMD, sinon $IGE_JAX_SIF, sinon python3
+# Commande Python : $RX_PY, sinon $IGE_JAX_CMD, sinon $IGE_JAX_SIF, sinon python3
 rx_python_cmd <- function() {
   if (nzchar(Sys.getenv("RX_PY"))) return(strsplit(Sys.getenv("RX_PY"), " +")[[1]])
   if (nzchar(Sys.getenv("IGE_JAX_CMD"))) return(strsplit(Sys.getenv("IGE_JAX_CMD"), " +")[[1]])
@@ -1004,18 +989,18 @@ rx_python_cmd <- function() {
 # absurde, le payer une fois par session est invisible.
 .rx_python_cache <- new.env(parent = emptyenv())
 
-#' L'interpreteur choisi porte-t-il jax, numpy et scipy ?
-#'
-#' Sans ce controle, un Python sans jax donnait un traceback Python de dix
-#' lignes finissant par « No module named 'jax' » puis « solveur REML : echec »,
-#' sans jamais dire QUEL interpreteur avait ete essaye ni COMMENT en designer
-#' un autre. C'est arrive au premier essai du paquet installe : python3 du
-#' systeme, pas de jax. Le diagnostic doit nommer l'interpreteur, la variable
-#' RX_PY et la commande d'installation.
-#'
-#' @param py commande Python decoupee (defaut : rx_python_cmd()).
-#' @param quiet ne rien imprimer.
-#' @return liste(ok, python, versions, message), invisible si ok.
+# L'interpreteur choisi porte-t-il jax, numpy et scipy ?
+#
+# Sans ce controle, un Python sans jax donnait un traceback Python de dix
+# lignes finissant par « No module named 'jax' » puis « solveur REML : echec »,
+# sans jamais dire QUEL interpreteur avait ete essaye ni COMMENT en designer
+# un autre. C'est arrive au premier essai du paquet installe : python3 du
+# systeme, pas de jax. Le diagnostic doit nommer l'interpreteur, la variable
+# RX_PY et la commande d'installation.
+#
+# @param py commande Python decoupee (defaut : rx_python_cmd()).
+# @param quiet ne rien imprimer.
+# @return liste(ok, python, versions, message), invisible si ok.
 rx_python_check <- function(py = rx_python_cmd(), quiet = FALSE) {
   cle <- paste(py, collapse = " ")
   if (!is.null(.rx_python_cache[[cle]])) return(invisible(.rx_python_cache[[cle]]))
@@ -1053,19 +1038,20 @@ rx_python_check <- function(py = rx_python_cmd(), quiet = FALSE) {
   invisible(r)
 }
 
-#' Creer un environnement virtuel Python pour le solveur
-#'
-#' Cree `dir` par `python -m venv`, y installe jax, numpy et scipy par pip
-#' (`jax[cuda12]` si cuda = TRUE), verifie l'import, et imprime la ligne
-#' RX_PY a poser. Ne modifie ni ~/.Renviron ni la session : l'utilisateur
-#' choisit ou et comment la conserver. Sans reticulate, par choix.
-#'
-#' @param dir repertoire du venv (defaut ~/.remlax/venv).
-#' @param cuda installer la version CUDA 12 de jax.
-#' @param python interpreteur de base (>= 3.10) servant a creer le venv.
-#' @param upgrade reinstaller si le venv existe deja.
-#' @return chemin de l'interpreteur cree, invisible.
-rx_install_python <- function(dir = path.expand("~/.remlax/venv"), cuda = FALSE,
+# Creer un environnement virtuel Python pour le solveur
+#
+# Cree `dir` par `python -m venv`, y installe jax, numpy et scipy par pip
+# (`jax[cuda12]` si cuda = TRUE), verifie l'import, et imprime la ligne
+# RX_PY a poser. Ne modifie ni ~/.Renviron ni la session : l'utilisateur
+# choisit ou et comment la conserver. Sans reticulate, par choix.
+#
+# @param dir repertoire du venv (defaut : tools::R_user_dir("remlax", "data"),
+#   repertoire de donnees utilisateur prevu par R pour un paquet).
+# @param cuda installer la version CUDA 12 de jax.
+# @param python interpreteur de base (>= 3.10) servant a creer le venv.
+# @param upgrade reinstaller si le venv existe deja.
+# @return chemin de l'interpreteur cree, invisible.
+rx_install_python <- function(dir = file.path(tools::R_user_dir("remlax", "data"), "venv"), cuda = FALSE,
                               python = "python3", upgrade = FALSE) {
   # Chemin ABSOLU : une RX_PY relative se resoudrait contre le repertoire
   # courant de chaque session, donc tantot un venv, tantot rien.
@@ -1108,7 +1094,7 @@ rx_read_result <- function(dir, model = NULL, fixed_theta = NULL) {
   # `sigmas_res` : les matrices des termes etaient ajoutees a la liste des
   # residuelles, et `fit$sigmas[[1]]` rendait la RESIDUELLE au lieu du premier
   # terme. Toutes les comparaisons positionnelles des suites basculaient d'un
-  # cran, sans aucune erreur — la logLik, elle, restait juste.
+  # cran, sans aucune erreur - la logLik, elle, restait juste.
   r[["theta"]] <- rd("out_theta"); r[["beta"]] <- rd("out_beta")
   p_ <- length(r[["beta"]])
   v <- rd("out_vbeta");    if (!is.null(v)) r[["vbeta"]]    <- matrix(v, p_, p_)
@@ -1157,7 +1143,7 @@ rx_read_result <- function(dir, model = NULL, fixed_theta = NULL) {
   # LE HESSIEN. cli.py l'ECRIT deja en binaire a cote (out_hessian.bin), mais
   # ce lecteur ne le reprenait pas : cote R seul le drapeau derive
   # conv_hessien_ok survivait. Sans la matrice, un verdict "12 directions quasi
-  # nulles sur 57" n'est pas actionnable — les vecteurs propres disent QUELS
+  # nulles sur 57" n'est pas actionnable - les vecteurs propres disent QUELS
   # parametres ne sont pas identifies. Mesure sur le modele a 5 caracteres :
   # 0 valeur propre negative, 12 directions quasi nulles, conditionnement 2,4e9.
   v <- rd("out_hessian")
@@ -1243,7 +1229,7 @@ print.rx_fit <- function(x, ...) {
 # sont alors en format LONG (une ligne par unite x caractere) et l'incidence de
 # chaque colonne de Sigma est construite automatiquement. Ce format est choisi
 # plutot qu'un cbind() de reponses parce qu'il gere sans rien de special les
-# caracteres mesures sur des sous-ensembles differents d'unites — ce qui est la
+# caracteres mesures sur des sous-ensembles differents d'unites - ce qui est la
 # regle des que le phenotypage n'est pas complet.
 #
 # CE QUE LA FORMULE NE SAIT PAS DIRE : une incidence PONDEREE (voisinages,
@@ -1290,7 +1276,7 @@ print.rx_fit <- function(x, ...) {
     # doivent partager EXACTEMENT les memes niveaux : c'est ce partage qui donne
     # un sens a une covariance entre eux. Chacun garde SON incidence, ce qui
     # permet de correler un effet direct et un effet de voisinage porte par les
-    # memes genotypes — le cas qui a motive tout ceci.
+    # memes genotypes - le cas qui a motive tout ceci.
     if (fn == "str") {
       inner <- e[[2]]
       if (!inherits(eval(call("~", inner[[2]])), "formula") && !is.call(inner))
@@ -1478,15 +1464,15 @@ print.rx_fit <- function(x, ...) {
   })
 }
 
-#' Ajustement REML par formule
-#'
-#' @param fixed    formule des effets fixes (reponse a gauche)
-#' @param random   formule des termes aleatoires (cf. grammaire ci-dessus)
-#' @param residual "units" (iid), "diag" ou "us" ; ou une formule ~units
-#' @param trait    nom de la colonne de caractere (format long), ou NULL
-#' @param unit     nom de la colonne d'unite ; deux lignes de la meme unite sur
-#'                 des caracteres differents sont correlees sous residual="us"
-#' @param backend  "auto" | "gpu" | "cpu" — choix de MACHINE, jamais de modele
+# Ajustement REML par formule
+#
+# @param fixed    formule des effets fixes (reponse a gauche)
+# @param random   formule des termes aleatoires (cf. grammaire ci-dessus)
+# @param residual "units" (iid), "diag" ou "us" ; ou une formule ~units
+# @param trait    nom de la colonne de caractere (format long), ou NULL
+# @param unit     nom de la colonne d'unite ; deux lignes de la meme unite sur
+#                 des caracteres differents sont correlees sous residual="us"
+# @param backend  "auto" | "gpu" | "cpu" - choix de MACHINE, jamais de modele
 rx_reml <- function(fixed, random = NULL, residual = "units", data,
                     trait = NULL, unit = NULL,
                     backend = c("auto", "gpu", "cpu"), ...) {
@@ -1506,7 +1492,7 @@ rx_reml <- function(fixed, random = NULL, residual = "units", data,
     y <- y[ok]; X <- X[ok, , drop = FALSE]
     # Le sous-ensemblage de X PERD ses attributs : sans eux, wald() testerait
     # chaque colonne isolement au lieu du terme entier. `.keep_attr` n'existait
-    # nulle part — toute execution avec une ligne incomplete s'arretait ici sur
+    # nulle part - toute execution avec une ligne incomplete s'arretait ici sur
     # "objet introuvable".
     attr(X, "assign") <- .asg; attr(X, "termes") <- .lab[sort(unique(.asg)) + 1L]
     if (!is.null(trait)) trait <- trait[ok]
@@ -1568,8 +1554,8 @@ rx_reml <- function(fixed, random = NULL, residual = "units", data,
   splines::spline.des(kn, x, deg + 1L, 0 * x, outer.ok = TRUE)$design
 }
 
-#' Base P-spline 2D, prete pour rx_model()
-#' @return list(X = partie nulle (fixe), terms = liste de rx_term aleatoires)
+# Base P-spline 2D, prete pour rx_model()
+# @return list(X = partie nulle (fixe), terms = liste de rx_term aleatoires)
 rx_spl2d <- function(x, y, nseg = c(6L, 6L), deg = 3L, pord = 2L, prefix = "spl") {
   x <- as.numeric(x); y <- as.numeric(y); n <- length(x)
   if (length(y) != n) stop("rx_spl2d : x et y de longueurs differentes.")
@@ -1616,7 +1602,7 @@ rx_spl2d <- function(x, y, nseg = c(6L, 6L), deg = 3L, pord = 2L, prefix = "spl"
 #   les autres variables du modele fixe sont MOYENNEES :
 #     - un facteur, sur ses niveaux (poids egaux, ou proportionnels aux effectifs
 #       observes si average = "proportional") ;
-#     - une covariable, a sa MOYENNE — c'est ce que fait asreml, et c'est ce qui
+#     - une covariable, a sa MOYENNE - c'est ce que fait asreml, et c'est ce qui
 #       explique qu'une prediction "par variete" soit donnee a Column = 5.5.
 #
 # TERMES ALEATOIRES. Si une variable du classify est le facteur d'un terme

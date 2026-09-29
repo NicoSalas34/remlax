@@ -1,0 +1,68 @@
+# NAMESPACE ecrit a la main, volontairement : roxygen2 ne le regenere pas
+# (il ne reecrit que les fichiers qu'il a lui-meme produits). La liste des
+# exports est donc explicite et stable, et la documentation Rd (R/remlax-docs.R)
+# ne decide de rien quant a ce qui est visible.
+
+# --- specification ---
+export(rx_reml)
+export(rx_model)
+export(rx_term)
+export(rx_residual)
+export(rx_spl2d)
+
+# --- ajustement ---
+export(rx_fit)
+export(rx_fit_sparse)
+export(rx_predict)
+
+# --- serialisation ---
+export(rx_export)
+export(rx_read_result)
+
+# --- comptages et perimetre ---
+export(rx_n_params)
+export(rx_n_level)
+export(rx_n_loadings)
+export(rx_n_theta)
+export(rx_sparse_scope)
+export(rx_tmb_available)
+
+# --- localisation du solveur ---
+export(rx_python_cmd)
+export(rx_solver_args)
+export(rx_python_check)
+export(rx_install_python)
+
+# --- scan GWAS ---
+export(rx_scan)
+export(rx_scan_seuil)
+
+# --- dispositif : incidences de voisinage, expositions, parente ---
+export(rx_neighbourhood)
+export(rx_exposure)
+export(rx_grm)
+
+# --- ratios, erreurs-types, correlations, grille ---
+export(rx_cor_z)
+export(rx_sigma_of)
+export(rx_sigmas_from_theta)
+export(rx_se_theta)
+export(rx_ratios)
+export(rx_grid_summary)
+
+S3method(print, rx_model)
+S3method(print, rx_fit)
+S3method(print, rx_predict)
+S3method(print, rx_neighbourhood)
+S3method(print, rx_ratios)
+S3method(print, rx_grid_summary)
+
+import(Matrix)
+importFrom(jsonlite, toJSON, fromJSON)
+importFrom(stats, as.formula, model.frame, model.matrix, model.response,
+           terms, delete.response, na.pass, setNames, var, sd, pchisq, pf,
+           pnorm, qnorm, nlminb, optimHess, median, cor.test)
+importFrom(utils, read.csv, str)
+importFrom(methods, as)
+export(rx_validate)
+export(rx_validation_results)

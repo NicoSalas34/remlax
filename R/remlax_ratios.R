@@ -1,5 +1,5 @@
 # ==============================================================================
-# remlax_ratios.R — ratios, erreurs-types par methode delta, intervalles de
+# remlax_ratios.R - ratios, erreurs-types par methode delta, intervalles de
 # correlation, bilan d'une grille d'AIC. POSE A COTE de R/remlax.R
 # ==============================================================================
 # Ce fichier n'est pas source par R/remlax.R et n'en modifie rien. Il le
@@ -26,16 +26,16 @@
 # ------------------------------------------------------------------------------
 # 1. Intervalles de correlation sur l'echelle z de Fisher
 # ------------------------------------------------------------------------------
-#' @param r correlations
-#' @param se erreur-type de r sur l'echelle de la correlation (methode delta) ;
-#'   exclusif avec n
-#' @param n effectif d'une correlation de Pearson ; alors se_z = 1 / sqrt(n - 3)
-#' @param level niveau de l'intervalle
-#' @param width_max largeur au-dela de laquelle l'intervalle est declare non
-#'   informatif ; NULL pour ne pas juger
-#' @param clamp borne appliquee a r avant atanh
-#' @return data.frame : r, se, z, z_fisher, se_z, ci_low, ci_high, width,
-#'   informative, method
+# @param r correlations
+# @param se erreur-type de r sur l'echelle de la correlation (methode delta) ;
+#   exclusif avec n
+# @param n effectif d'une correlation de Pearson ; alors se_z = 1 / sqrt(n - 3)
+# @param level niveau de l'intervalle
+# @param width_max largeur au-dela de laquelle l'intervalle est declare non
+#   informatif ; NULL pour ne pas juger
+# @param clamp borne appliquee a r avant atanh
+# @return data.frame : r, se, z, z_fisher, se_z, ci_low, ci_high, width,
+#   informative, method
 rx_cor_z <- function(r, se = NULL, n = NULL, level = 0.95, width_max = 1.5,
                      clamp = 0.999999) {
   r <- as.numeric(r)
@@ -97,7 +97,7 @@ rx_cor_z <- function(r, se = NULL, n = NULL, level = 0.95, width_max = 1.5,
   L
 }
 
-#' Sigma d'une structure a partir de son theta (t x t)
+# Sigma d'une structure a partir de son theta (t x t)
 rx_sigma_of <- function(th, struct, t, rank = 0L) {
   switch(struct,
     iid  = exp(2 * th[1L]) * diag(t),
@@ -148,12 +148,12 @@ rx_sigma_of <- function(th, struct, t, rank = 0L) {
   out
 }
 
-#' Toutes les matrices Sigma (termes, puis sections residuelles) depuis theta
-#'
-#' @param theta vecteur theta du solveur
-#' @param model le rx_model ajuste
-#' @return liste nommee de matrices t x t avec dimnames ; les sections residuelles
-#'   sont nommees "residual" ou "residual:<section>"
+# Toutes les matrices Sigma (termes, puis sections residuelles) depuis theta
+#
+# @param theta vecteur theta du solveur
+# @param model le rx_model ajuste
+# @return liste nommee de matrices t x t avec dimnames ; les sections residuelles
+#   sont nommees "residual" ou "residual:<section>"
 rx_sigmas_from_theta <- function(theta, model) {
   lay <- .rx_theta_layout(model)
   if (length(theta) != attr(lay, "n_theta"))
@@ -241,25 +241,25 @@ rx_sigmas_from_theta <- function(theta, model) {
   unlist(x)
 }
 
-#' Ratios, parts, heritabilites, tau2, correlations et leurs erreurs-types
-#'
-#' @param fit rx_fit avec theta, hessian, par_floor, par_ceil
-#' @param components data.frame, une ligne par cible : target, direct,
-#'   indirect_within (NA si absente), indirect_between (NA si absente), other
-#'   (references separees par "+", composantes additives de la variance
-#'   phenotypique), et facultativement group
-#' @param exposure data.frame, une ligne par cible : target, d, k_within,
-#'   k_between, c, S_within, S_between, k_other ("ref=val+ref=val") ; NULL = 1
-#' @param model le rx_model si fit ne le porte pas
-#' @param quantities sous-ensemble de variances, shares, h2, h2_ext, tau2,
-#'   correlations, residual_correlations, tbv
-#' @param scale appliquer exposure
-#' @param level,width_max passes a rx_cor_z pour les correlations
-#' @param jacobian "numeric" (differences finies centrees)
-#' @param curvature "project" ou "refuse" face a une valeur propre negative de H
-#' @param bound_tol,dep_bound tolerances pour les bornes
-#' @param step pas relatif des differences finies
-#' @return data.frame long de classe rx_ratios
+# Ratios, parts, heritabilites, tau2, correlations et leurs erreurs-types
+#
+# @param fit rx_fit avec theta, hessian, par_floor, par_ceil
+# @param components data.frame, une ligne par cible : target, direct,
+#   indirect_within (NA si absente), indirect_between (NA si absente), other
+#   (references separees par "+", composantes additives de la variance
+#   phenotypique), et facultativement group
+# @param exposure data.frame, une ligne par cible : target, d, k_within,
+#   k_between, c, S_within, S_between, k_other ("ref=val+ref=val") ; NULL = 1
+# @param model le rx_model si fit ne le porte pas
+# @param quantities sous-ensemble de variances, shares, h2, h2_ext, tau2,
+#   correlations, residual_correlations, tbv
+# @param scale appliquer exposure
+# @param level,width_max passes a rx_cor_z pour les correlations
+# @param jacobian "numeric" (differences finies centrees)
+# @param curvature "project" ou "refuse" face a une valeur propre negative de H
+# @param bound_tol,dep_bound tolerances pour les bornes
+# @param step pas relatif des differences finies
+# @return data.frame long de classe rx_ratios
 rx_ratios <- function(fit, components, exposure = NULL, model = NULL,
                       quantities = c("variances", "shares", "h2", "h2_ext", "tau2",
                                      "correlations", "residual_correlations", "tbv"),
@@ -547,15 +547,15 @@ print.rx_ratios <- function(x, ...) {
 # ------------------------------------------------------------------------------
 # 4. Bilan AIC d'une grille d'ajustements
 # ------------------------------------------------------------------------------
-#' @param table data.frame, une ligne par ajustement
-#' @param coords noms des colonnes qui definissent une cellule
-#' @param aic,loglik,n_par noms de colonnes ; aic recalcule si absent
-#' @param by colonne(s) separant des grilles non comparables
-#' @param tol largeur de l'ensemble soutenu en unites d'AIC
-#' @param pd,n_at_bound,n_par_free,n_obs noms de colonnes optionnelles
-#' @param effective calculer aussi le bilan sous AIC_eff = 2 n_par_free - 2 logLik
-#' @return liste de classe rx_grid_summary : best, supported, ranges, n_supported,
-#'   n_product, counts, best_pd, effective, delta
+# @param table data.frame, une ligne par ajustement
+# @param coords noms des colonnes qui definissent une cellule
+# @param aic,loglik,n_par noms de colonnes ; aic recalcule si absent
+# @param by colonne(s) separant des grilles non comparables
+# @param tol largeur de l'ensemble soutenu en unites d'AIC
+# @param pd,n_at_bound,n_par_free,n_obs noms de colonnes optionnelles
+# @param effective calculer aussi le bilan sous AIC_eff = 2 n_par_free - 2 logLik
+# @return liste de classe rx_grid_summary : best, supported, ranges, n_supported,
+#   n_product, counts, best_pd, effective, delta
 rx_grid_summary <- function(table, coords, aic = "AIC", loglik = "logLik", n_par = "n_par",
                             by = NULL, tol = 2, pd = "pd_hessian", n_at_bound = "n_at_bound",
                             n_par_free = "n_par_free", n_obs = "n_obs", effective = FALSE) {

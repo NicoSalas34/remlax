@@ -1,2 +1,0 @@
-"date","tag","backend","case","n","reps","q","n_par","software","version","status","wall_s","startup_s","compile_s","solver_s","n_iter","n_eval","s_per_iter","s_per_eval","eval_s","converged","logLik","components","error"
-"2026-09-28","asreml_cpu8_ige16k","cpu","ige",16000,4,4000,8,"asreml","4.2.0.480","ok",5422.444,NA,NA,5422.444,12,12,451.8703,451.8703,NA,TRUE,"-13850.232859","0.922931;-0.383465;0.32464;0.205406;0.48445;0.592134;0.36677;0.463998",""

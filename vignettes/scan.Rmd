@@ -1,0 +1,381 @@
+---
+title: "Genome-wide scans at fixed covariance"
+output: rmarkdown::html_vignette
+vignette: >
+  %\VignetteIndexEntry{Genome-wide scans at fixed covariance}
+  %\VignetteEngine{knitr::rmarkdown}
+  %\VignetteEncoding{UTF-8}
+---
+
+<!-- Code blocks are shown, not run: CRAN builds vignettes without Python.
+     Every block was executed with remlax and its output pasted underneath. -->
+
+*Module pose a cote du solveur. Il n'est importe par aucun autre module de
+remlax et n'en modifie aucun : il consomme la SORTIE de `fit_reml`.*
+
+| fichier | role |
+|---|---|
+| `src/remlax/scan.py` | l'algebre : projection, familles de covariables, tests. Numpy pur, **pas besoin de JAX** |
+| `src/remlax/scan_cli.py` | point d'entree `python -m remlax.scan_cli`, a cote de `cli.py` |
+| `R/remlax_scan.R` | `rx_scan()` / `rx_scan_seuil()`, a cote de `R/remlax.R` |
+| `tests/python/test_scan.py` | le scan contre le test de Wald, colonne ajoutee a X |
+| `validation/etude_scan_familles.py` | quelle covariable detecte quel mecanisme |
+
+---
+
+## 1. Ce que c'est
+
+Un GWAS de type EMMAX (Kang et al. 2010) : les composantes de variance sont
+estimees **une fois** sous l'hypothese nulle, puis chaque SNP est teste comme
+effet fixe **a V figee**. Pour une colonne `s` ajoutee a `X`,
+
+```
+beta_s = (s'Ps)^-1 s'Py      var(beta_s) = (s'Ps)^-1      chi2 = (s'Py)^2/(s'Ps)
+P = V^-1 - V^-1 X (X'V^-1 X)^-1 X'V^-1
+```
+
+soit la formule de `inference.wald` reecrite pour une colonne. V ne bougeant
+pas, le score et le Wald coincident.
+
+**Ce que remlax apporte ici.** `gaston` et `statgenGWAS` accelerent le scan en
+diagonalisant `V = sigma_g^2 K + sigma_e^2 I` : un seul noyau, une residuelle
+iid. Deux noyaux (direct et indirect), une residuelle AR1, des sections
+residuelles heterogenes : plus rien ne se diagonalise. `remlax.scan` n'a pas
+besoin de diagonaliser, donc il accepte **toute** V que le solveur sait
+assembler.
+
+**Pourquoi ce n'est pas une boucle sur les SNP.** Les covariables marqueurs
+vivent au niveau **genotype** (q de l'ordre de quelques centaines), pas au
+niveau observation. On projette P une fois sur les incidences du dispositif —
+`c_f = Z_f' P y`, `C_fg = Z_f' P Z_g` — et les p statistiques sortent de
+produits matriciels en dimension q :
+
+```
+num_f(j)  = m_j' c_f            den_fg(j) = m_j' C_fg m_j
+```
+
+Le cout passe de O(n^2 p) a O(q^2 p). Et la projection ne coute **aucune
+factorisation nouvelle** : `fit_reml` renvoie deja `Vi`, `vbeta` et `Py`, donc
+`C_fg = Z_f' Vi Z_g - (Z_f' Vi X) vbeta (X' Vi Z_g)`.
+
+---
+
+## 2. Les trois familles de covariables
+
+Avec `m_j` les doses du SNP j, `Z_dir` l'incidence du genotype porte par la
+plante et `Z_ind` celle des genotypes de ses voisins (ponderee) :
+
+| famille | covariable | interpretation |
+|---|---|---|
+| `dir` | `Z_dir m` | effet genetique **direct** — le GWAS standard |
+| `ind` | `Z_ind m` | effet genetique **indirect** : dose allelique du voisin |
+| `sim` | `(Z_dir m) * (Z_ind m)` | **similarite** allelique focal x voisin |
+
+`sim` est la covariable de Sato et al. (2021, 2024) : en codage +/-1 le produit
+vaut +1 quand le voisin porte le meme allele et -1 sinon. C'est aussi, exactement,
+le terme d'**interaction** entre l'effet direct et l'effet du voisin — un
+DGE x IGE.
+
+**Les deux modeles publies ne se contiennent pas.** Le modele de Sato porte
+`dir` et `sim`, jamais `ind`. Le modele d'effets genetiques indirects au sens de
+Muir (2005) et Bijma (2011) porte `dir` et `ind`, jamais `sim`. Ce ne sont pas
+deux parametrisations d'une meme hypothese : ce sont deux hypotheses
+biologiques distinctes.
+
+- `ind` : le voisin porteur de l'allele A deprime le focal, **quel que soit** le
+  genotype du focal. Un effet de dose.
+- `sim` : ce qui compte est la **concordance** allelique. Un effet de
+  frequence, celui que Sato relie a l'overyielding en melange (2024, 2026).
+
+`sim` exige des doses **centrees** (codage +/-1). En codage 0/1/2 le produit
+n'est pas une similarite ; `scan()` refuse alors la famille plutot que de
+rendre un resultat que rien ne signale comme faux.
+
+---
+
+## 3. Specifications de test
+
+La barre denote un test **conditionnel** — le terme sachant les autres, comme
+dans asreml et dans `inference.wald`.
+
+| specification | ddl | question posee |
+|---|---|---|
+| `dir` | 1 | GWAS standard |
+| `ind` | 1 | effet additif du voisin, seul |
+| `sim` | 1 | similarite, seule |
+| `dir+sim` | 2 | **le modele de Sato** |
+| `dir+ind` | 2 | **le modele d'IGE additif** |
+| `dir+ind+sim` | 3 | les trois familles |
+| `ind\|dir+sim` | 1 | y a-t-il un effet additif du voisin **en plus** du modele de Sato ? |
+| `sim\|dir+ind` | 1 | y a-t-il une interaction **en plus** des effets additifs ? |
+
+Les deux dernieres lignes sont les tests qui n'existaient nulle part et qui
+tranchent entre les deux lectures.
+
+---
+
+## 4. Quelle covariable detecte quel mecanisme
+
+`validation/etude_scan_familles.py`. Dispositif randomise en blocs, n = 360
+observations, q = 90 genotypes, p = 300 SNP, 300 repetitions. Fond polygenique
+direct + indirect avec covariance (`us` 2x2) et residuelle AR1 dans les blocs ;
+le modele nul du scan est le vrai modele. Un SNP causal dont le mecanisme varie,
+avec une contribution calibree **en variance** (ecart-type 0,40) et non en
+coefficient — les trois covariables n'ont pas la meme dispersion, et comparer a
+coefficient egal comparerait des signaux d'amplitude differente.
+
+Detection du SNP causal au seuil de Bonferroni, en % :
+
+| modele teste | lambda | effet direct | allele du voisin | similarite | les deux |
+|---|---|---|---|---|---|
+| `dir` | 1,03 | **30** | 0 | 0 | 0 |
+| `ind` | 1,02 | 0 | **97** | 0 | 53 |
+| `sim` | 0,99 | 0 | 0 | **99** | 74 |
+| `dir+sim` *(Sato)* | 1,01 | 21 | **0** | 98 | 62 |
+| `dir+ind` *(IGE additif)* | 1,01 | 22 | 94 | **0** | 44 |
+| `dir+ind+sim` | 1,00 | 18 | 91 | 97 | **95** |
+| `ind\|dir+sim` | 1,01 | 0 | 96 | 0 | 54 |
+| `sim\|dir+ind` | 0,99 | 0 | 0 | 99 | 73 |
+
+Les huit tests sont calibres (lambda de 0,99 a 1,03), donc les puissances sont
+comparables entre elles.
+
+**Ce que la table dit.**
+
+1. **Aucun des deux modeles publies ne voit le mecanisme de l'autre**, et la
+   cecite est totale, pas partielle : 0 % dans les deux cas. Le terme produit de
+   Sato n'est pas une approximation d'un effet additif de voisinage, et
+   reciproquement. En randomisation, la dose du voisin et le produit focal x
+   voisin sont pratiquement orthogonaux.
+2. **Le test conditionnel repond directement.** `ind|dir+sim` detecte l'effet
+   additif du voisin dans 96 % des cas et ne se declenche jamais sur une
+   similarite pure ; `sim|dir+ind` fait l'exact symetrique. Ce sont les deux
+   tests a demander quand on ne sait pas quel mecanisme opere — et on ne le sait
+   jamais a l'avance.
+3. **Le modele a trois familles est le seul robuste au melange des
+   mecanismes.** Quand les deux operent a la fois — le cas realiste — il atteint
+   95 %, contre 62 % pour le modele de Sato et 44 % pour le modele additif. Le
+   prix des degres de liberte supplementaires est de l'ordre de 3 a 6 points
+   quand un seul mecanisme opere (91 contre 97, 97 contre 99).
+
+**Ce que la table ne dit pas.** Elle ne porte pas sur la specification des
+composantes de variance : le fond polygenique simule est direct + indirect, sans
+noyau de similarite, et le nul lui correspond. Le point separe — un nul qui omet
+la composante correspondant a la covariable testee produit des faux positifs
+(lambda 1,48), et une residuelle iid quand la verite est AR1 aussi (lambda 1,12)
+— est traite dans la note de conception.
+
+---
+
+## 5. Validation externe
+
+`validation/etude_scan_vs_rrblup.R` puis `.py`. Le scan accepte des V que les
+paquets de GWAS ne savent pas traiter, donc **il n'existe aucune reference
+externe sur le cas qui nous interesse**. Il en existe une sur le cas degenere ou
+les deux sont censes coincider : un seul noyau, residuelle iid, une observation
+par genotype — le modele d'EMMAX. `rrBLUP::GWAS(P3D = TRUE)` sert de reference
+(du R pur, donc chargeable partout ; `etude_scan_vs_statgen.R`, a cote, fait la
+meme chose avec statgenGWAS pour qui peut le charger). Les composantes de
+variance sont celles estimees par rrBLUP, imposees au scan : ce qui est teste
+est l'algebre du scan, pas l'estimation des composantes, deja testee ailleurs.
+
+**Les deux ne testent pas tout a fait la meme chose, et c'est reconstructible
+exactement.** rrBLUP reestime l'echelle residuelle **a chaque SNP**, sur les
+residus du modele qui contient le SNP, et rapporte un F(1, n−2) ; le scan garde
+l'echelle du modele nul et rapporte un chi2 a 1 ddl. La relation est exacte et
+ne demande rien de neuf en dimension n :
+
+```
+Fstat_j = chi2_j * v2 / (y'Py - num_j^2/den_j)        v2 = n - 2
+```
+
+`num_j` et `den_j` sont des colonnes de la sortie du scan, `y'Py` un scalaire
+calcule une fois — c'est precisement pourquoi ces quantites brutes sont
+conservees (§8).
+
+Sur q = 250 genotypes et p = 800 SNP, le score de rrBLUP reconstruit de cette
+facon coincide avec le sien a **3,2·10⁻¹¹** au maximum, sur les 800 SNP. Il ne
+reste donc aucun desaccord d'algebre : les deux implementations resolvent le
+meme GLS, et l'ecart de convention est entierement explique.
+
+**Ce que coute la convention a V figee, mesure.** Meme jeu, un SNP causal de
+gros effet :
+
+| | chi2 a V figee | F de rrBLUP | ecart |
+|---|---|---|---|
+| SNP causal | 9,778 | 10,554 | **−0,776** |
+| SNP nuls (mediane) | — | — | +0,0007 |
+| SNP nuls (quantiles 5–95 %) | — | — | [−0,0011 ; +0,0014] |
+
+en −log₁₀(p). Lecture : **sur les SNP nuls les deux conventions sont
+indiscernables** — le controle du risque et le lambda ne sont pas affectes — mais
+**sur un SNP de gros effet le test a V figee perd 0,78 unite de −log₁₀(p)**, soit
+un facteur ~6 sur la p-valeur. C'est la conservativite annoncee en §9, ici
+chiffree : elle ne coute rien sur la calibration et elle coute quelque chose sur
+la tete de liste. C'est l'argument, avec un ordre de grandeur, pour le
+reajustement exact des tetes de liste.
+
+---
+
+## 6. Cout, mesure
+
+Sur 20 coeurs, en double precision, aux dimensions du projet IGE
+(n = 16 211 observations, q = 286 genotypes, 8 effets fixes) :
+
+| poste | mesure a p = 2 000 | extrapole a p = 127 562 |
+|---|---|---|
+| projection (une fois, independante de p) | 1,59 s | 1,59 s |
+| scan `dir`, `ind`, `dir+ind` | 0,06 s | **3,6 s** |
+| scan `dir+ind+sim` | 5,08 s | **324 s** |
+
+Le poste `sim` est un produit `Vi @ S3` par blocs de SNP, mesure a
+207 GFLOPS fp64, soit 6,7·10^13 operations au format complet. C'est le seul
+poste en dimension n du module ; il est lineaire en p, d'ou l'extrapolation. Sur
+GPU c'est un GEMM ordinaire : passer `xp=jax.numpy` a `scan()` y substitue le
+peripherique sans changer le reste.
+
+Autrement dit : les familles lineaires sont gratuites devant l'ajustement nul,
+et la famille bilineaire coute quelques minutes de CPU. La question etait
+ouverte dans la note de conception ; elle est fermee, et elle est fermee du bon
+cote.
+
+---
+
+## 7. Utilisation
+
+**Depuis R**, sur un modele deja ajuste — rien n'est reajuste, le theta estime
+est relu et seulement **evalue** :
+
+```r
+source("R/remlax.R")
+source("R/remlax_scan.R")
+
+fit  <- rx_fit(modele)                       # l'ajustement habituel
+gwas <- rx_scan(fit, modele,
+                marqueurs  = M,              # q x p, doses GENOTYPIQUES en +/-1
+                carte      = carte,          # snp, chr, pos
+                incidences = c(dir = "gen", ind = "voisin"),
+                tests      = c("dir", "ind", "dir+ind+sim",
+                               "ind|dir+sim", "sim|dir+ind"),
+                maf = 0.05)
+attr(gwas, "meta")$lambda_gc                 # controle genomique par test
+rx_scan_seuil(gwas, "ind|dir+sim")           # Bonferroni sur les SNP testes
+```
+
+`incidences` nomme les **termes du modele** qui portent Z_soi et Z_voisin, pas
+des matrices : le scan utilise ainsi, par construction, le dispositif du modele
+nul. Un scan mene sur une incidence differente de celle de l'ajustement serait
+un defaut silencieux ; l'interface l'interdit.
+
+### Faut-il reajuster le modele ?
+
+**Non pour l'estimation, oui pour une evaluation.** Les composantes de variance
+ne sont PAS reestimees : `rx_scan` reecrit le theta de `fit` dans le paquet et
+lance le solveur avec `--theta-in --maxiter 0`, ce que `fit_reml` court-circuite
+explicitement (« evaluation seule, aucune optimisation », `n_iter = 0`).
+
+Mais `Vi`, `vbeta` et `Py` sont des objets en n x n qui vivent dans le PROCESSUS
+de l'ajustement et ne sont jamais ecrits sur disque — a n = 16 000, `Vi` pese
+2 Go. Il faut donc reassembler V une fois et la factoriser. C'est **une
+evaluation de l'objectif**, pas un ajustement.
+
+Mesure sur un dispositif de n = 480, q = 120, deux noyaux, p = 400 SNP :
+
+| | temps | |
+|---|---|---|
+| ajustement complet (`rx_fit`) | 12,84 s | 10 iterations |
+| `rx_scan` de bout en bout, vu de R | 12,78 s | export du paquet, lancement du processus, import de JAX, compilation, evaluation, inverse, scan |
+| dont l'etape « modele nul » du solveur | 8,98 s | `n_iter = 0` |
+| dont projection | 0,006 s | |
+| dont scan de 400 SNP, 4 tests | 0,252 s | |
+
+Le controle qui compte : `-2logL` reevalue = 1651,222759 contre 1651,2228 a
+l'ajustement, **ecart 0,000e+00**. C'est le meme theta, la meme vraisemblance,
+au bit pres — donc rien n'a ete reestime.
+
+Le solveur journalise separement, sur le meme modele, `[compilation] 4,0 s | une
+evaluation : 0,015 s`. C'est le chiffre a retenir pour dimensionner : **une
+evaluation coute 15 ms**, et tout le reste des 12,78 s est du demarrage —
+lancement du processus, import de JAX, compilation, ecriture du paquet et
+inverse explicite. Aucun de ces postes n'est de l'optimisation, et aucun ne
+croit avec p. Le detail poste par poste des 12,78 s n'a pas ete instrumente ;
+seules les trois lignes du tableau sont chronometrees separement.
+
+Consequence pratique : pour scanner un modele deja ajuste, **la seule chose dont
+`rx_scan` a besoin est son theta**. Si le pipeline conserve theta (il le produit
+sous `theta_06v.npy`, aujourd'hui declare hors contrat), un scan se lance sans
+retoucher a l'ajustement.
+
+**Cas inter-especes.** Quand les voisins appartiennent a une autre espece,
+`marqueurs = list(dir = M_ble, ind = M_luzerne)` : le scan teste l'effet des
+alleles du **partenaire** sur le phenotype du focal. Les tests conjoints sont
+alors refuses, parce que la colonne j des deux matrices ne designe pas le meme
+SNP.
+
+**Depuis Python**, si l'on est deja dans le processus de l'ajustement :
+
+```python
+from remlax.scan import projeter, scan, lambda_gc
+proj = projeter(fit, X, {"dir": Zdir, "ind": Zind})
+r = scan(proj, M, tests=["dir", "ind", "ind|dir+sim"])
+lambda_gc(r["chi2_ind|dir+sim"])
+```
+
+---
+
+## 8. Sorties
+
+Un vecteur par SNP. Pour chaque test demande : `chi2_<test>`, `ddl_<test>`,
+`p_<test>`, et pour les tests a 1 ddl `beta_<test>` et `se_<test>`. Plus :
+
+- `num_<f>`, `den_<f>_<g>` — les quantites brutes du score, gardees parce
+  qu'elles permettent de reconstruire n'importe quel contraste apres coup sans
+  refaire le scan ;
+- `den_ind_ind` — **la mesure d'information** disponible pour l'effet indirect
+  a ce SNP. La covariable de voisinage est une moyenne sur J voisins : sa
+  variance s'effondre pour les alleles rares. Filtrer la-dessus, pas seulement
+  sur la MAF ;
+- `r_dir_ind` — la correlation entre covariable directe et indirecte,
+  **conditionnellement a V et X**. C'est l'avertissement central de Sato (2021),
+  qu'il diagnostique par simulation, obtenu ici comme sous-produit exact. Un SNP
+  a `|r|` proche de 1 n'a pas d'effets direct et indirect separables : le lire
+  sur le test conjoint, pas sur les partiels.
+
+---
+
+## 9. Ce qui manque
+
+- **Multivarie.** Les formules sont les memes avec N = n t et un bloc 2t x 2t
+  par SNP ; le code ne le fait pas encore et `rx_scan` refuse un terme a t > 1
+  plutot que de rendre un resultat faux.
+- **Re-ajustement exact des tetes de liste.** A V figee, un SNP de gros effet
+  est teste sous une variance residuelle surestimee : le test est conservateur
+  pour lui. La parade est de reajuster le top 0,1 % avec le SNP dans X, en
+  demarrage a chaud depuis theta (`--theta-in`), et de rendre un LRT — la
+  procedure emboitee de Sato, mais seulement la ou elle compte.
+- **LOCO.** Un ajustement nul par chromosome, contre la contamination du noyau
+  par le SNP teste. Retirer un chromosome le retire de K_direct **et** de
+  K_indirect ; c'est coherent, mais cela multiplie par 21 (ble) le nombre
+  d'ajustements nuls, et le gain reste a mesurer.
+- **Portee du voisinage estimee par REML** plutot que balayee sur grille comme
+  chez Sato (J = 0, 4, 12). Le gradient de remlax etant analytique en V, un
+  parametre de decroissance de voisinage recoit son gradient sans code
+  supplementaire ; reste a verifier son identifiabilite conjointe avec
+  sigma^2_indirect.
+- **Permutations.** Permuter les positions genomiques ne change pas V : le nul
+  est reutilise, c'est gratuit. Permuter les voisinages change Z_ind **et** le
+  noyau indirect : il faut reajuster le nul a chaque permutation.
+
+---
+
+## References
+
+- Kang H.M. et al. (2010) Nat Genet 42:348. doi:10.1038/ng.548 — EMMAX.
+- Sato Y., Yamamoto E., Shimizu K.K., Nagano A.J. (2021) Heredity 126:597.
+  doi:10.1038/s41437-020-00401-w — Neighbor GWAS.
+- Sato Y. et al. (2024) Nat Commun. doi:10.1038/s41467-024-52374-7 — prediction
+  de melange a partir des effets de voisinage.
+- Sato Y. (2026) Phil Trans R Soc B. doi:10.1098/rstb.2025.0179 — similarite,
+  selection dependante de la frequence et overyielding.
+- Muir W.M. (2005) Genetics 170:1247 ; Bijma P. (2011) Heredity 106:872 —
+  effets genetiques indirects, forme additive.

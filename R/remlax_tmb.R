@@ -29,12 +29,12 @@
 #   entre niveaux      id, ar1, ar1ar1, et une parente fournie en A^-1 creuse
 #   residuelle         iid, diag entre caracteres
 #
-# Tout le reste — noyaux metriques, mtrn, sph, cor, parente genomique — a un
+# Tout le reste - noyaux metriques, mtrn, sph, cor, parente genomique - a un
 # inverse PLEIN et ne gagnerait rien : ces modeles restent sur le moteur dense.
 # Ce n'est pas une limitation temporaire, c'est le resultat du diagnostic de
 # remlax.sparsity : sur la forme reelle d'un modele IGE (parente genomique plus
 # champ spatial a q = n), C est 1,5 fois plus grande que V et remplie a 81 %, et
-# l'avantage du creux tombe a un facteur 4 en flops — qui ne survit pas aux
+# l'avantage du creux tombe a un facteur 4 en flops - qui ne survit pas aux
 # surcouts des formats creux.
 #
 # AUCUNE INVERSION NUMERIQUE. Les trois structures de niveaux retenues ont un
@@ -59,7 +59,7 @@
 # RTMB exporte ses propres `matrix`, `diag` et `solve`. Elles ne sont visibles
 # que si le paquet est ATTACHE (library(RTMB)) ou nommee explicitement. Ce
 # fichier n'appelle que RTMB::MakeADFun, donc a l'interieur de l'objectif ces
-# trois fonctions resolvaient vers les versions de base — lesquelles rendent un
+# trois fonctions resolvaient vers les versions de base - lesquelles rendent un
 # objet numerique ordinaire et PERDENT l'attribut de classe differentiable. Le
 # symptome etait :
 #
@@ -67,7 +67,7 @@
 #
 # leve par t() sur un objet deja degrade par matrix(). Diagnostic contre-intuitif :
 # une sonde a montre que les cinq facons de CONSTRUIRE une matrice triangulaire
-# differentiable marchent toutes, y compris matrix(0) puis assignation — a
+# differentiable marchent toutes, y compris matrix(0) puis assignation - a
 # condition que `matrix` soit celle de RTMB. Le probleme n'etait donc pas
 # l'ecriture mais la RESOLUTION DE NOM.
 #
@@ -75,7 +75,7 @@
 # plutot que d'attacher RTMB globalement : un fichier de paquet ne doit pas
 # masquer base::matrix chez son utilisateur. Sur des entrees numeriques ces
 # surcharges se comportent comme celles de base, donc les memes fonctions
-# restent utilisables hors differentiation — c'est ce que verifie le test de
+# restent utilisables hors differentiation - c'est ce que verifie le test de
 # concordance.
 #
 # PIEGE MESURE AU PASSAGE : backsolve() ne leve AUCUNE erreur sur un advector,
@@ -96,21 +96,21 @@ rx_tmb_available <- function() {
 # -----------------------------------------------------------------------------
 # Perimetre
 # -----------------------------------------------------------------------------
-#' Longueur du vecteur theta d'un modele
-#'
-#' Utile des qu'on veut IMPOSER un theta : un banc apparie doit evaluer les deux
-#' moteurs au MEME point, sinon chacun part de son theta initial et les
-#' vraisemblances rapportees ne sont pas comparables. Mesure du piege : les
-#' valeurs divergeaient de 1e-5 a 9e-3 en croissant avec le nombre de
-#' caracteres, ce qui ressemblait a un defaut de formulation, alors qu'a theta
-#' commun les deux moteurs s'accordent a 1e-12.
-#'
-#' Le decoupage est celui du moteur dense, et les deux moteurs comptent a
-#' l'identique — verifie par la suite de concordance.
-#'
-#' @param model objet rx_model
-#' @return entier
-#' @export
+# Longueur du vecteur theta d'un modele
+#
+# Utile des qu'on veut IMPOSER un theta : un banc apparie doit evaluer les deux
+# moteurs au MEME point, sinon chacun part de son theta initial et les
+# vraisemblances rapportees ne sont pas comparables. Mesure du piege : les
+# valeurs divergeaient de 1e-5 a 9e-3 en croissant avec le nombre de
+# caracteres, ce qui ressemblait a un defaut de formulation, alors qu'a theta
+# commun les deux moteurs s'accordent a 1e-12.
+#
+# Le decoupage est celui du moteur dense, et les deux moteurs comptent a
+# l'identique - verifie par la suite de concordance.
+#
+# @param model objet rx_model
+# @return entier
+# @export
 rx_n_theta <- function(model) {
   # COMPTE GENERAL, PAS SEULEMENT CELUI DU PERIMETRE CREUX. La version
   # precedente passait par rx_n_sigma_params et rx_n_level_params, qui ne
@@ -140,18 +140,18 @@ rx_n_theta <- function(model) {
 RX_SPARSE_SIGMA <- c("iid", "diag", "us")
 RX_SPARSE_LEVEL <- c("id", "iid", "ar1", "ar1ar1", "prec")   # "prec" = A^-1 fournie
 
-#' Le modele est-il dans le perimetre du moteur creux ?
-#'
-#' Rend une liste (ok, reason). La raison est destinee a l'utilisateur : elle
-#' nomme la structure qui sort du perimetre plutot que de dire « non ».
-#' Structure de niveaux effective d'un terme rx_term.
-#'
-#' `level = "auto"` est la valeur par defaut de rx_term : elle signifie « pas de
-#' structure entre niveaux », sauf si une parente est fournie. Une parente en
-#' `LK` est un facteur de Cholesky DENSE, donc hors perimetre creux ; une parente
-#' en `Kinv` est une precision creuse, donc dedans. Cette resolution est faite
-#' ici et nulle part ailleurs, pour que le perimetre et l'objectif ne puissent
-#' pas en avoir deux lectures differentes.
+# Le modele est-il dans le perimetre du moteur creux ?
+#
+# Rend une liste (ok, reason). La raison est destinee a l'utilisateur : elle
+# nomme la structure qui sort du perimetre plutot que de dire « non ».
+# Structure de niveaux effective d'un terme rx_term.
+#
+# `level = "auto"` est la valeur par defaut de rx_term : elle signifie « pas de
+# structure entre niveaux », sauf si une parente est fournie. Une parente en
+# `LK` est un facteur de Cholesky DENSE, donc hors perimetre creux ; une parente
+# en `Kinv` est une precision creuse, donc dedans. Cette resolution est faite
+# ici et nulle part ailleurs, pour que le perimetre et l'objectif ne puissent
+# pas en avoir deux lectures differentes.
 rx_level_of <- function(tm) {
   lv <- tm$level %||% "auto"
   if (!is.null(tm$Kinv)) return("prec")
@@ -184,16 +184,16 @@ rx_sparse_scope <- function(terms, residual = NULL) {
   list(ok = TRUE, reason = "dans le perimetre")
 }
 
-`%||%` <- function(a, b) if (is.null(a)) b else a
+# (paquet : `%||%` est defini une fois, dans remlax.R)
 
 # -----------------------------------------------------------------------------
 # Parametrisation entre caracteres : PORT de structures.chol_sigma
 # -----------------------------------------------------------------------------
-#' Facteur L tel que Sigma = L L'.
-#'
-#' L'ordre de theta est celui du cote Python et il est LOAD-BEARING : triangle
-#' inferieur ligne par ligne (i croissant, puis j <= i), diagonale exponentiee.
-#' Toute divergence ici rend les deux moteurs incomparables sans lever d'erreur.
+# Facteur L tel que Sigma = L L'.
+#
+# L'ordre de theta est celui du cote Python et il est LOAD-BEARING : triangle
+# inferieur ligne par ligne (i croissant, puis j <= i), diagonale exponentiee.
+# Toute divergence ici rend les deux moteurs incomparables sans lever d'erreur.
 rx_chol_sigma_R <- function(theta, struct, t) {
   .rx_ad()                     # matrix/diag/solve : versions de RTMB
   t <- as.integer(t)
@@ -218,13 +218,13 @@ rx_n_sigma_params <- function(struct, t) {
 # -----------------------------------------------------------------------------
 # Precision entre niveaux : K^-1 CREUSE et log|K|, tous deux analytiques
 # -----------------------------------------------------------------------------
-#' Precision d'un AR(1) de correlation K_ij = phi^|i-j|.
-#'
-#' Forme close, tridiagonale :
-#'   K^-1 = 1/(1-phi^2) * T,  T_11 = T_qq = 1, T_ii = 1+phi^2 sinon,
-#'                            T_{i,i+1} = T_{i+1,i} = -phi
-#' et det(K) = (1-phi^2)^(q-1). Aucune factorisation n'est faite : c'est
-#' precisement pourquoi ar1 est dans le perimetre creux.
+# Precision d'un AR(1) de correlation K_ij = phi^|i-j|.
+#
+# Forme close, tridiagonale :
+#   K^-1 = 1/(1-phi^2) * T,  T_11 = T_qq = 1, T_ii = 1+phi^2 sinon,
+#                            T_{i,i+1} = T_{i+1,i} = -phi
+# et det(K) = (1-phi^2)^(q-1). Aucune factorisation n'est faite : c'est
+# precisement pourquoi ar1 est dans le perimetre creux.
 rx_ar1_prec <- function(phi, q) {
   q <- as.integer(q)
   s <- 1 - phi * phi
@@ -234,7 +234,7 @@ rx_ar1_prec <- function(phi, q) {
   list(P = P, logdet = (q - 1) * log(s))
 }
 
-#' K^-1 et log|K| d'un terme, sur l'echelle non contrainte de theta.
+# K^-1 et log|K| d'un terme, sur l'echelle non contrainte de theta.
 rx_level_prec_R <- function(theta_lv, kind, q, dims = NULL, Kinv = NULL,
                             Kinv_logdet = NULL) {
   q <- as.integer(q)
@@ -285,7 +285,7 @@ rx_n_level_params <- function(kind) {
 # differentiables et ecrire u' K^-1 u. On ne le fait pas, pour deux raisons :
 #
 #  1. Cela suppose que la bibliotheque de differentiation sache porter des
-#     valeurs AD dans un format creux — une dependance a une API dont le
+#     valeurs AD dans un format creux - une dependance a une API dont le
 #     comportement varie selon les versions.
 #  2. C'est inutile. Pour les trois structures du perimetre, la forme quadratique
 #     a une expression FERMEE en vecteurs, exacte et differentiable sans effort :
@@ -300,7 +300,7 @@ rx_n_level_params <- function(kind) {
 # Une K^-1 FOURNIE (parente genealogique) est un cas different : ses entrees sont
 # des constantes, donc un produit matriciel creux ordinaire suffit.
 
-#' u' K^-1 u pour un AR(1), sans former la matrice.
+# u' K^-1 u pour un AR(1), sans former la matrice.
 rx_quad_ar1 <- function(u, phi) {
   q <- length(u)
   s <- 1 - phi * phi
@@ -309,12 +309,12 @@ rx_quad_ar1 <- function(u, phi) {
   (sum(u * u) + phi * phi * interieur - 2 * phi * crois) / s
 }
 
-#' u' (K1^-1 (x) K2^-1) u sur une grille nr x nc.
-#'
-#' u est indexe niveau = (ligne - 1) * nc + colonne, l'ordre du produit de
-#' Kronecker du cote Python (kron(L_lignes, L_colonnes)). On applique donc la
-#' precision des colonnes a chaque ligne, puis celle des lignes aux colonnes du
-#' resultat — separabilite, jamais de matrice de taille q x q.
+# u' (K1^-1 (x) K2^-1) u sur une grille nr x nc.
+#
+# u est indexe niveau = (ligne - 1) * nc + colonne, l'ordre du produit de
+# Kronecker du cote Python (kron(L_lignes, L_colonnes)). On applique donc la
+# precision des colonnes a chaque ligne, puis celle des lignes aux colonnes du
+# resultat - separabilite, jamais de matrice de taille q x q.
 rx_quad_ar1ar1 <- function(u, phi_r, phi_c, nr, nc) {
   .rx_ad()
   # u est indexe niveau = (ligne - 1) * nc + colonne. Un remplissage
@@ -352,32 +352,32 @@ rx_quad_ar1ar1 <- function(u, phi_r, phi_c, nr, nc) {
 # -----------------------------------------------------------------------------
 # L'objectif, et l'ajustement
 # -----------------------------------------------------------------------------
-#' Ajustement REML par moteur creux.
-#'
-#' beta ET u sont declares aleatoires : l'approximation de Laplace de TMB est
-#' EXACTE pour un modele lineaire gaussien, et integrer beta en plus de u donne
-#' la vraisemblance REML plutot que le maximum de vraisemblance.
-#'
-#' @param model objet rendu par rx_model ou rx_reml — LE MEME que celui que
-#'   prend rx_fit. Les deux moteurs sont ainsi interchangeables sur une meme
-#'   specification, ce qui est la condition pour pouvoir les comparer.
-#' @param theta_init depart a chaud. Avec maxiter = 0 l'objectif est simplement
-#'   EVALUE au theta fourni : c'est ainsi qu'on compare les deux moteurs sur la
-#'   meme fonction plutot que sur leurs points d'arret respectifs.
-#' @param maxiter plafond d'iterations. IL DOIT EGALER CELUI DE rx_fit (3000).
-#'   Un plafond plus bas d'un cote fait passer une TRONCATURE pour une
-#'   convergence : mesure sur la grille, les cellules a p = 45 s'arretaient a
-#'   exactement 200 iterations, et leurs temps — 12,4 s et 42,8 s — n'etaient pas
-#'   des temps d'ajustement mais des temps de plafond. Comparer les deux moteurs
-#'   avec des plafonds differents biaise la comparaison en faveur du plus bas.
-#' @param sdreport calculer le rapport d'ecarts-types de TMB. Il forme la
-#'   covariance de TOUS les effets aleatoires, ce qui est cher des que q_total
-#'   grandit, et il est facultatif : un utilisateur qui ne veut que les
-#'   composantes de variance n'en a pas besoin. Le mettre a FALSE est aussi la
-#'   condition d'une comparaison EQUITABLE avec rx_fit(hessian = FALSE,
-#'   blups = FALSE), qui ne calcule aucun equivalent — sinon le moteur creux
-#'   fait un travail que le dense ne fait pas, et l'ecart de temps mesure
-#'   sous-estime son avantage.
+# Ajustement REML par moteur creux.
+#
+# beta ET u sont declares aleatoires : l'approximation de Laplace de TMB est
+# EXACTE pour un modele lineaire gaussien, et integrer beta en plus de u donne
+# la vraisemblance REML plutot que le maximum de vraisemblance.
+#
+# @param model objet rendu par rx_model ou rx_reml - LE MEME que celui que
+#   prend rx_fit. Les deux moteurs sont ainsi interchangeables sur une meme
+#   specification, ce qui est la condition pour pouvoir les comparer.
+# @param theta_init depart a chaud. Avec maxiter = 0 l'objectif est simplement
+#   EVALUE au theta fourni : c'est ainsi qu'on compare les deux moteurs sur la
+#   meme fonction plutot que sur leurs points d'arret respectifs.
+# @param maxiter plafond d'iterations. IL DOIT EGALER CELUI DE rx_fit (3000).
+#   Un plafond plus bas d'un cote fait passer une TRONCATURE pour une
+#   convergence : mesure sur la grille, les cellules a p = 45 s'arretaient a
+#   exactement 200 iterations, et leurs temps - 12,4 s et 42,8 s - n'etaient pas
+#   des temps d'ajustement mais des temps de plafond. Comparer les deux moteurs
+#   avec des plafonds differents biaise la comparaison en faveur du plus bas.
+# @param sdreport calculer le rapport d'ecarts-types de TMB. Il forme la
+#   covariance de TOUS les effets aleatoires, ce qui est cher des que q_total
+#   grandit, et il est facultatif : un utilisateur qui ne veut que les
+#   composantes de variance n'en a pas besoin. Le mettre a FALSE est aussi la
+#   condition d'une comparaison EQUITABLE avec rx_fit(hessian = FALSE,
+#   blups = FALSE), qui ne calcule aucun equivalent - sinon le moteur creux
+#   fait un travail que le dense ne fait pas, et l'ecart de temps mesure
+#   sous-estime son avantage.
 rx_fit_sparse <- function(model, theta_init = NULL, maxiter = 3000L, verbose = TRUE,
                           sdreport = TRUE) {
   stopifnot(rx_tmb_available())
@@ -415,16 +415,16 @@ rx_fit_sparse <- function(model, theta_init = NULL, maxiter = 3000L, verbose = T
   })
   # ATTENTION AU DECALAGE. as.integer(factor(x)) rend 1..t cote R, alors que le
   # cote Python numerote les caracteres 0..t-1. On stocke en base 0, comme
-  # Python, et l'indexation ajoute 1 la ou R l'exige — une seule convention,
+  # Python, et l'indexation ajoute 1 la ou R l'exige - une seule convention,
   # explicite. La version precedente stockait 1..t PUIS ajoutait 1 : la
   # residuelle du premier caractere n'etait jamais utilisee et celle du dernier
   # sortait du vecteur.
   # log|K| D'UNE PRECISION FOURNIE EST UNE CONSTANTE : Kinv ne depend d'aucun
   # parametre, donc son determinant sort de l'optimisation. On le calcule ICI,
-  # une fois, hors du ruban de derivation — et surtout on le calcule, ce que
+  # une fois, hors du ruban de derivation - et surtout on le calcule, ce que
   # l'objectif ne faisait pas : il lisait tm$Kinv_logdet et retombait sur ZERO
   # quand l'utilisateur ne l'avait pas fourni. La vraisemblance etait alors
-  # decalee de 0,5 * log|K|, soit 21,17 sur un cas a 60 niveaux — un decalage
+  # decalee de 0,5 * log|K|, soit 21,17 sur un cas a 60 niveaux - un decalage
   # CONSTANT, donc invisible sur les estimations de theta, qui etaient identiques
   # au cinquieme chiffre pres, mais faux sur toute comparaison de modeles.
   ldK_fixe <- vector("list", length(terms))
@@ -511,7 +511,7 @@ rx_fit_sparse <- function(model, theta_init = NULL, maxiter = 3000L, verbose = T
     # log-vraisemblance elle-meme, comme le fait le moteur dense
     # (fit.py : logLik = -0.5 * neg2_reml). La premiere version rendait
     # -2*obj$fn, et le test de depart a chaud a montre un rapport de EXACTEMENT
-    # 2,0000000000 sur trois modeles differents — signature d'une convention et
+    # 2,0000000000 sur trois modeles differents - signature d'une convention et
     # non d'une formulation, puisqu'une divergence de formulation ne produirait
     # pas un facteur constant. C'est exactement ce que ce test doit separer.
     #
@@ -535,8 +535,8 @@ rx_fit_sparse <- function(model, theta_init = NULL, maxiter = 3000L, verbose = T
   # calibree pour des modeles non gaussiens ou l'approximation elle-meme domine
   # l'erreur. Ici elle ne domine pas, et l'arret precoce se lisait directement :
   # sur le champ ar1 a q = n, evaluer au theta du dense laissait 1,9e-4 d'ecart
-  # de log-vraisemblance, alors que le sens inverse — ou le moteur dense n'a
-  # aucun probleme interne — n'en laissait que 1,9e-8. Cette ASYMETRIE est la
+  # de log-vraisemblance, alors que le sens inverse - ou le moteur dense n'a
+  # aucun probleme interne - n'en laissait que 1,9e-8. Cette ASYMETRIE est la
   # signature d'une convergence interne insuffisante, pas d'une formulation
   # differente. Le probleme interne etant quadratique, le resserrer ne coute
   # qu'une iteration ou deux.
@@ -544,7 +544,7 @@ rx_fit_sparse <- function(model, theta_init = NULL, maxiter = 3000L, verbose = T
   # appel, et un ajustement l'amortit sur toutes ses iterations. La confondre
   # avec le calcul rendait le cout unitaire du moteur creux inutilisable :
   # mesure du piege, le controle « ajustement >= iterations x cout unitaire »
-  # echouait sur les HUIT cellules creuses d'un balayage et sur aucune dense —
+  # echouait sur les HUIT cellules creuses d'un balayage et sur aucune dense -
   # 38 iterations a 0,757 s auraient demande 28,8 s quand l'ajustement entier
   # prenait 11,25 s. Le rapport separe donc les deux postes, comme le fait le
   # moteur dense depuis qu'un bilan de reconstruction a echoue pour la meme
@@ -561,7 +561,7 @@ rx_fit_sparse <- function(model, theta_init = NULL, maxiter = 3000L, verbose = T
     # presque rien : le second appel reutilise le mode interne en (beta, u) deja
     # converge par le premier, donc il saute le probleme de Laplace qui est le
     # gros du calcul. Chronometre ainsi, le cout unitaire ressortait a 0,00000 s
-    # a quatre tailles — une valeur qui aurait fait passer le moteur creux pour
+    # a quatre tailles - une valeur qui aurait fait passer le moteur creux pour
     # gratuit. La mesure se fait donc a un theta que le ruban n'a pas vu ; le
     # cout ne depend que des dimensions, pas des valeurs, ce qui est la premisse
     # de tout le protocole. La vraisemblance rendue reste celle de th0, seule
