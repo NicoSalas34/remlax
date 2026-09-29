@@ -38,3 +38,9 @@ non-PD Hessians and cells with a component at a bound; best PD cell and its
 AIC distance to the best. With \code{effective = TRUE} the same summary under
 \verb{AIC_eff = 2 n_par_free - 2 logLik} and a \code{best_moved} flag per group.
 }
+\examples{
+g <- expand.grid(order = 1:3, reach = c(0, 1, 2))
+g$logLik <- -100 + c(1, 3, 3.5, 2, 5, 5.2, 1, 4, 4.1)
+g$n_par <- 4
+rx_grid_summary(g, coords = c("order", "reach"))
+}

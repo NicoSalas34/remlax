@@ -32,8 +32,8 @@ itself, so no eigenvalue can go negative; and a scalar that must live in an
 interval is passed through `tanh` (a correlation) or `exp` (a variance, a
 range, a shape).
 
-The two reference implementations are `src/remlax/structures.py` (Sigma) and
-`src/remlax/levels.py` (between levels). `R/remlax.R` reproduces the
+The two reference implementations are `inst/python/remlax/structures.py`
+(Sigma) and `inst/python/remlax/levels.py` (between levels). `R/remlax.R` reproduces the
 parameter counts and must agree exactly: two different counts would split
 `theta` at the wrong place, silently.
 
@@ -388,7 +388,7 @@ the range `phi`. Three other plausible conventions (`delta` on one axis only,
 `lambda = 1` with `nu != 0.5` is **not positive definite** in two dimensions.
 asreml returns a number anyway; remlax refuses.
 
-`K_nu` for arbitrary `nu` is computed in `src/remlax/bessel.py` by trapezoidal
+`K_nu` for arbitrary `nu` is computed in `inst/python/remlax/bessel.py` by trapezoidal
 quadrature of the integral representation, not by a series. The usual series
 goes through `K_nu = pi/2 (I_-nu - I_nu)/sin(nu pi)`, which blows up at integer
 `nu`. The integral is analytic in `nu`, has no order singularity, and its

@@ -24,7 +24,7 @@ A 16 x 12 grid, 192 plots, 48 genotypes replicated four times, with a
 simulated field of AR1(0.6) across rows and AR1(0.3) across columns.
 
 ```r
-source("R/remlax.R")
+library(remlax)
 set.seed(21)
 nr <- 16; nc <- 12
 d <- expand.grid(col = seq_len(nc), row = seq_len(nr))

@@ -911,11 +911,11 @@ rx_fit <- function(model, backend = c("auto", "gpu", "cpu"), dir = NULL,
          if (isTRUE(pev)) "--pev" else
            if (is.character(pev) && length(pev)) c("--pev-termes", paste(pev, collapse = ",")) else NULL,
          if (!verbose) "--quiet" else NULL)
-  st <- system2(py[1], shQuote(c(py[-1], as.character(a))),
-                stdout = if (verbose) "" else TRUE, stderr = if (verbose) "" else TRUE)
-  if (!verbose && !is.null(attr(st, "status")) && attr(st, "status") != 0) {
-    cat(st, sep = "\n"); stop("solveur REML : echec")
-  }
+  st <- .rx_system2(py[1], shQuote(c(py[-1], as.character(a))),
+                     stdout = if (verbose) "" else TRUE, stderr = if (verbose) "" else TRUE)
+  if (!verbose && !is.null(attr(st, "status")) && attr(st, "status") != 0)
+    stop(paste(c("solveur REML : echec. Sortie du solveur :", utils::tail(st, 40)),
+               collapse = "\n"), call. = FALSE)
   if (verbose && !identical(as.integer(st), 0L)) stop("solveur REML : echec")
   rx_read_result(dir, model = model, fixed_theta = fixed_theta)
 }
@@ -984,6 +984,48 @@ rx_python_cmd <- function() {
   "python3"
 }
 
+# LANCEMENT DU SOUS-PROCESSUS PYTHON. Tout appel au moteur passe par ici,
+# pour trois raisons tenues par la politique du CRAN.
+#   1. Python ecrit par defaut ses .pyc dans __pycache__ a cote des sources,
+#      soit dans la bibliotheque R ou le paquet est installe. Un paquet ne
+#      doit ecrire que dans le repertoire temporaire de la session :
+#      PYTHONDONTWRITEBYTECODE=1 l'empeche.
+#   2. JAX sur CPU prend tous les coeurs. Pendant R CMD check
+#      (_R_CHECK_LIMIT_CORES_ pose, ce que fait --as-cran), un paquet ne doit
+#      pas en prendre plus de deux. Mesure sur 20 coeurs : OMP_NUM_THREADS=2
+#      laisse 2,3 coeurs occupes, un seul fil de calcul et Eigen coupe en
+#      laissent 1,2. On prend donc un fil. L'option remlax.threads fixe le
+#      nombre hors check.
+#   3. system2(env=) est ignore sous Windows. Les variables sont donc posees
+#      par Sys.setenv() pour la duree de l'appel, puis restaurees.
+.rx_threads <- function() {
+  o <- getOption("remlax.threads")
+  if (!is.null(o)) return(as.integer(o))
+  lim <- tolower(Sys.getenv("_R_CHECK_LIMIT_CORES_"))
+  if (nzchar(lim) && lim != "false") return(1L)
+  NULL
+}
+
+.rx_system2 <- function(command, args = character(), ..., env = character()) {
+  v <- c(PYTHONDONTWRITEBYTECODE = "1")
+  n <- .rx_threads()
+  if (!is.null(n)) {
+    v <- c(v, OMP_NUM_THREADS = n, OPENBLAS_NUM_THREADS = n, MKL_NUM_THREADS = n)
+    if (n == 1L)
+      v <- c(v, XLA_FLAGS = trimws(paste(Sys.getenv("XLA_FLAGS"),
+        "--xla_cpu_multi_thread_eigen=false intra_op_parallelism_threads=1")))
+  }
+  v <- c(v, env)
+  ancien <- Sys.getenv(names(v), unset = NA, names = TRUE)
+  on.exit({
+    for (k in names(ancien))
+      if (is.na(ancien[[k]])) Sys.unsetenv(k)
+      else do.call(Sys.setenv, stats::setNames(list(ancien[[k]]), k))
+  }, add = TRUE)
+  do.call(Sys.setenv, as.list(v))
+  system2(command, args, ...)
+}
+
 # Cache des verifications d'interpreteur, par commande. Un `import jax` coute
 # une a deux secondes : le payer a chaque ajustement d'une grille serait
 # absurde, le payer une fois par session est invisible.
@@ -1009,7 +1051,7 @@ rx_python_check <- function(py = rx_python_cmd(), quiet = FALSE) {
                  "except Exception as e:\n    print('MANQUE', type(e).__name__, e); sys.exit(3)\n",
                  "print('OK', jax.__version__, numpy.__version__, scipy.__version__, sys.executable)\n")
   out <- suppressWarnings(tryCatch(
-    system2(py[1], shQuote(c(py[-1], "-c", code)), stdout = TRUE, stderr = TRUE),
+    .rx_system2(py[1], shQuote(c(py[-1], "-c", code)), stdout = TRUE, stderr = TRUE),
     error = function(e) structure(conditionMessage(e), status = 127L)))
   st <- attr(out, "status") %||% 0L
   ligne <- if (length(out)) out[length(out)] else ""
@@ -1052,12 +1094,20 @@ rx_python_check <- function(py = rx_python_cmd(), quiet = FALSE) {
 # @param upgrade reinstaller si le venv existe deja.
 # @return chemin de l'interpreteur cree, invisible.
 rx_install_python <- function(dir = file.path(tools::R_user_dir("remlax", "data"), "venv"), cuda = FALSE,
-                              python = "python3", upgrade = FALSE) {
+                              python = "python3", upgrade = FALSE, ask = interactive()) {
   # Chemin ABSOLU : une RX_PY relative se resoudrait contre le repertoire
   # courant de chaque session, donc tantot un venv, tantot rien.
   dir <- normalizePath(dir, mustWork = FALSE)
   exe <- file.path(dir, if (.Platform$OS.type == "windows") "Scripts/python.exe" else "bin/python")
   if (!file.exists(exe) || upgrade) {
+    # Politique du CRAN : ecrire hors du repertoire temporaire, et telecharger
+    # plusieurs centaines de Mo, se fait sur confirmation en session interactive.
+    if (isTRUE(ask)) {
+      ok <- utils::askYesNo(paste0(
+        "remlax : creer un environnement Python dans ", dir,
+        " et y telecharger jax, numpy et scipy depuis PyPI (plusieurs centaines de Mo) ?"))
+      if (!isTRUE(ok)) stop("remlax : installation annulee.", call. = FALSE)
+    }
     if (!file.exists(exe)) {
       message("remlax : creation du venv ", dir)
       st <- system2(python, c("-m", "venv", shQuote(dir)))
@@ -1078,8 +1128,31 @@ rx_install_python <- function(dir = file.path(tools::R_user_dir("remlax", "data"
           "  jax ", r$versions[["jax"]], ", numpy ", r$versions[["numpy"]],
           ", scipy ", r$versions[["scipy"]], "\n",
           "  Pour cette session : Sys.setenv(RX_PY = \"", exe, "\")\n",
-          "  Pour toujours, dans ~/.Renviron : RX_PY=", exe)
+          "  Pour toujours, dans ~/.Renviron : RX_PY=", exe, "\n",
+          "  Pour le supprimer : remlax::rx_remove_python()")
   invisible(exe)
+}
+
+# Supprimer l'environnement cree par rx_install_python(). La politique du CRAN
+# admet des donnees dans tools::R_user_dir() si leur contenu est gere : cette
+# fonction en est le moyen. Le repertoire du paquet est retire s'il est vide.
+rx_remove_python <- function(dir = file.path(tools::R_user_dir("remlax", "data"), "venv"),
+                             ask = interactive()) {
+  dir <- normalizePath(dir, mustWork = FALSE)
+  if (!dir.exists(dir)) {
+    message("remlax : rien a supprimer, ", dir, " n'existe pas.")
+    return(invisible(FALSE))
+  }
+  if (isTRUE(ask) && !isTRUE(utils::askYesNo(paste0("remlax : supprimer ", dir, " ?"))))
+    return(invisible(FALSE))
+  unlink(dir, recursive = TRUE)
+  parent <- dirname(dir)
+  if (identical(parent, normalizePath(tools::R_user_dir("remlax", "data"), mustWork = FALSE)) &&
+      dir.exists(parent) && !length(list.files(parent, all.files = TRUE, no.. = TRUE)))
+    unlink(parent, recursive = TRUE)
+  rm(list = ls(.rx_python_cache), envir = .rx_python_cache)
+  message("remlax : ", dir, " supprime.")
+  invisible(!dir.exists(dir))
 }
 
 rx_read_result <- function(dir, model = NULL, fixed_theta = NULL) {
@@ -1741,10 +1814,11 @@ rx_predict <- function(fit, classify, levels = NULL, at = NULL,
     .rx_python_assurer(py)
     a <- c(rx_solver_args(), dir, "--backend", backend, "--only-predict",
            if (!verbose) "--quiet" else NULL)
-    st <- system2(py[1], shQuote(c(py[-1], as.character(a))),
-                  stdout = if (verbose) "" else TRUE, stderr = if (verbose) "" else TRUE)
-    if (!is.null(attr(st, "status")) && attr(st, "status") != 0) {
-      cat(st, sep = "\n"); stop("rx_predict : le solveur a echoue") }
+    st <- .rx_system2(py[1], shQuote(c(py[-1], as.character(a))),
+                       stdout = if (verbose) "" else TRUE, stderr = if (verbose) "" else TRUE)
+    if (!is.null(attr(st, "status")) && attr(st, "status") != 0)
+      stop(paste(c("rx_predict : le solveur a echoue. Sortie du solveur :", utils::tail(st, 40)),
+                 collapse = "\n"), call. = FALSE)
     rr <- rx_read_result(dir)
     val <- as.numeric(rr$predictions$valeur); Cv <- rr$predictions$cov
   }

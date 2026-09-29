@@ -35,6 +35,16 @@ gives the restricted likelihood. The cost depends on the fill-in of the mixed
 model equations, not on \code{n}. Only structures whose precision is sparse and
 known in closed form are in scope; see \code{\link[=rx_sparse_scope]{rx_sparse_scope()}}.
 }
+\examples{
+\dontshow{if (rx_tmb_available()) withAutoprint(\{ # examplesIf}
+set.seed(1)
+d <- data.frame(gid = factor(rep(1:30, each = 4)), x = rnorm(120))
+d$y <- 1 + 0.5 * d$x + rnorm(30)[d$gid] + rnorm(120)
+m <- rx_model(d$y, cbind(1, d$x), terms = list(rx_term("gid", d$gid)))
+f <- rx_fit_sparse(m, verbose = FALSE)
+f$logLik
+\dontshow{\}) # examplesIf}
+}
 \seealso{
 \code{\link[=rx_fit]{rx_fit()}}, \code{\link[=rx_sparse_scope]{rx_sparse_scope()}}, \code{\link[=rx_tmb_available]{rx_tmb_available()}}
 }

@@ -25,7 +25,7 @@ genotype and the two indirect effects it exerts, on each species' own
 relationship matrix, plus indirect environmental effects; every piece of it
 is written with the functions below.
 
-Salas N, Montazeaud G, Bourke PM, Baranger A, David J (2026). Multispecies
+Salas N, Montazeaud G, Bourke PM, Julier B, Baranger A, David J (2026). Multispecies
 mixtures: an individual-centered quantitative genetic framework for complex
 plant neighborhoods. bioRxiv. doi:10.64898/2026.05.27.728303.
 
@@ -62,7 +62,7 @@ column may have its own incidence, and the covariance `Sigma` links them.
 A 20 x 12 field, 240 plots, 60 genotypes, each replicated four times.
 
 ```r
-source("R/remlax.R")
+library(remlax)
 set.seed(31)
 nr <- 20; nc <- 12; ngen <- 60
 d <- expand.grid(coln = seq_len(nc), rown = seq_len(nr))

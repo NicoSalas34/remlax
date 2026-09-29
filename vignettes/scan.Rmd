@@ -15,8 +15,8 @@ remlax et n'en modifie aucun : il consomme la SORTIE de `fit_reml`.*
 
 | fichier | role |
 |---|---|
-| `src/remlax/scan.py` | l'algebre : projection, familles de covariables, tests. Numpy pur, **pas besoin de JAX** |
-| `src/remlax/scan_cli.py` | point d'entree `python -m remlax.scan_cli`, a cote de `cli.py` |
+| `inst/python/remlax/scan.py` | l'algebre : projection, familles de covariables, tests. Numpy pur, **pas besoin de JAX** |
+| `inst/python/remlax/scan_cli.py` | point d'entree `python -m remlax.scan_cli`, a cote de `cli.py` |
 | `R/remlax_scan.R` | `rx_scan()` / `rx_scan_seuil()`, a cote de `R/remlax.R` |
 | `tests/python/test_scan.py` | le scan contre le test de Wald, colonne ajoutee a X |
 | `validation/etude_scan_familles.py` | quelle covariable detecte quel mecanisme |
@@ -247,8 +247,7 @@ cote.
 est relu et seulement **evalue** :
 
 ```r
-source("R/remlax.R")
-source("R/remlax_scan.R")
+library(remlax)
 
 fit  <- rx_fit(modele)                       # l'ajustement habituel
 gwas <- rx_scan(fit, modele,

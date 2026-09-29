@@ -29,3 +29,9 @@ Tensor-product B-spline basis with the PS-ANOVA decomposition of the
 penalty. Nothing is added to the solver: a smooth surface is a random effect
 with a known incidence.
 }
+\examples{
+lay <- expand.grid(row = 1:6, col = 1:8)
+s <- rx_spl2d(lay$row, lay$col, nseg = c(3, 3))
+dim(s$X)
+names(s$terms)
+}

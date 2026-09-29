@@ -97,6 +97,17 @@ a factor of \code{K} is refused: the dense engine needs \code{K} and would other
 treat the term as independent without a message. Use \code{\link[=rx_fit_sparse]{rx_fit_sparse()}} for
 such a term, or supply \code{K} to \code{\link[=rx_term]{rx_term()}}.
 }
+\examples{
+\dontshow{if (rx_python_check(quiet = TRUE)$ok) withAutoprint(\{ # examplesIf}
+set.seed(1)
+d <- data.frame(gid = factor(rep(1:30, each = 4)), x = rnorm(120))
+d$y <- 1 + 0.5 * d$x + rnorm(30)[d$gid] + rnorm(120)
+m <- rx_model(d$y, cbind(1, d$x), terms = list(rx_term("gid", d$gid)))
+f <- rx_fit(m, backend = "cpu", verbose = FALSE)
+f$logLik
+f$sigmas
+\dontshow{\}) # examplesIf}
+}
 \seealso{
 \code{\link[=rx_reml]{rx_reml()}}, \code{\link[=rx_fit_sparse]{rx_fit_sparse()}}, \code{\link[=rx_read_result]{rx_read_result()}}
 }

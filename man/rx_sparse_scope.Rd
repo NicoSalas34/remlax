@@ -24,6 +24,11 @@ the sparse engine's perimeter (\code{Sigma} in \code{iid}/\code{diag}/\code{us};
 \code{diag}, no sections), and why not otherwise. \code{rx_tmb_available()} says
 whether RTMB and Matrix can be loaded.
 }
+\examples{
+d <- data.frame(gid = factor(rep(1:10, each = 3)))
+rx_sparse_scope(list(rx_term("gid", d$gid)))
+rx_tmb_available()
+}
 \seealso{
 \code{\link[=rx_fit_sparse]{rx_fit_sparse()}}
 }

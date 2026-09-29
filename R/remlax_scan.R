@@ -40,7 +40,8 @@
 # pas. Python met alors `inst/python/remlax/` sur sys.path, pas `inst/python/`, donc
 # `from remlax.bundle import Bundle` echoue par ModuleNotFoundError. Il faut
 # soit le paquet installe, soit dire ou il est. On rend donc les arguments ET
-# l'environnement, et l'appelant passe le second a system2(env=).
+# l'environnement, et l'appelant passe le second a .rx_system2(env=), qui le
+# pose par Sys.setenv() : system2(env=) serait ignore sous Windows.
 rx_scan_solver_args <- function() {
   if (nzchar(Sys.getenv("RX_SCAN_CLI")))
     return(list(args = strsplit(Sys.getenv("RX_SCAN_CLI"), " +")[[1]], env = character(0)))
@@ -55,9 +56,8 @@ rx_scan_solver_args <- function() {
   if (nzchar(inst) && file.exists(file.path(inst, "remlax", "scan_cli.py"))) {
     anc <- Sys.getenv("PYTHONPATH")
     return(list(args = c("-m", "remlax.scan_cli"),
-                env = paste0("PYTHONPATH=",
-                             if (nzchar(anc)) paste(inst, anc, sep = .Platform$path.sep)
-                             else inst)))
+                env = c(PYTHONPATH = if (nzchar(anc)) paste(inst, anc, sep = .Platform$path.sep)
+                                     else inst)))
   }
   stop("remlax.scan_cli introuvable dans le paquet installe (inst/python/remlax). ",
        "Reinstaller remlax, ou definir RX_SCAN_CLI.", call. = FALSE)
@@ -242,7 +242,7 @@ rx_scan <- function(fit, model, marqueurs, carte = NULL,
             "--backend", backend, "--theta-in", "--maxiter", "0",
             "--bloc", as.character(as.integer(bloc)))
   if (!verbose) args <- c(args, "--quiet")
-  code <- system2(rx_python_cmd(), args, stdout = "", stderr = "", env = sol$env)
+  code <- .rx_system2(rx_python_cmd(), args, stdout = "", stderr = "", env = sol$env)
   if (!identical(as.integer(code), 0L)) {
     # On DESARME le nettoyage : le message dit ou est le paquet, il faut donc
     # qu'il y soit encore. Sans cela on annonce un chemin qu'on vient

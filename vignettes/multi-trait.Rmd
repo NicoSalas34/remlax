@@ -37,7 +37,7 @@ Two columns matter beyond the response:
 ## A genomic relationship matrix
 
 ```r
-source("R/remlax.R")
+library(remlax)
 set.seed(11)
 
 n_gen <- 80; n_mark <- 300

@@ -41,3 +41,12 @@ Residual sections are named \code{"residual"} or \code{"residual:<section>"}.
 at a bound read from \code{par_floor} / \code{par_ceil} nor fixed), \code{NA} elsewhere and
 \code{NA} everywhere when \code{H_f} has a non-positive eigenvalue.
 }
+\examples{
+set.seed(1)
+d <- data.frame(gid = factor(rep(1:30, each = 4)), x = rnorm(120))
+d$y <- 1 + 0.5 * d$x + rnorm(30)[d$gid] + rnorm(120)
+m <- rx_model(d$y, cbind(1, d$x), terms = list(rx_term("gid", d$gid)))
+rx_sigma_of(c(0, 0.5, log(2)), "us", 2)
+rx_sigmas_from_theta(rep(0, rx_n_theta(m)), m)
+rx_se_theta(c(0.1, -0.2), hessian = diag(c(4, 9)))
+}

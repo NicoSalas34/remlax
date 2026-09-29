@@ -32,10 +32,10 @@
 #' @return A data frame with one row per check: `reference`, `case`,
 #'   `quantity`, `remlax`, `reference_value`, `gap` (absolute for the
 #'   log-likelihood, largest relative gap otherwise), `tolerance` and `pass`.
-#' @examples
-#' \dontrun{
-#' v <- rx_validate()
-#' table(v$reference, v$pass)
+#' @examplesIf rx_python_check(quiet = TRUE)$ok && requireNamespace("lme4", quietly = TRUE)
+#' \donttest{
+#' v <- rx_validate("lme4", verbose = FALSE)
+#' table(v$case, v$pass)
 #' }
 #' @export
 rx_validate <- function(which = c("lme4", "nlme", "sommer"), backend = "cpu",
@@ -44,6 +44,15 @@ rx_validate <- function(which = c("lme4", "nlme", "sommer"), backend = "cpu",
   chk <- rx_python_check(quiet = TRUE)
   if (!isTRUE(chk$ok))
     stop("rx_validate() needs the Python solver: ", chk$message, call. = FALSE)
+  # Les jeux simules fixent leur graine. L'etat du generateur de l'utilisateur
+  # est rendu tel qu'il etait a la sortie, comme le demande le CRAN.
+  if (exists(".Random.seed", envir = globalenv(), inherits = FALSE)) {
+    graine <- get(".Random.seed", envir = globalenv(), inherits = FALSE)
+    on.exit(assign(".Random.seed", graine, envir = globalenv()), add = TRUE)
+  } else {
+    on.exit(if (exists(".Random.seed", envir = globalenv(), inherits = FALSE))
+      rm(".Random.seed", envir = globalenv()), add = TRUE)
+  }
   rel <- function(a, b) max(abs(as.numeric(a) - as.numeric(b)) / pmax(abs(as.numeric(b)), 1e-8))
   lignes <- list()
   ajouter <- function(reference, case, quantity, remlax, ref, gap, tol) {
@@ -52,8 +61,8 @@ rx_validate <- function(which = c("lme4", "nlme", "sommer"), backend = "cpu",
                     pass = is.finite(gap) && gap <= tol, stringsAsFactors = FALSE)
     lignes[[length(lignes) + 1L]] <<- r
     if (verbose)
-      cat(sprintf("  %-7s %-32s %-22s %-4s gap %.2e (tol %.0e)\n", reference, case, quantity,
-                  if (r$pass) "ok" else "FAIL", gap, tol))
+      message(sprintf("  %-7s %-32s %-22s %-4s gap %.2e (tol %.0e)", reference, case, quantity,
+                      if (r$pass) "ok" else "FAIL", gap, tol))
   }
   commun <- function(reference, case, fit, n2l_ref, beta_ref, comp_rx, comp_ref) {
     if (!is.null(n2l_ref))

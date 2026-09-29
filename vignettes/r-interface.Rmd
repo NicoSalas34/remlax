@@ -16,7 +16,7 @@ JAX solver, which uses a GPU if the machine has one and a CPU otherwise
 **without the model changing**.
 
 ```r
-source("R/remlax.R")     # requires Matrix and jsonlite
+library(remlax)
 ```
 
 Two ways in. The formula interface, in the spirit of asreml:
@@ -1035,9 +1035,10 @@ counts with `coding = "count"`.
 | `IGE_JAX_SIF` | Apptainer image; becomes `apptainer exec --nv <sif> python3` |
 
 `rx_python_cmd()` returns the first of `RX_PY`, `IGE_JAX_CMD`, `IGE_JAX_SIF`,
-`python3`. `rx_solver_args()` returns `RX_CLI` if set, then `-m remlax.cli`
-if `import remlax` succeeds, then `src/remlax/cli.py` relative to
-`R/remlax.R`.
+`python3`. `rx_solver_args()` returns `RX_CLI` if set, and otherwise the
+`cli.py` shipped in `inst/python` of the installed package. A `remlax` module
+installed separately with pip is never used, so that the interface and the
+engine always come from the same version.
 
 `rx_python_check()` tells whether the chosen interpreter imports jax, numpy
 and scipy, and `rx_fit()` calls it before launching the solver: a Python

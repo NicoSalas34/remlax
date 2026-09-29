@@ -38,8 +38,10 @@ nlme report the REML log-likelihood with its constant, which is
 constant, so only its estimates are compared.
 }
 \examples{
-\dontrun{
-v <- rx_validate()
-table(v$reference, v$pass)
+\dontshow{if (rx_python_check(quiet = TRUE)$ok && requireNamespace("lme4", quietly = TRUE)) withAutoprint(\{ # examplesIf}
+\donttest{
+v <- rx_validate("lme4", verbose = FALSE)
+table(v$case, v$pass)
 }
+\dontshow{\}) # examplesIf}
 }

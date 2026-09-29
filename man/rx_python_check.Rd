@@ -3,12 +3,15 @@
 \name{rx_python_check}
 \alias{rx_python_check}
 \alias{rx_install_python}
+\alias{rx_remove_python}
 \title{Checking and installing the Python side}
 \usage{
 rx_python_check(py = rx_python_cmd(), quiet = FALSE)
 rx_install_python(dir = file.path(tools::R_user_dir("remlax", "data"), "venv"),
-                  cuda = FALSE,
-                  python = "python3", upgrade = FALSE)
+                  cuda = FALSE, python = "python3", upgrade = FALSE,
+                  ask = interactive())
+rx_remove_python(dir = file.path(tools::R_user_dir("remlax", "data"), "venv"),
+                 ask = interactive())
 }
 \arguments{
 \item{py}{Python command, split on spaces (default \code{rx_python_cmd()}).}
@@ -24,11 +27,15 @@ provides for a package).}
 \item{python}{base interpreter (>= 3.10) used to create the venv.}
 
 \item{upgrade}{reinstall the packages if the venv already exists.}
+
+\item{ask}{ask for confirmation before writing or deleting (default: in
+interactive sessions only).}
 }
 \value{
 \code{rx_python_check()}: a list with \code{ok}, \code{python}, \code{versions} and
 \code{message}, invisibly. \code{rx_install_python()}: the path of the created
-interpreter, invisibly.
+interpreter, invisibly. \code{rx_remove_python()}: \code{TRUE} if the directory was
+removed, invisibly.
 }
 \description{
 \code{rx_python_check()} runs the chosen interpreter once and reports whether it
@@ -39,12 +46,18 @@ the interpreter tried, the \code{RX_PY} variable to set, and the installation
 command. \code{rx_install_python()} creates a virtual environment with
 \verb{python -m venv}, installs jax (or \code{jax[cuda12]}), numpy and scipy with pip,
 checks the import and prints the \code{RX_PY} line to put in \verb{~/.Renviron}. It
-does not modify the session nor \verb{~/.Renviron} itself.
+does not modify the session nor \verb{~/.Renviron} itself. In an interactive
+session it asks for confirmation before writing to \code{dir} and downloading
+the Python packages. \code{rx_remove_python()} deletes that environment, and the
+package's user data directory when it is left empty.
 }
 \examples{
+chk <- rx_python_check(quiet = TRUE)
+chk$ok
 \dontrun{
-rx_python_check()
-exe <- rx_install_python()          # CPU
+# Downloads several hundred MB from PyPI.
+exe <- rx_install_python()
 Sys.setenv(RX_PY = exe)
+rx_remove_python()
 }
 }

@@ -76,6 +76,18 @@ components. Total genetic values: \code{sqrt(d)} on the direct column and
 \verb{sqrt(d_emitter) S_between} for the effect exerted on the other group;
 \code{tau2 = Var(TBV) / V_P} of the RECEIVING target.
 }
+\examples{
+\dontshow{if (rx_python_check(quiet = TRUE)$ok) withAutoprint(\{ # examplesIf}
+set.seed(1)
+d <- data.frame(gid = factor(rep(1:30, each = 4)), x = rnorm(120))
+d$y <- 1 + 0.5 * d$x + rnorm(30)[d$gid] + rnorm(120)
+m <- rx_model(d$y, cbind(1, d$x), terms = list(rx_term("gid", d$gid)))
+fit <- rx_fit(m, backend = "cpu", verbose = FALSE)
+comp <- data.frame(target = "y", direct = "gid", indirect_within = NA,
+                   indirect_between = NA, other = "residual")
+rx_ratios(fit, comp, model = m, quantities = c("variances", "h2"))
+\dontshow{\}) # examplesIf}
+}
 \seealso{
 \code{\link[=rx_exposure]{rx_exposure()}}, \code{\link[=rx_cor_z]{rx_cor_z()}}, \code{\link[=rx_sigmas_from_theta]{rx_sigmas_from_theta()}}
 }

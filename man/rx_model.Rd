@@ -32,12 +32,12 @@ residual (nothing to estimate). A model with no random term but a structured
 residual is legal: it is the commonest spatial field model.
 }
 \examples{
-\dontrun{
-m <- rx_model(d$y, cbind(1, model.matrix(~ trt, d)[, -1]),
-              terms = list(rx_term("gid", d$gid)),
-              residual = rx_residual())
-print(m)
-}
+set.seed(1)
+d <- data.frame(gid = factor(rep(1:30, each = 4)), x = rnorm(120))
+d$y <- 1 + 0.5 * d$x + rnorm(30)[d$gid] + rnorm(120)
+m <- rx_model(d$y, cbind(1, d$x), terms = list(rx_term("gid", d$gid)))
+m
+rx_n_theta(m)
 }
 \seealso{
 \code{\link[=rx_term]{rx_term()}}, \code{\link[=rx_residual]{rx_residual()}}, \code{\link[=rx_fit]{rx_fit()}}

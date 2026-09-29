@@ -30,3 +30,13 @@ triplet (\code{zi}, \code{zj}, \code{zx}) with 0-based indices, stacked in the o
 \verb{column = (a - 1) q + level}. \code{rx_read_result()} reads \code{result.json} and the
 binary arrays the solver wrote in the same directory.
 }
+\examples{
+set.seed(1)
+d <- data.frame(gid = factor(rep(1:30, each = 4)), x = rnorm(120))
+d$y <- 1 + 0.5 * d$x + rnorm(30)[d$gid] + rnorm(120)
+m <- rx_model(d$y, cbind(1, d$x), terms = list(rx_term("gid", d$gid)))
+dir <- file.path(tempdir(), "remlax_bundle")
+rx_export(m, dir)
+list.files(dir)
+unlink(dir, recursive = TRUE)
+}

@@ -47,3 +47,9 @@ two sides read \code{theta} differently with no error.
 evaluated at different starting points, their log-likelihoods are not
 comparable and the gap looks like a formulation defect.
 }
+\examples{
+rx_n_params("us", 3)
+rx_n_params("fa", 4, rank = 1)
+rx_n_loadings(4, 1)
+rx_n_level("ar1")
+}

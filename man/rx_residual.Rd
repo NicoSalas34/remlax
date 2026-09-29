@@ -33,6 +33,10 @@ An object of class \code{rx_residual}.
 \description{
 Declare the residual structure
 }
+\examples{
+r <- rx_residual()
+r$struct
+}
 \seealso{
 \code{\link[=rx_model]{rx_model()}}, \code{\link[=rx_term]{rx_term()}}
 }

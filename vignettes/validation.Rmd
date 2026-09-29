@@ -184,6 +184,6 @@ attr(v, "versions")
 To rerun the full campaign, including asreml and the benchmark, clone
 remlax-validation and follow its README.
 
-Salas N, Montazeaud G, Bourke PM, Baranger A, David J (2026). Multispecies
+Salas N, Montazeaud G, Bourke PM, Julier B, Baranger A, David J (2026). Multispecies
 mixtures: an individual-centered quantitative genetic framework for complex
 plant neighborhoods. bioRxiv. doi:10.64898/2026.05.27.728303.

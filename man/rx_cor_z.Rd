@@ -32,3 +32,7 @@ A data frame: \code{r}, \code{se}, \code{z}, \code{z_fisher}, \code{se_z}, \code
 the correlation to its standard error, on the correlation scale, not
 \code{atanh(r)} divided by \code{se_z}.
 }
+\examples{
+rx_cor_z(c(-0.4, 0.1, 0.8), se = c(0.1, 0.2, 0.05))
+rx_cor_z(0.3, n = 50)
+}

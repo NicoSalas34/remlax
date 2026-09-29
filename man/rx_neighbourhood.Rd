@@ -65,6 +65,16 @@ divides each row by \code{n_i^dilution}, \code{n_i} being the NUMBER of neighbou
 the unit in the emitting group; it is applied before the optional L2
 normalisation. Level names are returned as given.
 }
+\examples{
+set.seed(1)
+lay <- expand.grid(row = 1:6, col = 1:8)
+lay$sp <- factor(ifelse(lay$row \%\% 2 == 1, "A", "B"))
+lay$gen <- factor(paste0(lay$sp, sample(1:6, nrow(lay), replace = TRUE)))
+nb <- rx_neighbourhood(lay[, c("row", "col")], group = lay$sp,
+                       level = lay$gen, rank = 1)
+nb
+dim(nb$level[["A<-B"]])
+}
 \seealso{
 \code{\link[=rx_exposure]{rx_exposure()}}, \code{\link[=rx_term]{rx_term()}}
 }

@@ -25,3 +25,10 @@ A \verb{q x q} matrix with the row names of \code{M} and an attribute
 \verb{Z = D - k p}, \verb{G = Z Z' / (k sum p (1 - p))}, then
 \verb{G_b = (1 - blend) G + blend I}.
 }
+\examples{
+set.seed(1)
+M <- matrix(rbinom(20 * 100, 2, 0.4) / 2, 20, 100,
+            dimnames = list(paste0("g", 1:20), NULL))
+G <- rx_grm(M)
+round(G[1:3, 1:3], 3)
+}

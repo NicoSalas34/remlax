@@ -54,16 +54,16 @@ restored after that, otherwise a Wald test would examine each column in
 isolation instead of the whole term.
 }
 \examples{
-\dontrun{
+\dontshow{if (rx_python_check(quiet = TRUE)$ok) withAutoprint(\{ # examplesIf}
 set.seed(2026)
 d <- expand.grid(gid = factor(1:60), bloc = factor(1:4))
 g <- rnorm(60, 0, sqrt(1.5)); b <- rnorm(4, 0, sqrt(0.4))
 d$y <- 12 + g[d$gid] + b[d$bloc] + rnorm(nrow(d))
 fit <- rx_reml(y ~ 1, random = ~ gid + iid(bloc), data = d,
-               vpredict = c(h2 = "V1/(V1+V2+V3)"), backend = "cpu")
-print(fit)
+               backend = "cpu", verbose = FALSE)
+fit
 fit$sigmas$gid
-}
+\dontshow{\}) # examplesIf}
 }
 \seealso{
 \code{\link[=rx_fit]{rx_fit()}}, \code{\link[=rx_model]{rx_model()}}, \code{\link[=rx_predict]{rx_predict()}}

@@ -42,6 +42,15 @@ Model form: \code{rx_exposure(model, direct = "term:label", indirect = "term:lab
 rows where the direct incidence is non-zero (the observations of one target in
 a stacked model).
 }
+\examples{
+set.seed(1)
+lay <- expand.grid(row = 1:6, col = 1:8)
+lay$sp <- factor(ifelse(lay$row \%\% 2 == 1, "A", "B"))
+lay$gen <- factor(paste0(lay$sp, sample(1:6, nrow(lay), replace = TRUE)))
+nb <- rx_neighbourhood(lay[, c("row", "col")], group = lay$sp,
+                       level = lay$gen, rank = 1)
+rx_exposure(Z_indirect = nb$level[["A<-A"]])[c("k", "S")]
+}
 \seealso{
 \code{\link[=rx_neighbourhood]{rx_neighbourhood()}}, \code{\link[=rx_ratios]{rx_ratios()}}
 }

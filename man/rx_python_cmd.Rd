@@ -22,9 +22,6 @@ so that the interface and the engine are always those of the same version.
 It stops with a message if the shipped copy is missing.
 }
 \examples{
-\dontrun{
-Sys.setenv(RX_PY = "/path/to/venv/bin/python")
 rx_python_cmd()
-rx_solver_args()
-}
+basename(rx_solver_args())
 }

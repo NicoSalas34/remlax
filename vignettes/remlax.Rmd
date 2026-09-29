@@ -18,14 +18,15 @@ without a GPU; on small models the CPU is also the faster choice, because XLA
 compilation dominates the computation.
 
 ```r
-source("R/remlax.R")
+library(remlax)
 ```
 
-If the Python package is not installed, point the interface at it first:
+The solver ships with the package. If the default `python3` does not import
+jax, numpy and scipy, point the interface at an interpreter that does, or
+create one with `rx_install_python()`:
 
 ```sh
 export RX_PY=/path/to/venv/bin/python
-export RX_CLI=/path/to/remlax/src/remlax/cli.py
 ```
 
 ---

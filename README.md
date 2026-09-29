@@ -60,8 +60,13 @@ rx_python_check()                      # versions of jax, numpy, scipy seen by r
 ```
 
 `rx_install_python()` writes only when called, into
-`tools::R_user_dir("remlax", "data")`. A Python without jax is refused before
-the solver starts, with the interpreter tried and the line to fix.
+`tools::R_user_dir("remlax", "data")`, and asks for confirmation in an
+interactive session. `rx_remove_python()` deletes that environment. A Python
+without jax is refused before the solver starts, with the interpreter tried and
+the line to fix.
+
+During `R CMD check`, the solver runs on a single computation thread. The
+option `remlax.threads` sets the number of threads otherwise.
 
 The R side never imports Python. It writes the design to a directory as raw
 binary plus a JSON manifest, calls the engine shipped in `inst/python/` as a
@@ -250,7 +255,7 @@ configuration are part of the built package (`.Rbuildignore`).
 `citation("remlax")`. The neighbourhood model used as the worked example of
 the explicit-terms vignette is
 
-Salas N, Montazeaud G, Bourke PM, Baranger A, David J (2026). Multispecies
+Salas N, Montazeaud G, Bourke PM, Julier B, Baranger A, David J (2026). Multispecies
 mixtures: an individual-centered quantitative genetic framework for complex
 plant neighborhoods. bioRxiv. doi:10.64898/2026.05.27.728303.
 

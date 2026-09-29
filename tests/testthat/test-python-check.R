@@ -21,3 +21,26 @@ test_that("rx_python_check rend les versions quand jax est present", {
   expect_true(r$ok)
   expect_true(all(c("jax", "numpy", "scipy") %in% names(r$versions)))
 })
+
+test_that("le lancement du moteur pose puis restaure ses variables d'environnement", {
+  avant <- Sys.getenv(c("PYTHONDONTWRITEBYTECODE", "OMP_NUM_THREADS", "XLA_FLAGS"), unset = NA)
+  withr_opt <- options(remlax.threads = 1L); on.exit(options(withr_opt), add = TRUE)
+  expect_identical(remlax:::.rx_threads(), 1L)
+  r <- remlax:::.rx_system2(file.path(R.home("bin"), "Rscript"),
+    c("-e", shQuote("cat(Sys.getenv(c('PYTHONDONTWRITEBYTECODE','OMP_NUM_THREADS')))")),
+    stdout = TRUE)
+  expect_identical(r, "1 1")
+  expect_identical(Sys.getenv(c("PYTHONDONTWRITEBYTECODE", "OMP_NUM_THREADS", "XLA_FLAGS"), unset = NA),
+                   avant)
+})
+
+test_that("pendant R CMD check, un seul fil de calcul est demande", {
+  withr_opt <- options(remlax.threads = NULL); on.exit(options(withr_opt), add = TRUE)
+  ancien <- Sys.getenv("_R_CHECK_LIMIT_CORES_", unset = NA)
+  on.exit(if (is.na(ancien)) Sys.unsetenv("_R_CHECK_LIMIT_CORES_")
+          else Sys.setenv(`_R_CHECK_LIMIT_CORES_` = ancien), add = TRUE)
+  Sys.setenv(`_R_CHECK_LIMIT_CORES_` = "TRUE")
+  expect_identical(remlax:::.rx_threads(), 1L)
+  Sys.setenv(`_R_CHECK_LIMIT_CORES_` = "false")
+  expect_null(remlax:::.rx_threads())
+})

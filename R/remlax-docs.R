@@ -101,18 +101,16 @@ NULL
 #' @details Incomplete rows are dropped with a message. `attr(X, "assign")` is
 #'   restored after that, otherwise a Wald test would examine each column in
 #'   isolation instead of the whole term.
-#' @examples
-#' \dontrun{
+#' @seealso [rx_fit()], [rx_model()], [rx_predict()]
+#' @examplesIf rx_python_check(quiet = TRUE)$ok
 #' set.seed(2026)
 #' d <- expand.grid(gid = factor(1:60), bloc = factor(1:4))
 #' g <- rnorm(60, 0, sqrt(1.5)); b <- rnorm(4, 0, sqrt(0.4))
 #' d$y <- 12 + g[d$gid] + b[d$bloc] + rnorm(nrow(d))
 #' fit <- rx_reml(y ~ 1, random = ~ gid + iid(bloc), data = d,
-#'                vpredict = c(h2 = "V1/(V1+V2+V3)"), backend = "cpu")
-#' print(fit)
+#'                backend = "cpu", verbose = FALSE)
+#' fit
 #' fit$sigmas$gid
-#' }
-#' @seealso [rx_fit()], [rx_model()], [rx_predict()]
 #' @usage
 #' rx_reml(fixed, random = NULL, residual = "units", data,
 #'         trait = NULL, unit = NULL,
@@ -186,6 +184,14 @@ NULL
 #'   treat the term as independent without a message. Use [rx_fit_sparse()] for
 #'   such a term, or supply `K` to [rx_term()].
 #' @seealso [rx_reml()], [rx_fit_sparse()], [rx_read_result()]
+#' @examplesIf rx_python_check(quiet = TRUE)$ok
+#' set.seed(1)
+#' d <- data.frame(gid = factor(rep(1:30, each = 4)), x = rnorm(120))
+#' d$y <- 1 + 0.5 * d$x + rnorm(30)[d$gid] + rnorm(120)
+#' m <- rx_model(d$y, cbind(1, d$x), terms = list(rx_term("gid", d$gid)))
+#' f <- rx_fit(m, backend = "cpu", verbose = FALSE)
+#' f$logLik
+#' f$sigmas
 #' @usage
 #' rx_fit(model, backend = c("auto", "gpu", "cpu"), dir = NULL,
 #'        maxiter = 3000L, polish = 25L, n_restarts = 0L,
@@ -219,6 +225,13 @@ NULL
 #' @return A list with the same main fields as an `rx_fit` object (`theta`,
 #'   `logLik`, `sigmas`, `sigma_res`, `beta`, `blups`), plus `engine = "sparse"`.
 #' @seealso [rx_fit()], [rx_sparse_scope()], [rx_tmb_available()]
+#' @examplesIf rx_tmb_available()
+#' set.seed(1)
+#' d <- data.frame(gid = factor(rep(1:30, each = 4)), x = rnorm(120))
+#' d$y <- 1 + 0.5 * d$x + rnorm(30)[d$gid] + rnorm(120)
+#' m <- rx_model(d$y, cbind(1, d$x), terms = list(rx_term("gid", d$gid)))
+#' f <- rx_fit_sparse(m, verbose = FALSE)
+#' f$logLik
 #' @usage
 #' rx_fit_sparse(model, theta_init = NULL, maxiter = 3000L, verbose = TRUE,
 #'               sdreport = TRUE)
@@ -245,14 +258,14 @@ NULL
 #' @param residual an [rx_residual] object.
 #' @param name a label used in the printed inventory.
 #' @return An object of class `rx_model` with a `print` method.
-#' @examples
-#' \dontrun{
-#' m <- rx_model(d$y, cbind(1, model.matrix(~ trt, d)[, -1]),
-#'               terms = list(rx_term("gid", d$gid)),
-#'               residual = rx_residual())
-#' print(m)
-#' }
 #' @seealso [rx_term()], [rx_residual()], [rx_fit()]
+#' @examples
+#' set.seed(1)
+#' d <- data.frame(gid = factor(rep(1:30, each = 4)), x = rnorm(120))
+#' d$y <- 1 + 0.5 * d$x + rnorm(30)[d$gid] + rnorm(120)
+#' m <- rx_model(d$y, cbind(1, d$x), terms = list(rx_term("gid", d$gid)))
+#' m
+#' rx_n_theta(m)
 #' @usage
 #' rx_model(y, X, terms, residual = rx_residual(), name = "modele")
 #' @name rx_model
@@ -305,6 +318,10 @@ NULL
 #'   the list `Z` when it has them. They are carried to `dimnames(fit$sigmas[[name]])`
 #'   and to the columns of `fit$blups[[name]]`, and [rx_exposure()] and
 #'   [rx_ratios()] refer to components by them (`"name:label"`).
+#' @examples
+#' d <- data.frame(gid = factor(rep(1:10, each = 3)))
+#' tt <- rx_term("gid", d$gid)
+#' tt$struct
 #' @usage
 #' rx_term(name, Z, K = NULL, struct = "iid", rank = 0L,
 #'         t = NULL, levels = NULL, level = "auto",
@@ -328,6 +345,9 @@ NULL
 #' @param rows,name row indices and label of a section.
 #' @return An object of class `rx_residual`.
 #' @seealso [rx_model()], [rx_term()]
+#' @examples
+#' r <- rx_residual()
+#' r$struct
 #' @usage
 #' rx_residual(struct = "iid", trait = NULL, unit = NULL, rank = 0L,
 #'             level = "id", order = 0L, coord = NULL, n_unit = NULL,
@@ -352,6 +372,11 @@ NULL
 #'   component. `terms` is a list of three [rx_term] objects, `<prefix>_x`,
 #'   `<prefix>_y`, `<prefix>_xy`, each with its own variance, which makes the
 #'   smoothing anisotropic.
+#' @examples
+#' lay <- expand.grid(row = 1:6, col = 1:8)
+#' s <- rx_spl2d(lay$row, lay$col, nseg = c(3, 3))
+#' dim(s$X)
+#' names(s$terms)
 #' @usage
 #' rx_spl2d(x, y, nseg = c(6L, 6L), deg = 3L, pord = 2L, prefix = "spl")
 #' @name rx_spl2d
@@ -376,6 +401,15 @@ NULL
 #' @return `rx_export()` returns `dir` invisibly. `rx_read_result()` returns an
 #'   object of class `rx_fit` (see [rx_fit()]), with `se_theta` computed by
 #'   [rx_se_theta()].
+#' @examples
+#' set.seed(1)
+#' d <- data.frame(gid = factor(rep(1:30, each = 4)), x = rnorm(120))
+#' d$y <- 1 + 0.5 * d$x + rnorm(30)[d$gid] + rnorm(120)
+#' m <- rx_model(d$y, cbind(1, d$x), terms = list(rx_term("gid", d$gid)))
+#' dir <- file.path(tempdir(), "remlax_bundle")
+#' rx_export(m, dir)
+#' list.files(dir)
+#' unlink(dir, recursive = TRUE)
 #' @usage
 #' rx_export(model, dir)
 #' rx_read_result(dir, model = NULL, fixed_theta = NULL)
@@ -422,6 +456,15 @@ NULL
 #'   matrices named by pair), `n_neighbours` (list of integer vectors), `params`
 #'   (one row per pair with the parameters actually used).
 #' @seealso [rx_exposure()], [rx_term()]
+#' @examples
+#' set.seed(1)
+#' lay <- expand.grid(row = 1:6, col = 1:8)
+#' lay$sp <- factor(ifelse(lay$row %% 2 == 1, "A", "B"))
+#' lay$gen <- factor(paste0(lay$sp, sample(1:6, nrow(lay), replace = TRUE)))
+#' nb <- rx_neighbourhood(lay[, c("row", "col")], group = lay$sp,
+#'                        level = lay$gen, rank = 1)
+#' nb
+#' dim(nb$level[["A<-B"]])
 #' @usage
 #' rx_neighbourhood(coord, group, block = NULL, level = NULL, id = NULL,
 #'                  rank, reach = 0, dilution = 0,
@@ -461,6 +504,14 @@ NULL
 #'   `convention` (`"K"` or `"identity"`). `c` is `NA` without a direct incidence
 #'   or when the two groups differ.
 #' @seealso [rx_neighbourhood()], [rx_ratios()]
+#' @examples
+#' set.seed(1)
+#' lay <- expand.grid(row = 1:6, col = 1:8)
+#' lay$sp <- factor(ifelse(lay$row %% 2 == 1, "A", "B"))
+#' lay$gen <- factor(paste0(lay$sp, sample(1:6, nrow(lay), replace = TRUE)))
+#' nb <- rx_neighbourhood(lay[, c("row", "col")], group = lay$sp,
+#'                        level = lay$gen, rank = 1)
+#' rx_exposure(Z_indirect = nb$level[["A<-A"]])[c("k", "S")]
 #' @usage
 #' rx_exposure(Z_direct = NULL, Z_indirect = NULL, K = NULL, rows = NULL,
 #'             K_direct = K, direct = NULL, indirect = NULL)
@@ -480,6 +531,12 @@ NULL
 #' @param coding `"fraction"` or `"count"`.
 #' @return A `q x q` matrix with the row names of `M` and an attribute
 #'   `"denominator"`.
+#' @examples
+#' set.seed(1)
+#' M <- matrix(rbinom(20 * 100, 2, 0.4) / 2, 20, 100,
+#'             dimnames = list(paste0("g", 1:20), NULL))
+#' G <- rx_grm(M)
+#' round(G[1:3, 1:3], 3)
 #' @usage
 #' rx_grm(M, ploidy = 2, blend = 0, coding = c("fraction", "count"))
 #' @name rx_grm
@@ -504,6 +561,9 @@ NULL
 #' @param clamp bound applied to `r` before `atanh`.
 #' @return A data frame: `r`, `se`, `z`, `z_fisher`, `se_z`, `ci_low`, `ci_high`,
 #'   `width`, `informative`, `method`, `level`, `width_max`.
+#' @examples
+#' rx_cor_z(c(-0.4, 0.1, 0.8), se = c(0.1, 0.2, 0.05))
+#' rx_cor_z(0.3, n = 50)
 #' @usage
 #' rx_cor_z(r, se = NULL, n = NULL, level = 0.95, width_max = 1.5,
 #'          clamp = 0.999999)
@@ -531,6 +591,14 @@ NULL
 #' @param fixed_theta 1-based indices of fixed parameters.
 #' @param tol_bound tolerance for declaring a parameter at a bound.
 #' @return A matrix, a named list of matrices, or a numeric vector.
+#' @examples
+#' set.seed(1)
+#' d <- data.frame(gid = factor(rep(1:30, each = 4)), x = rnorm(120))
+#' d$y <- 1 + 0.5 * d$x + rnorm(30)[d$gid] + rnorm(120)
+#' m <- rx_model(d$y, cbind(1, d$x), terms = list(rx_term("gid", d$gid)))
+#' rx_sigma_of(c(0, 0.5, log(2)), "us", 2)
+#' rx_sigmas_from_theta(rep(0, rx_n_theta(m)), m)
+#' rx_se_theta(c(0.1, -0.2), hessian = diag(c(4, 9)))
 #' @usage
 #' rx_sigma_of(th, struct, t, rank = 0L)
 #' rx_sigmas_from_theta(theta, model)
@@ -591,6 +659,15 @@ NULL
 #'   `convention`. Attributes `V`, `free`, `se_theta`, `check_se` (median ratio
 #'   to `fit$se_theta`), `sigmas`, `exposure`.
 #' @seealso [rx_exposure()], [rx_cor_z()], [rx_sigmas_from_theta()]
+#' @examplesIf rx_python_check(quiet = TRUE)$ok
+#' set.seed(1)
+#' d <- data.frame(gid = factor(rep(1:30, each = 4)), x = rnorm(120))
+#' d$y <- 1 + 0.5 * d$x + rnorm(30)[d$gid] + rnorm(120)
+#' m <- rx_model(d$y, cbind(1, d$x), terms = list(rx_term("gid", d$gid)))
+#' fit <- rx_fit(m, backend = "cpu", verbose = FALSE)
+#' comp <- data.frame(target = "y", direct = "gid", indirect_within = NA,
+#'                    indirect_between = NA, other = "residual")
+#' rx_ratios(fit, comp, model = m, quantities = c("variances", "h2"))
 #' @usage
 #' rx_ratios(fit, components, exposure = NULL, model = NULL,
 #'           quantities = c("variances", "shares", "h2", "h2_ext", "tau2",
@@ -622,6 +699,11 @@ NULL
 #' @return An object of class `rx_grid_summary`: `best`, `supported`, `ranges`,
 #'   `n_supported` (with `n_product`), `counts`, `best_pd`, `delta` (the full
 #'   table with `delta_aic` and `supported`), and `effective` when requested.
+#' @examples
+#' g <- expand.grid(order = 1:3, reach = c(0, 1, 2))
+#' g$logLik <- -100 + c(1, 3, 3.5, 2, 5, 5.2, 1, 4, 4.1)
+#' g$n_par <- 4
+#' rx_grid_summary(g, coords = c("order", "reach"))
 #' @usage
 #' rx_grid_summary(table, coords, aic = "AIC", loglik = "logLik", n_par = "n_par",
 #'                 by = NULL, tol = 2, pd = "pd_hessian", n_at_bound = "n_at_bound",
@@ -660,6 +742,14 @@ NULL
 #' @details Only single-trait random terms are covered. A `classify` on a
 #'   multi-trait term is warned about and dropped from the random part.
 #' @seealso [rx_reml()]
+#' @examplesIf rx_python_check(quiet = TRUE)$ok
+#' set.seed(2026)
+#' d <- expand.grid(gid = factor(1:60), bloc = factor(1:4))
+#' d$trt <- factor(rep(c("a", "b"), length.out = nrow(d)))
+#' d$y <- 12 + 0.5 * (d$trt == "b") + rnorm(60)[d$gid] + rnorm(nrow(d))
+#' fit <- rx_reml(y ~ trt, random = ~ gid, data = d, backend = "cpu",
+#'                verbose = FALSE)
+#' rx_predict(fit, classify = "trt")
 #' @usage
 #' rx_predict(fit, classify, levels = NULL, at = NULL,
 #'            average = c("equal", "proportional"), weights = NULL,
@@ -694,6 +784,11 @@ NULL
 #' @param parts factor list of a `sep` structure.
 #' @param model an [rx_model] object.
 #' @return An integer.
+#' @examples
+#' rx_n_params("us", 3)
+#' rx_n_params("fa", 4, rank = 1)
+#' rx_n_loadings(4, 1)
+#' rx_n_level("ar1")
 #' @usage
 #' rx_n_params(struct, t, rank = 0L)
 #' rx_n_loadings(t, r)
@@ -716,6 +811,10 @@ NULL
 #' @return `rx_sparse_scope()`: `list(ok = , reason = )`.
 #'   `rx_tmb_available()`: logical.
 #' @seealso [rx_fit_sparse()]
+#' @examples
+#' d <- data.frame(gid = factor(rep(1:10, each = 3)))
+#' rx_sparse_scope(list(rx_term("gid", d$gid)))
+#' rx_tmb_available()
 #' @usage
 #' rx_sparse_scope(terms, residual = NULL)
 #' rx_tmb_available()
@@ -736,11 +835,8 @@ NULL
 #'
 #' @return A character vector.
 #' @examples
-#' \dontrun{
-#' Sys.setenv(RX_PY = "/path/to/venv/bin/python")
 #' rx_python_cmd()
-#' rx_solver_args()
-#' }
+#' basename(rx_solver_args())
 #' @usage
 #' rx_python_cmd()
 #' rx_solver_args()
@@ -758,7 +854,10 @@ NULL
 #' command. `rx_install_python()` creates a virtual environment with
 #' `python -m venv`, installs jax (or `jax[cuda12]`), numpy and scipy with pip,
 #' checks the import and prints the `RX_PY` line to put in `~/.Renviron`. It
-#' does not modify the session nor `~/.Renviron` itself.
+#' does not modify the session nor `~/.Renviron` itself. In an interactive
+#' session it asks for confirmation before writing to `dir` and downloading
+#' the Python packages. `rx_remove_python()` deletes that environment, and the
+#' package's user data directory when it is left empty.
 #'
 #' @param py Python command, split on spaces (default `rx_python_cmd()`).
 #' @param quiet do not print the diagnostic.
@@ -768,22 +867,30 @@ NULL
 #' @param cuda install the CUDA 12 build of jax.
 #' @param python base interpreter (>= 3.10) used to create the venv.
 #' @param upgrade reinstall the packages if the venv already exists.
+#' @param ask ask for confirmation before writing or deleting (default: in
+#'   interactive sessions only).
 #' @return `rx_python_check()`: a list with `ok`, `python`, `versions` and
 #'   `message`, invisibly. `rx_install_python()`: the path of the created
-#'   interpreter, invisibly.
+#'   interpreter, invisibly. `rx_remove_python()`: `TRUE` if the directory was
+#'   removed, invisibly.
 #' @examples
+#' chk <- rx_python_check(quiet = TRUE)
+#' chk$ok
 #' \dontrun{
-#' rx_python_check()
-#' exe <- rx_install_python()          # CPU
+#' # Downloads several hundred MB from PyPI.
+#' exe <- rx_install_python()
 #' Sys.setenv(RX_PY = exe)
+#' rx_remove_python()
 #' }
 #' @usage
 #' rx_python_check(py = rx_python_cmd(), quiet = FALSE)
 #' rx_install_python(dir = file.path(tools::R_user_dir("remlax", "data"), "venv"),
-#'                   cuda = FALSE,
-#'                   python = "python3", upgrade = FALSE)
+#'                   cuda = FALSE, python = "python3", upgrade = FALSE,
+#'                   ask = interactive())
+#' rx_remove_python(dir = file.path(tools::R_user_dir("remlax", "data"), "venv"),
+#'                  ask = interactive())
 #' @name rx_python_check
-#' @aliases rx_install_python
+#' @aliases rx_install_python rx_remove_python
 NULL
 
 # ------------------------------------------------------------------------------
@@ -821,6 +928,20 @@ NULL
 #' @param res result of `rx_scan()`.
 #' @param test name of a test present in `res` (column `p_<test>`).
 #' @param alpha family-wise level.
+#' @examplesIf rx_python_check(quiet = TRUE)$ok
+#' set.seed(1)
+#' d <- data.frame(gid = factor(rep(1:30, each = 4)), x = rnorm(120))
+#' d$y <- 1 + 0.5 * d$x + rnorm(30)[d$gid] + rnorm(120)
+#' m <- rx_model(d$y, cbind(1, d$x), terms = list(rx_term("gid", d$gid)))
+#' \donttest{
+#' fit <- rx_fit(m, backend = "cpu", verbose = FALSE)
+#' M <- matrix(sample(c(-1, 1), 30 * 50, replace = TRUE), 30, 50,
+#'             dimnames = list(levels(d$gid), paste0("snp", 1:50)))
+#' gw <- rx_scan(fit, m, marqueurs = M, incidences = c(dir = "gid"),
+#'               tests = "dir", backend = "cpu", verbose = FALSE)
+#' head(gw)
+#' rx_scan_seuil(gw, "dir")
+#' }
 #' @usage
 #' rx_scan(fit, model, marqueurs, carte = NULL,
 #'         incidences = c(dir = "gen", ind = "voisin"),

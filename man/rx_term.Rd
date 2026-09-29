@@ -77,6 +77,11 @@ between the \code{q} levels.
 \code{struct = "iid"} with \code{t > 1} is accepted with a message: it means
 one variance shared by the \code{t} columns.
 }
+\examples{
+d <- data.frame(gid = factor(rep(1:10, each = 3)))
+tt <- rx_term("gid", d$gid)
+tt$struct
+}
 \seealso{
 \code{\link[=rx_model]{rx_model()}}, \code{\link[=rx_residual]{rx_residual()}}
 }

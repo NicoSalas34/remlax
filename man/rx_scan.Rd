@@ -61,3 +61,20 @@ incidences of the focal genotype and of the neighbours are named by the
 \emph{terms} of the model that carry them, never supplied as matrices, so the
 scan uses the design of the null model by construction.
 }
+\examples{
+\dontshow{if (rx_python_check(quiet = TRUE)$ok) withAutoprint(\{ # examplesIf}
+set.seed(1)
+d <- data.frame(gid = factor(rep(1:30, each = 4)), x = rnorm(120))
+d$y <- 1 + 0.5 * d$x + rnorm(30)[d$gid] + rnorm(120)
+m <- rx_model(d$y, cbind(1, d$x), terms = list(rx_term("gid", d$gid)))
+\donttest{
+fit <- rx_fit(m, backend = "cpu", verbose = FALSE)
+M <- matrix(sample(c(-1, 1), 30 * 50, replace = TRUE), 30, 50,
+            dimnames = list(levels(d$gid), paste0("snp", 1:50)))
+gw <- rx_scan(fit, m, marqueurs = M, incidences = c(dir = "gid"),
+              tests = "dir", backend = "cpu", verbose = FALSE)
+head(gw)
+rx_scan_seuil(gw, "dir")
+}
+\dontshow{\}) # examplesIf}
+}
