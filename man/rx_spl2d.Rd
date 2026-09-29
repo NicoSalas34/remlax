@@ -4,34 +4,59 @@
 \alias{rx_spl2d}
 \title{Two-dimensional P-spline basis (PS-ANOVA)}
 \usage{
-rx_spl2d(x, y, nseg = c(6L, 6L), deg = 3L, pord = 2L, prefix = "spl")
+rx_spl2d(x, y, nseg = c(10L, 10L), deg = c(3L, 3L), pord = 2L,
+         nest.div = c(1L, 1L), prefix = "spl")
 }
 \arguments{
 \item{x, y}{coordinates of the \code{n} observations.}
 
 \item{nseg}{number of segments in each direction.}
 
-\item{deg}{degree of the B-splines.}
+\item{deg}{degree of the B-splines, in each direction.}
 
-\item{pord}{order of the difference penalty.}
+\item{pord}{order of the difference penalty. Only 2 is accepted, as in
+\code{SpATS::PSANOVA()}.}
+
+\item{nest.div}{divisor of \code{nseg} for the nested bases of the smooth
+interaction \code{f(x):f(y)}; \code{nseg} must be a multiple of it.}
 
 \item{prefix}{prefix of the term names.}
 }
 \value{
-\code{list(X = , terms = )}. \code{X} is the null-space part and must go into
-the fixed effects, otherwise the surface is penalised down to its linear
-component. \code{terms} is a list of three \link{rx_term} objects, \verb{<prefix>_x},
-\verb{<prefix>_y}, \verb{<prefix>_xy}, each with its own variance, which makes the
-smoothing anisotropic.
+\code{list(X = , terms = , basis = )}. \code{X} is the null-space part (it
+spans \code{x}, \code{y} and \code{x * y}) and must go into the fixed effects, otherwise
+the surface is penalised down to its linear component. \code{terms} is a list
+of five \link{rx_term} objects, each with its own variance, which makes the
+smoothing anisotropic: \verb{<prefix>_fx} is \code{f(x)}, \verb{<prefix>_fy} is \code{f(y)},
+\verb{<prefix>_fx_y} is \code{f(x):y}, \verb{<prefix>_x_fy} is \code{x:f(y)} and
+\verb{<prefix>_fx_fy} is \code{f(x):f(y)}, in the notation of 'SpATS'. \code{basis}
+holds what is needed to evaluate the surface at new coordinates.
 }
 \description{
 Tensor-product B-spline basis with the PS-ANOVA decomposition of the
 penalty. Nothing is added to the solver: a smooth surface is a random effect
 with a known incidence.
 }
+\details{
+The basis is the PS-ANOVA decomposition of 'SpATS' (function \code{PSANOVA()},
+Rodriguez-Alvarez et al. 2018; Lee, Durban and Eilers 2013), matrix for
+matrix: the same B-splines, the same penalty eigenvectors and the same
+scaling of the constant and linear columns. Each of the five terms
+therefore has the covariance of the corresponding 'SpATS' term, and the
+variance components, effective dimensions and fitted values agree with
+those of 'SpATS' at the REML optimum.
+}
 \examples{
 lay <- expand.grid(row = 1:6, col = 1:8)
-s <- rx_spl2d(lay$row, lay$col, nseg = c(3, 3))
+s <- rx_spl2d(lay$col, lay$row, nseg = c(4, 3))
 dim(s$X)
-names(s$terms)
+vapply(s$terms, `[[`, "", "name")
+}
+\references{
+Lee D-J, Durban M, Eilers P (2013). Efficient two-dimensional
+smoothing with P-spline ANOVA mixed models and nested bases.
+Computational Statistics and Data Analysis 61, 22-37.
+Rodriguez-Alvarez MX, Boer MP, van Eeuwijk FA, Eilers PHC (2018).
+Correcting for spatial heterogeneity in plant breeding experiments with
+P-splines. Spatial Statistics 23, 52-71.
 }

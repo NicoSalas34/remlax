@@ -1620,7 +1620,7 @@ rx_reml <- function(fixed, random = NULL, residual = "units", data,
   }
   tr <- if (is.character(trait) && length(trait) == 1L) data[[trait]] else trait
   un <- if (is.character(unit)  && length(unit)  == 1L) data[[unit]]  else unit
-  # spl2d() dans `random` : une surface lisse donne TROIS termes aleatoires et
+  # spl2d() dans `random` : une surface lisse donne CINQ termes aleatoires et
   # des colonnes FIXES (la partie nulle). On l'extrait avant l'analyse des autres
   # termes, sur les donnees deja nettoyees, et la partie nulle rejoint X comme
   # un terme fixe a part entiere (un seul test de Wald pour ses colonnes).
@@ -1698,14 +1698,14 @@ rx_reml <- function(fixed, random = NULL, residual = "units", data,
     if (is.null(ya)) { if (length(pos) < ip) stop("spl2d() : coordonnee y manquante.", call. = FALSE)
                        ya <- pos[[ip]] }
     ev <- function(a, def) if (is.null(a)) def else eval(a, env)
-    nseg <- as.integer(ev(opt$nseg, c(6L, 6L)))
+    nseg <- as.integer(ev(opt$nseg, c(10L, 10L)))
     prefix <- as.character(ev(opt$name, if (!length(vus)) "spl" else paste0("spl", length(vus) + 1L)))
     if (prefix %in% vus) stop("spl2d() : deux surfaces portent le nom '", prefix, "'.", call. = FALSE)
     vus <- c(vus, prefix)
     xv <- coord(xa, "x"); yv <- coord(ya, "y")
     s <- rx_spl2d(xv, yv, nseg = nseg,
-                  deg = as.integer(ev(opt$deg, 3L)), pord = as.integer(ev(opt$pord, 2L)),
-                  prefix = prefix)
+                  deg = as.integer(ev(opt$deg, c(3L, 3L))), pord = as.integer(ev(opt$pord, 2L)),
+                  nest.div = as.integer(ev(opt$nest.div, c(1L, 1L))), prefix = prefix)
     termes <- c(termes, s$terms); Xs[[length(Xs) + 1L]] <- s$X
     grp <- c(grp, rep(txt, ncol(s$X)))
     surfaces[[prefix]] <- list(basis = s$basis, x = xv, y = yv, label = txt,
@@ -1732,18 +1732,27 @@ rx_reml <- function(fixed, random = NULL, residual = "units", data,
 #      vont dans les effets FIXES) et partie PENALISEE (le reste, aleatoire,
 #      avec Z = B U diag(d^-1/2) de sorte que la covariance soit sigma^2 I).
 #
-# Trois blocs aleatoires en sortie, comme dans PS-ANOVA :
-#   f_x    lissage principal selon x        (penalise en x, lineaire en y)
-#   f_y    lissage principal selon y
-#   f_xy   interaction lisse
-# Chacun a SA variance : c'est ce qui rend le lissage anisotrope, une surface
-# pouvant etre rugueuse dans un sens et lisse dans l'autre.
+# Cinq blocs aleatoires, exactement ceux du PSANOVA de SpATS
+# (Rodriguez-Alvarez et al. 2018, construct.2d.pspline) :
+#   fx      f(x)          Z_x
+#   fy      f(y)          Z_y
+#   fx_y    f(x):y        Z_x    * y lineaire
+#   x_fy    x:f(y)        x lineaire * Z_y
+#   fx_fy   f(x):f(y)     Z_x (x) Z_y, sur des bases emboitees si nest.div > 1
+# Chacun a SA variance. SpATS ecrit G_k = s2_k diag(1/d) sur Z = B U ; on met ici
+# Z a l'echelle par d^-1/2, ce qui donne un terme iid de MEME variance s2_k.
+# Pour f(x):f(y), d est la somme de Kronecker 1 (x) d_x + d_y (x) 1, comme dans
+# SpATS. Les colonnes constante et lineaire sont celles de SpATS (MM.basis,
+# decom = 4) : 1 / sqrt(c) et B a, ou a est l'indice des coefficients centre et
+# norme. Leur echelle ne change pas l'ajustement, mais elle fixe l'unite de s2
+# pour f(x), f(y), f(x):y et x:f(y) : c'est ce qui rend les variances egales a
+# celles de SpATS.
 #
-#   sp <- rx_spl2d(d$row, d$col, nseg = c(6, 6))
+#   sp <- rx_spl2d(d$col, d$row, nseg = c(10, 10))
 #   mod <- rx_model(y, cbind(X, sp$X), c(list(...), sp$terms))
-# Les colonnes sp$X sont la partie NULLE : elles DOIVENT aller dans les effets
-# fixes, sinon la surface est penalisee jusque dans sa composante lineaire et le
-# lissage est biaise.
+# Les colonnes sp$X sont la partie NULLE (x, y, x*y) : elles DOIVENT aller dans
+# les effets fixes, sinon la surface est penalisee jusque dans sa composante
+# lineaire et le lissage est biaise.
 # ==============================================================================
 
 .rx_bbase <- function(x, nseg = 6L, deg = 3L, xl = min(x), xr = max(x)) {
@@ -1753,51 +1762,78 @@ rx_reml <- function(fixed, random = NULL, residual = "units", data,
 }
 
 # Decomposition de la penalite d'une base 1D : vecteurs propres PENALISES (et
-# leurs valeurs) et NOYAU (constante + pente). Conserves dans la base, pour
-# reevaluer la surface en de nouveaux points avec EXACTEMENT la meme
+# leurs valeurs), NOYAU, et direction LINEAIRE a de SpATS. Conserves dans la
+# base, pour reevaluer la surface en de nouveaux points avec EXACTEMENT la meme
 # reparametrisation.
 .rx_pen_decomp <- function(c_, pord) {
   D <- diff(diag(c_), differences = pord); e <- eigen(crossprod(D), symmetric = TRUE)
-  keep <- e$values > 1e-10 * max(e$values)
+  keep <- seq_len(c_ - pord)
+  a <- seq_len(c_) - (c_ + 1) / 2
   list(U = e$vectors[, keep, drop = FALSE], d = e$values[keep],
-       N = e$vectors[, !keep, drop = FALSE])
+       N = e$vectors[, -keep, drop = FALSE], lin = a / sqrt(sum(a^2)))
 }
 
 .rx_rowk <- function(A, B)                 # produit de Khatri-Rao par ligne
   do.call(cbind, lapply(seq_len(ncol(B)), function(j) A * B[, j]))
 
-# Evalue une base spl2d en (x, y). Rend la partie nulle (centree, colonnes
-# retenues) et les trois incidences penalisees. Hors du domaine d'ajustement,
-# les B-splines sont extrapolees (outer.ok) : la carte sur grille reste donc
-# dans le rectangle des donnees.
-.rx_spl2d_eval <- function(basis, x, y) {
-  bx <- basis$x; by <- basis$y
-  Bx <- .rx_bbase(as.numeric(x), bx$nseg, basis$deg, bx$xl, bx$xr)
-  By <- .rx_bbase(as.numeric(y), by$nseg, basis$deg, by$xl, by$xr)
-  Zcx <- Bx %*% bx$pen$U %*% diag(1 / sqrt(bx$pen$d), length(bx$pen$d))
-  Zcy <- By %*% by$pen$U %*% diag(1 / sqrt(by$pen$d), length(by$pen$d))
-  Nx <- Bx %*% bx$pen$N; Ny <- By %*% by$pen$N
-  Xn <- .rx_rowk(Nx, Ny)
-  Xn <- sweep(Xn, 2L, basis$centre)[, basis$keep, drop = FALSE]
-  list(X = Xn, Zx = .rx_rowk(Zcx, Ny), Zy = .rx_rowk(Nx, Zcy), Zxy = .rx_rowk(Zcx, Zcy))
+.rx_spl2d_axe <- function(v, ax, deg, nested = FALSE) {
+  ns <- if (nested) ax$nseg / ax$nest else ax$nseg
+  pen <- if (nested) ax$pen_n else ax$pen
+  B <- .rx_bbase(as.numeric(v), ns, deg, ax$xl, ax$xr)
+  list(B = B, Z = B %*% pen$U, d = pen$d, N = B %*% pen$N, lin = as.numeric(B %*% pen$lin),
+       one = 1 / sqrt(ncol(B)))
 }
 
-# Base P-spline 2D, prete pour rx_model()
+# Noms des cinq termes, suffixes du prefixe.
+.rx_spl2d_suffixes <- c("fx", "fy", "fx_y", "x_fy", "fx_fy")
+
+# Evalue une base spl2d en (x, y). Rend la partie nulle (centree, colonnes
+# retenues) et les cinq incidences penalisees, deja mises a l'echelle. Hors du
+# domaine d'ajustement, les B-splines sont extrapolees (outer.ok) : la carte sur
+# grille reste donc dans le rectangle des donnees.
+.rx_spl2d_eval <- function(basis, x, y) {
+  deg <- rep_len(basis$deg, 2L)
+  ex <- .rx_spl2d_axe(x, basis$x, deg[1]); ey <- .rx_spl2d_axe(y, basis$y, deg[2])
+  exn <- if (basis$x$nest > 1) .rx_spl2d_axe(x, basis$x, deg[1], TRUE) else ex
+  eyn <- if (basis$y$nest > 1) .rx_spl2d_axe(y, basis$y, deg[2], TRUE) else ey
+  ech <- function(Z, d) sweep(Z, 2L, sqrt(d), "/")
+  Zx <- ech(ex$Z, ex$d); Zy <- ech(ey$Z, ey$d)
+  Zxy <- ech(.rx_rowk(exn$Z, eyn$Z), as.vector(outer(exn$d, eyn$d, "+")))
+  Xn <- .rx_rowk(ex$N, ey$N)
+  Xn <- sweep(Xn, 2L, basis$centre)[, basis$keep, drop = FALSE]
+  # f(x) porte la colonne constante normee de y, 1 / sqrt(c_y), comme dans SpATS :
+  # sans effet sur l'ajustement, ce facteur fixe l'unite de s2.
+  Z <- list(Zx * ey$one, Zy * ex$one, Zx * ey$lin, ex$lin * Zy, Zxy)
+  names(Z) <- .rx_spl2d_suffixes
+  list(X = Xn, Z = Z)
+}
+
+# Base P-spline 2D, PS-ANOVA de SpATS, prete pour rx_model()
 # @return list(X = partie nulle (fixe), terms = liste de rx_term aleatoires,
 #   basis = de quoi reevaluer la surface, voir .rx_spl2d_eval())
-rx_spl2d <- function(x, y, nseg = c(6L, 6L), deg = 3L, pord = 2L, prefix = "spl") {
+rx_spl2d <- function(x, y, nseg = c(10L, 10L), deg = c(3L, 3L), pord = 2L,
+                     nest.div = c(1L, 1L), prefix = "spl") {
   x <- as.numeric(x); y <- as.numeric(y); n <- length(x)
   if (length(y) != n) stop("rx_spl2d : x et y de longueurs differentes.")
-  ns <- c(nseg[1], nseg[min(2, length(nseg))])
-  basis <- list(deg = deg, pord = pord, prefix = prefix,
-                x = list(xl = min(x), xr = max(x), nseg = ns[1]),
-                y = list(xl = min(y), xr = max(y), nseg = ns[2]))
-  basis$x$pen <- .rx_pen_decomp(ns[1] + deg, pord)
-  basis$y$pen <- .rx_pen_decomp(ns[2] + deg, pord)
+  if (any(pord != 2))
+    stop("rx_spl2d : seule la penalite d'ordre 2 est prise en charge (comme PSANOVA de SpATS).",
+         call. = FALSE)
+  ns <- rep_len(as.integer(round(nseg)), 2L); deg <- rep_len(as.integer(deg), 2L)
+  nd <- rep_len(as.integer(nest.div), 2L)
+  if (any(ns %% nd != 0))
+    stop("rx_spl2d : nseg doit etre un multiple de nest.div.", call. = FALSE)
+  basis <- list(deg = deg, pord = 2L, prefix = prefix,
+                x = list(xl = min(x), xr = max(x), nseg = ns[1], nest = nd[1]),
+                y = list(xl = min(y), xr = max(y), nseg = ns[2], nest = nd[2]))
+  basis$x$pen <- .rx_pen_decomp(ns[1] + deg[1], 2L)
+  basis$y$pen <- .rx_pen_decomp(ns[2] + deg[2], 2L)
+  if (nd[1] > 1) basis$x$pen_n <- .rx_pen_decomp(ns[1] / nd[1] + deg[1], 2L)
+  if (nd[2] > 1) basis$y$pen_n <- .rx_pen_decomp(ns[2] / nd[2] + deg[2], 2L)
   # La partie nulle CONTIENT la direction constante : cbind(1, Xn) serait de rang
   # deficient et rx_model() le refuserait (a raison). On projette donc Xn hors de
   # l'intercept, puis on ne garde qu'une base independante par QR revelatrice de
-  # rang. `X` est ainsi utilisable tel quel a cote d'un intercept.
+  # rang. `X` est ainsi utilisable tel quel a cote d'un intercept. Il engendre le
+  # meme espace que la partie fixe de SpATS : x, y et x*y.
   basis$centre <- 0; basis$keep <- TRUE
   brut <- .rx_spl2d_eval(basis, x, y)
   basis$centre <- colMeans(brut$X)
@@ -1807,11 +1843,10 @@ rx_spl2d <- function(x, y, nseg = c(6L, 6L), deg = 3L, pord = 2L, prefix = "spl"
   Xn <- Xc[, basis$keep, drop = FALSE]
   colnames(Xn) <- paste0(prefix, "_lin", seq_len(ncol(Xn)))
   basis$columns <- colnames(Xn)
+  basis$terms <- paste0(prefix, "_", .rx_spl2d_suffixes)
   list(X = Xn,
-       terms = list(
-         rx_term(paste0(prefix, "_x"),  list(brut$Zx),  struct = "iid"),
-         rx_term(paste0(prefix, "_y"),  list(brut$Zy),  struct = "iid"),
-         rx_term(paste0(prefix, "_xy"), list(brut$Zxy), struct = "iid")),
+       terms = lapply(seq_along(brut$Z), function(k)
+         rx_term(basis$terms[k], list(brut$Z[[k]]), struct = "iid")),
        basis = basis)
 }
 

@@ -218,22 +218,28 @@ test_that("rx_term : trois formes de Z, et chaque refus", {
   expect_output(print(m0), "total : 3 parametres")
 })
 
-test_that("rx_spl2d : partie nulle, trois termes, tailles", {
+test_that("rx_spl2d : partie nulle, cinq termes PS-ANOVA, tailles", {
   set.seed(5)
   x <- rep(1:10, 9); y <- rep(1:9, each = 10)
   sp <- rx_spl2d(x, y, nseg = c(6, 6))
   expect_equal(ncol(sp$X), 3L)
   expect_equal(colnames(sp$X), paste0("spl_lin", 1:3))
-  expect_equal(vapply(sp$terms, `[[`, "", "name"), c("spl_x", "spl_y", "spl_xy"))
-  expect_equal(vapply(sp$terms, `[[`, 1L, "q"), c(14L, 14L, 49L))
+  expect_equal(vapply(sp$terms, `[[`, "", "name"),
+               paste0("spl_", c("fx", "fy", "fx_y", "x_fy", "fx_fy")))
+  expect_equal(vapply(sp$terms, `[[`, 1L, "q"), c(7L, 7L, 7L, 7L, 49L))
   expect_true(all(abs(colMeans(sp$X)) < 1e-10))                # centree
   X <- cbind(1, sp$X)
   expect_equal(qr(X)$rank, 4L)                                  # independante de l'intercept
   m <- rx_model(rnorm(90), X, c(list(rx_term("gid", factor(rep(1:10, 9)))), sp$terms))
-  expect_equal(m$n_par, 5L); expect_equal(rx_n_theta(m), 5L)
+  expect_equal(m$n_par, 7L); expect_equal(rx_n_theta(m), 7L)
   sp2 <- rx_spl2d(x, y, nseg = c(4, 5), prefix = "s")
-  expect_equal(vapply(sp2$terms, `[[`, 1L, "q"), c(5L * 2L, 2L * 6L, 5L * 6L))
-  expect_equal(sp2$terms[[1]]$name, "s_x")
+  expect_equal(vapply(sp2$terms, `[[`, 1L, "q"), c(5L, 6L, 5L, 6L, 5L * 6L))
+  expect_equal(sp2$terms[[1]]$name, "s_fx")
+  # bases emboitees pour f(x):f(y) : nseg / nest.div segments
+  sp3 <- rx_spl2d(x, y, nseg = c(4, 6), nest.div = c(2, 3))
+  expect_equal(vapply(sp3$terms, `[[`, 1L, "q"), c(5L, 7L, 5L, 7L, 3L * 3L))
+  expect_error(rx_spl2d(x, y, nseg = c(5, 6), nest.div = 2), "multiple")
+  expect_error(rx_spl2d(x, y, pord = 3), "ordre 2")
   expect_error(rx_spl2d(x, y[1:10]), "longueurs")
 })
 

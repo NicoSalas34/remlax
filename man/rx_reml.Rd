@@ -19,11 +19,11 @@ structures \code{ar1(f)}, \code{ar2}, \code{ar3}, \code{sar}, \code{ma1}, \code{
 \code{corb(f, order = )}, \code{corg}, \code{exp}, \code{gau}, \code{lvr}, \code{iexp}, \code{igau}, \code{ieuc},
 \code{sph}, \code{cir}, \code{aexp}, \code{agau}, \code{mtrn}, \code{own(expr = , n_par = )}, and the
 separable \code{ar1(row):ar1(col)}. \code{str()} puts one covariance over several
-terms. \code{spl2d(x, y, nseg = c(6, 6), deg = 3, pord = 2, name = "spl")} adds
-a smooth two-dimensional surface over numeric coordinates, built by
-\code{\link[=rx_spl2d]{rx_spl2d()}}: its three smooth parts become random terms \verb{<name>_x},
-\verb{<name>_y} and \verb{<name>_xy}, each with its own variance, and its null part
-joins the fixed effects as one term. The complete grammar is described in
+terms. \code{spl2d(x, y, nseg = c(10, 10), deg = c(3, 3), pord = 2, nest.div = c(1, 1), name = "spl")} adds a smooth two-dimensional surface
+over numeric coordinates, the PS-ANOVA of 'SpATS', built by \code{\link[=rx_spl2d]{rx_spl2d()}}:
+its five smooth parts become random terms \verb{<name>_fx}, \verb{<name>_fy},
+\verb{<name>_fx_y}, \verb{<name>_x_fy} and \verb{<name>_fx_fy}, each with its own
+variance, and its null part joins the fixed effects as one term. The complete grammar is described in
 \code{vignette("r-interface", package = "remlax")}.}
 
 \item{residual}{\code{"units"}, \code{"diag"}, \code{"us"}, or a one-sided formula such as

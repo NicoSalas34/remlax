@@ -80,7 +80,8 @@ summary.rx_fit <- function(object, coef = FALSE, ...) {
     convergence = list(max_grad = x$max_grad, newton_decrement = x$newton_decrement %||% NA,
                        n_iter = x$n_iter %||% NA, n_neg_eig = x$n_neg_eig %||% NA,
                        seconds = x$secondes %||% NA),
-    varcomp = varcomp, dimensions = dims, coef.fixed = fixed, coef.random = random,
+    varcomp = varcomp, dimensions = dims, surfaces = .rx_noms_spats(x),
+    coef.fixed = fixed, coef.random = random,
     vpredict = x$vpredict$predictions, wald = x$wald$tests),
     class = "summary.rx_fit")
 }
@@ -115,6 +116,7 @@ print.summary.rx_fit <- function(x, digits = max(4L, getOption("digits") - 3L), 
     print(data.frame(Effective = round(dd$Effective, 1), Model = dd$Model,
                      Nominal = round(dd$Nominal, 1), Ratio = round(dd$Ratio, 3), Type = dd$Type,
                      row.names = rownames(dd)), na.print = "")
+    for (ln in x$surfaces) cat("  ", ln, "\n", sep = "")
     cat("  Pour un genotype sans parente, Ratio = heritabilite generalisee (Oakey et al. 2006).\n")
   }
   if (!is.null(x$vpredict) && NROW(x$vpredict)) {
@@ -144,4 +146,18 @@ print.summary.rx_fit <- function(x, digits = max(4L, getOption("digits") - 3L), 
                                  row.names = rownames(cr)), 20L), na.print = "")
   }
   invisible(x)
+}
+
+# Correspondance des termes d'une surface spl2d() avec les noms de SpATS, une
+# ligne par surface : "spl_fx = f(col), spl_fy = f(row), ...".
+.rx_noms_spats <- function(fit) {
+  sf <- fit$spl2d$surfaces
+  if (!length(sf)) return(character())
+  vapply(sf, function(s) {
+    if (is.null(s$basis$terms)) return("")
+    x <- s$x_name; y <- s$y_name
+    ref <- c(sprintf("f(%s)", x), sprintf("f(%s)", y), sprintf("f(%s):%s", x, y),
+             sprintf("%s:f(%s)", x, y), sprintf("f(%s):f(%s)", x, y))
+    paste(paste(s$basis$terms, "=", ref), collapse = ", ")
+  }, "")
 }

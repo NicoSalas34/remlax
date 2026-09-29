@@ -411,8 +411,11 @@ counted twice.
 ## Two-dimensional splines
 
 `rx_spl2d()` builds a tensor-product P-spline basis with the PS-ANOVA
-decomposition. It returns a null-space part for the fixed effects and three
-random blocks.
+decomposition of 'SpATS' (`PSANOVA()`, Rodriguez-Alvarez et al. 2018). It
+returns a null-space part for the fixed effects and five random blocks, the
+five smooth components of 'SpATS': `f(x)`, `f(y)`, `f(x):y`, `x:f(y)` and
+`f(x):f(y)`. The defaults are those of `PSANOVA()`: `nseg = c(10, 10)`, cubic
+B-splines, second-order penalty, and `nest.div = c(1, 1)`.
 
 ```r
 sp <- rx_spl2d(d$coln, d$rown, nseg = c(6, 6))
@@ -420,9 +423,11 @@ sp <- rx_spl2d(d$coln, d$rown, nseg = c(6, 6))
 
 ```
 partie nulle (fixe) : 3 colonnes : spl_lin1, spl_lin2, spl_lin3
-  terme spl_x    q = 14
-  terme spl_y    q = 14
-  terme spl_xy   q = 49
+  terme spl_fx     q = 7
+  terme spl_fy     q = 7
+  terme spl_fx_y   q = 7
+  terme spl_x_fy   q = 7
+  terme spl_fx_fy  q = 49
 ```
 
 The null-space columns **must** go into the fixed effects. Left out, the
@@ -430,9 +435,15 @@ surface is penalised down to its linear component and the smoothing is biased.
 They are centred and reduced to an independent basis by a rank-revealing QR,
 so they sit next to an intercept without making `X` rank-deficient.
 
-The three random blocks each carry **their own** variance, which is what makes
+The five random blocks each carry **their own** variance, which is what makes
 the smoothing anisotropic: a field is allowed to be rough across rows and
-smooth across columns.
+smooth across columns. The matrices are those of 'SpATS', term for term: the
+same B-splines, the same penalty eigenvalues, the same scaling of the constant
+and linear columns. The covariance of each term agrees with that of 'SpATS'
+to `1e-12`, and so do the variance components, the effective dimensions and
+the fitted values at the REML optimum (checked in `tests/testthat` when
+'SpATS' is installed). With `nest.div = c(2, 2)`, the smooth interaction
+`f(x):f(y)` uses nested bases with half as many segments, as in 'SpATS'.
 
 The same surface can be written directly in the formula of `rx_reml()`. The
 null part then joins the fixed effects as one term, and `rx_predict()` holds it
@@ -441,7 +452,8 @@ at zero, which averages the surface over the field:
 ```r
 fs <- rx_reml(y ~ 1, random = ~ gid + spl2d(coln, rown, nseg = c(6, 6)),
               data = d, backend = "cpu", verbose = FALSE)
-names(fs$sigmas)        # "gid" "spl_x" "spl_y" "spl_xy"
+names(fs$sigmas)
+# "gid" "spl_fx" "spl_fy" "spl_fx_y" "spl_x_fy" "spl_fx_fy"
 ```
 
 Both routes give the same fit to `1e-8` on the log-likelihood. The formula
@@ -469,9 +481,9 @@ head(maps$plots)                                  # observed, fitted, residual, 
 `plot()` draws the data, the fitted values, the residuals, the spatial trend
 on a fine grid, the histogram of the genotype BLUPs, and the residuals
 against the fitted values. It returns the plot-level values and the grid as
-data frames, so any other plotting tool can redraw them. The surface has
-three variances, where the PS-ANOVA of 'SpATS' has five: its partial
-effective dimensions are therefore not those of 'SpATS' term by term.
+data frames, so any other plotting tool can redraw them. Below the table,
+`summary()` gives the name of each term in 'SpATS' notation, for instance
+`spl_fx = f(coln)` and `spl_fx_fy = f(coln):f(rown)`.
 
 ```r
 X <- cbind("(Intercept)" = 1, sp$X)
@@ -486,29 +498,33 @@ print(fs)
 ```
 Modele REML 'modele' : 192 observations, 4 effets fixes
   terme gid            iid   t=1   q=48    K=I        (1 parametre)
-  terme spl_x          iid   t=1   q=14    K=I        (1 parametre)
-  terme spl_y          iid   t=1   q=14    K=I        (1 parametre)
-  terme spl_xy         iid   t=1   q=49    K=I        (1 parametre)
+  terme spl_fx         iid   t=1   q=7     K=I        (1 parametre)
+  terme spl_fy         iid   t=1   q=7     K=I        (1 parametre)
+  terme spl_fx_y       iid   t=1   q=7     K=I        (1 parametre)
+  terme spl_x_fy       iid   t=1   q=7     K=I        (1 parametre)
+  terme spl_fx_fy      iid   t=1   q=49    K=I        (1 parametre)
   residuelle     iid   t=1  (1 parametre)
-  total : 5 parametres de variance
+  total : 7 parametres de variance
 
-Ajustement REML (cpu) : logLik -318.856345 | 5 parametres | 192 obs | 1.8 s
-  max|grad| 7.67e-13 | decrement de Newton 1.39e-25 | 0 valeur(s) propre(s) negative(s)
-  Sigma[gid] 1x1, diagonale : 0.7719
-  Sigma[spl_x] 1x1, diagonale : 2.082
-  Sigma[spl_y] 1x1, diagonale : 0.702
-  Sigma[spl_xy] 1x1, diagonale : 2.738
-  residuelle : 1.003
+Ajustement REML (cpu) : logLik -315.732960 | 7 parametres | 192 obs | 0.3 s
+  max|grad| 8.47e-11 | decrement de Newton 3.75e-25 | 0 valeur(s) propre(s) negative(s)
+  Sigma[gid] 1x1, diagonale : 0.7944
+  Sigma[spl_fx] 1x1, diagonale : 1.145
+  Sigma[spl_fy] 1x1, diagonale : 1.108
+  Sigma[spl_fx_y] 1x1, diagonale : 0.9422
+  Sigma[spl_x_fy] 1x1, diagonale : 3.775e-11
+  Sigma[spl_fx_fy] 1x1, diagonale : 13.31
+  residuelle : 0.9742
 ```
 
-`-318.86` with 5 parameters, against `-320.76` with 4 for the separable AR1.
-The spline is competitive here, and the three variances are genuinely
-different (2.08, 0.70, 2.74), which is the anisotropy the decomposition is
-for.
+`-315.73` with 7 parameters, against `-320.76` with 4 for the separable AR1.
+The variances differ between the components, which is the anisotropy the
+decomposition is for. The variance of `x:f(y)` sits at its boundary: along
+columns, the slope of the trend does not vary smoothly with the row.
 
 Nothing was added to the solver: a smooth surface is a random effect with a
-known incidence, exactly as in sommer and asreml. That is why the splines go
-through `rx_model()` rather than through the formula interface.
+known incidence, exactly as in sommer and asreml. The formula route and
+`rx_model()` build the same matrices.
 
 ---
 

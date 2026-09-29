@@ -54,9 +54,9 @@ residuals.rx_fit <- function(object, ...) {
   nm <- colnames(fit$model$X)
   b <- fit$beta[match(s$basis$columns, nm)]
   tr <- as.numeric(e$X %*% b)
-  for (k in c("x", "y", "xy")) {
+  for (k in names(e$Z)) {
     u <- fit$blups[[paste0(pre, "_", k)]]
-    if (!is.null(u)) tr <- tr + as.numeric(e[[paste0("Z", k)]] %*% as.numeric(u))
+    if (!is.null(u)) tr <- tr + as.numeric(e$Z[[k]] %*% as.numeric(u))
   }
   tr
 }
@@ -168,8 +168,7 @@ plot.rx_fit <- function(x, genotype = NULL, surface = NULL, spaTrend = c("raw", 
   if (spaTrend == "percentage") vt <- 100 * vt / mean(obs)
   termes <- vapply(fit$model$terms, `[[`, "", "name")
   if (is.null(genotype)) {
-    autres <- setdiff(termes, unlist(lapply(fit$spl2d$surfaces, function(z)
-      paste0(z$basis$prefix, c("_x", "_y", "_xy")))))
+    autres <- setdiff(termes, unlist(lapply(fit$spl2d$surfaces, function(z) z$basis$terms)))
     genotype <- if (length(autres)) autres[1] else NA_character_
   }
   if (!is.null(file)) {

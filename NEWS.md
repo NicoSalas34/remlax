@@ -10,9 +10,15 @@
   both conventions, AIC, BIC, convergence, variance components with standard
   errors (delta method, exact Jacobian) and `P`/`U`/`B`/`F` codes, fixed
   effects, and BLUPs with `coef = TRUE`.
-* `spl2d(x, y, nseg =, deg =, pord =, name =)` in the random formula of
-  `rx_reml()`: a two-dimensional P-spline surface whose null part joins the
-  fixed effects; `rx_predict()` averages it over the field.
+* `spl2d(x, y, nseg =, deg =, pord =, nest.div =, name =)` in the random
+  formula of `rx_reml()`: a two-dimensional P-spline surface whose null part
+  joins the fixed effects; `rx_predict()` averages it over the field.
+* `rx_spl2d()` and `spl2d()` build the PS-ANOVA of 'SpATS' (`PSANOVA()`)
+  matrix for matrix: five smooth components `f(x)`, `f(y)`, `f(x):y`,
+  `x:f(y)`, `f(x):f(y)`, each with its own variance, nested bases through
+  `nest.div`, and the defaults of 'SpATS' (`nseg = c(10, 10)`). Variance
+  components, effective dimensions and fitted values agree with those of
+  'SpATS'.
 * Spatial output in the manner of 'SpATS': `rx_dimensions()` (effective,
   model and nominal dimensions), `rx_heritability()` (generalised
   heritability of Oakey et al. 2006), `rx_spatial_trend()` (surface on a grid,

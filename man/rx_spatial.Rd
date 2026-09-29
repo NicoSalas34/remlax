@@ -60,7 +60,7 @@ table, so that the effective dimensions add up to \code{n}. \code{rx_heritabilit
 returns the ratio of a genotype term, which is the generalised heritability
 of Oakey et al. (2006), \code{1 - mean(PEV) / s2_g} corrected for the fixed
 effects. \code{rx_spatial_trend()} evaluates the fitted surface (null part plus
-the three smooth parts) on a regular grid over the field, as a data frame
+the five smooth parts) on a regular grid over the field, as a data frame
 ready for export or for any plotting package. \code{plot()} draws six panels:
 data, fitted values, residuals, spatial trend, histogram of the genotype
 BLUPs, and residuals against fitted values; \verb{file =} writes them directly to
@@ -69,10 +69,10 @@ a png, jpeg, tiff, pdf or svg file. \code{fitted()} and \code{residuals()} retur
 }
 \details{
 The effective dimension is computed for single-trait \code{iid} terms without a
-relationship matrix; other terms are listed with \code{NA}. The spatial surface
-of \code{spl2d()} has three variances (\verb{_x}, \verb{_y}, \verb{_xy}), where the PS-ANOVA of
-'SpATS' has five, so its partial effective dimensions are not term by term
-those of 'SpATS'.
+relationship matrix; other terms are listed with \code{NA}. The surface of
+\code{spl2d()} is the PS-ANOVA of 'SpATS', term for term, so its five partial
+effective dimensions are those that \code{summary()} of a 'SpATS' fit with
+\code{PSANOVA()} reports.
 }
 \examples{
 \dontshow{if (rx_python_check(quiet = TRUE)$ok) withAutoprint(\{ # examplesIf}

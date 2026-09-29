@@ -504,8 +504,9 @@ caractere.
 ## 4. Two-dimensional splines
 
 `rx_spl2d(x, y, nseg)` builds a tensor-product P-spline basis and returns the
-PS-ANOVA decomposition: three random blocks (`_x`, `_y`, `_xy`), each with its
-own variance so the smoothing can be anisotropic, plus a null-space part that
+PS-ANOVA decomposition of 'SpATS': five random blocks (`_fx`, `_fy`, `_fx_y`,
+`_x_fy`, `_fx_fy`), each with its own variance so the smoothing can be
+anisotropic, plus a null-space part that
 **must** go into the fixed effects. Nothing is added to the solver — a smooth
 surface is a random effect with a known incidence, exactly as in sommer and
 asreml.

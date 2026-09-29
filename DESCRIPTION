@@ -47,6 +47,7 @@ Suggests:
     lme4,
     nlme,
     sommer,
+    SpATS,
     knitr,
     rmarkdown
 SystemRequirements: Python (>= 3.10) with jax (>= 0.4.30), numpy (>= 1.24)

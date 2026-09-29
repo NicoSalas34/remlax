@@ -21,7 +21,7 @@ test_that("spl2d() dans rx_reml() equivaut a rx_spl2d() + rx_model()", {
                 c(list(rx_term("gid", g$gid)), sp$terms))
   fe <- rx_fit(m, backend = "cpu", verbose = FALSE)
   expect_equal(f$logLik, fe$logLik, tolerance = 1e-8)
-  expect_identical(names(f$sigmas), c("gid", "spl_x", "spl_y", "spl_xy"))
+  expect_identical(names(f$sigmas), c("gid", paste0("spl_", c("fx", "fy", "fx_y", "x_fy", "fx_fy"))))
   expect_identical(f$spl2d$columns, colnames(sp$X))
   expect_identical(attr(f$model$X, "termes"), c("(Intercept)", "trt", "spl2d(r, c, nseg = c(4, 4))"))
 })
@@ -30,7 +30,7 @@ test_that("spl2d() : nom, arguments nommes, coordonnees en facteur, erreurs", {
   g <- jeu(); g$rf <- factor(g$r)
   f <- rx_reml(y ~ 1, random = ~ spl2d(x = rf, y = c, nseg = c(3, 3), name = "champ"), data = g,
                backend = "cpu", verbose = FALSE, hessian = FALSE)
-  expect_identical(names(f$sigmas), c("champ_x", "champ_y", "champ_xy"))
+  expect_identical(names(f$sigmas), paste0("champ_", c("fx", "fy", "fx_y", "x_fy", "fx_fy")))
   g$lettre <- factor(letters[g$r])
   expect_error(rx_reml(y ~ 1, random = ~ spl2d(lettre, c), data = g, backend = "cpu"),
                "non numeriques")
@@ -48,6 +48,6 @@ test_that("spl2d() : predictions, Wald et summary tiennent compte de la partie n
   expect_equal(diff(p$predicted.value), unname(f$beta[2]), tolerance = 1e-10)
   expect_true("spl2d(r, c, nseg = c(4, 4))" %in% f$wald$tests$terme)
   s <- summary(f)
-  expect_true(all(c("spl_x", "spl_y", "spl_xy") %in% rownames(s$varcomp)))
+  expect_true(all(paste0("spl_", c("fx", "fy", "fx_y", "x_fy", "fx_fy")) %in% rownames(s$varcomp)))
   expect_true(all(grepl("^spl_lin", tail(rownames(s$coef.fixed), length(f$spl2d$columns)))))
 })

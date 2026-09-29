@@ -707,20 +707,24 @@ produces a warning and is dropped from the random part.
 ## 10. `rx_spl2d()`
 
 ```r
-rx_spl2d(x, y, nseg = c(6L, 6L), deg = 3L, pord = 2L, prefix = "spl")
+rx_spl2d(x, y, nseg = c(10L, 10L), deg = c(3L, 3L), pord = 2L,
+         nest.div = c(1L, 1L), prefix = "spl")
 ```
 
-Tensor-product P-spline basis with the PS-ANOVA decomposition. Returns
-`list(X = , terms = )`.
+Tensor-product P-spline basis with the PS-ANOVA decomposition of 'SpATS'
+(`PSANOVA()`), with the same defaults. Returns `list(X = , terms = , basis = )`.
 
 - `X` is the **null-space** part: it **must** go into the fixed effects,
   otherwise the surface is penalised down to its linear component and the
   smoothing is biased. Its columns are centred and reduced to an independent
   basis by a rank-revealing QR, so it can sit next to an intercept.
-- `terms` is a list of three `rx_term` objects, `<prefix>_x`, `<prefix>_y` and
-  `<prefix>_xy`, each with its **own** variance — which is what makes the
-  smoothing anisotropic, a surface being allowed to be rough in one direction
-  and smooth in the other.
+- `terms` is a list of five `rx_term` objects, each with its **own**
+  variance, which is what makes the smoothing anisotropic. In 'SpATS'
+  notation, `<prefix>_fx` is `f(x)`, `<prefix>_fy` is `f(y)`, `<prefix>_fx_y`
+  is `f(x):y`, `<prefix>_x_fy` is `x:f(y)` and `<prefix>_fx_fy` is
+  `f(x):f(y)`. Their covariances are those of 'SpATS' to `1e-12`.
+- `nest.div` divides `nseg` for the nested bases of `f(x):f(y)`.
+- `pord` must be 2, as in `SpATS::PSANOVA()`.
 
 ```r
 sp  <- rx_spl2d(d$coln, d$rown, nseg = c(6, 6))
@@ -730,9 +734,11 @@ mod <- rx_model(d$y, X, terms = c(list(rx_term("gid", d$gid)), sp$terms))
 
 ```
 partie nulle (fixe) : 3 colonnes : spl_lin1, spl_lin2, spl_lin3
-  terme spl_x    q = 14
-  terme spl_y    q = 14
-  terme spl_xy   q = 49
+  terme spl_fx     q = 7
+  terme spl_fy     q = 7
+  terme spl_fx_y   q = 7
+  terme spl_x_fy   q = 7
+  terme spl_fx_fy  q = 49
 ```
 
 Nothing is added to the solver: a smooth surface is a random effect with a

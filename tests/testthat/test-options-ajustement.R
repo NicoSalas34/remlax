@@ -186,14 +186,14 @@ test_that("dsum, produit separable, spline 2D, pev, multi-caractere", {
   expect_equal(sort(grep("^champ!ar1_", names(fs[["rho"]]), value = TRUE)),
                c("champ!ar1_2_phi", "champ!ar1_3_phi"))
   expect_equal(fs[["rho"]][["champ!ar1_2_phi"]], tanh(fs[["theta"]][2]), tolerance = 1e-8)
-  # spline 2D : cinq composantes avec un genotype
+  # spline 2D : genotype, cinq composantes PS-ANOVA et la residuelle
   g <- expand.grid(r = 1:10, c = 1:9); g$gid <- factor(rep(1:10, 9))
   g$y <- 0.05 * (g$r - 5)^2 + rnorm(10)[g$gid] + rnorm(90, 0, 0.5)
   sp <- rx_spl2d(g$r, g$c, nseg = c(4, 4))
   msp <- rx_model(g$y, cbind("(Intercept)" = 1, sp$X), c(list(rx_term("gid", g$gid)), sp$terms))
   fsp <- rx_fit(msp, backend = "cpu", verbose = FALSE, hessian = FALSE)
-  expect_equal(fsp[["n_par"]], 5L)
-  expect_equal(names(fsp[["sigmas"]]), c("gid", "spl_x", "spl_y", "spl_xy"))
+  expect_equal(fsp[["n_par"]], 7L)
+  expect_equal(names(fsp[["sigmas"]]), c("gid", paste0("spl_", c("fx", "fy", "fx_y", "x_fy", "fx_fy"))))
   expect_true(is.finite(fsp[["logLik"]]))
   # multi-caractere : formule et voie explicite donnent la meme vraisemblance
   set.seed(9)

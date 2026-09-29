@@ -82,11 +82,12 @@ NULL
 #'   `corb(f, order = )`, `corg`, `exp`, `gau`, `lvr`, `iexp`, `igau`, `ieuc`,
 #'   `sph`, `cir`, `aexp`, `agau`, `mtrn`, `own(expr = , n_par = )`, and the
 #'   separable `ar1(row):ar1(col)`. `str()` puts one covariance over several
-#'   terms. `spl2d(x, y, nseg = c(6, 6), deg = 3, pord = 2, name = "spl")` adds
-#'   a smooth two-dimensional surface over numeric coordinates, built by
-#'   [rx_spl2d()]: its three smooth parts become random terms `<name>_x`,
-#'   `<name>_y` and `<name>_xy`, each with its own variance, and its null part
-#'   joins the fixed effects as one term. The complete grammar is described in
+#'   terms. `spl2d(x, y, nseg = c(10, 10), deg = c(3, 3), pord = 2,
+#'   nest.div = c(1, 1), name = "spl")` adds a smooth two-dimensional surface
+#'   over numeric coordinates, the PS-ANOVA of 'SpATS', built by [rx_spl2d()]:
+#'   its five smooth parts become random terms `<name>_fx`, `<name>_fy`,
+#'   `<name>_fx_y`, `<name>_x_fy` and `<name>_fx_fy`, each with its own
+#'   variance, and its null part joins the fixed effects as one term. The complete grammar is described in
 #'   `vignette("r-interface", package = "remlax")`.
 #' @param residual `"units"`, `"diag"`, `"us"`, or a one-sided formula such as
 #'   `~ ar1(row):ar1(col)` or `~ dsum(~ units | section)`.
@@ -374,23 +375,44 @@ NULL
 #' penalty. Nothing is added to the solver: a smooth surface is a random effect
 #' with a known incidence.
 #'
+#' The basis is the PS-ANOVA decomposition of 'SpATS' (function `PSANOVA()`,
+#' Rodriguez-Alvarez et al. 2018; Lee, Durban and Eilers 2013), matrix for
+#' matrix: the same B-splines, the same penalty eigenvectors and the same
+#' scaling of the constant and linear columns. Each of the five terms
+#' therefore has the covariance of the corresponding 'SpATS' term, and the
+#' variance components, effective dimensions and fitted values agree with
+#' those of 'SpATS' at the REML optimum.
+#'
 #' @param x,y coordinates of the `n` observations.
 #' @param nseg number of segments in each direction.
-#' @param deg degree of the B-splines.
-#' @param pord order of the difference penalty.
+#' @param deg degree of the B-splines, in each direction.
+#' @param pord order of the difference penalty. Only 2 is accepted, as in
+#'   `SpATS::PSANOVA()`.
+#' @param nest.div divisor of `nseg` for the nested bases of the smooth
+#'   interaction `f(x):f(y)`; `nseg` must be a multiple of it.
 #' @param prefix prefix of the term names.
-#' @return `list(X = , terms = )`. `X` is the null-space part and must go into
-#'   the fixed effects, otherwise the surface is penalised down to its linear
-#'   component. `terms` is a list of three [rx_term] objects, `<prefix>_x`,
-#'   `<prefix>_y`, `<prefix>_xy`, each with its own variance, which makes the
-#'   smoothing anisotropic.
+#' @return `list(X = , terms = , basis = )`. `X` is the null-space part (it
+#'   spans `x`, `y` and `x * y`) and must go into the fixed effects, otherwise
+#'   the surface is penalised down to its linear component. `terms` is a list
+#'   of five [rx_term] objects, each with its own variance, which makes the
+#'   smoothing anisotropic: `<prefix>_fx` is `f(x)`, `<prefix>_fy` is `f(y)`,
+#'   `<prefix>_fx_y` is `f(x):y`, `<prefix>_x_fy` is `x:f(y)` and
+#'   `<prefix>_fx_fy` is `f(x):f(y)`, in the notation of 'SpATS'. `basis`
+#'   holds what is needed to evaluate the surface at new coordinates.
+#' @references Lee D-J, Durban M, Eilers P (2013). Efficient two-dimensional
+#'   smoothing with P-spline ANOVA mixed models and nested bases.
+#'   Computational Statistics and Data Analysis 61, 22-37.
+#'   Rodriguez-Alvarez MX, Boer MP, van Eeuwijk FA, Eilers PHC (2018).
+#'   Correcting for spatial heterogeneity in plant breeding experiments with
+#'   P-splines. Spatial Statistics 23, 52-71.
 #' @examples
 #' lay <- expand.grid(row = 1:6, col = 1:8)
-#' s <- rx_spl2d(lay$row, lay$col, nseg = c(3, 3))
+#' s <- rx_spl2d(lay$col, lay$row, nseg = c(4, 3))
 #' dim(s$X)
-#' names(s$terms)
+#' vapply(s$terms, `[[`, "", "name")
 #' @usage
-#' rx_spl2d(x, y, nseg = c(6L, 6L), deg = 3L, pord = 2L, prefix = "spl")
+#' rx_spl2d(x, y, nseg = c(10L, 10L), deg = c(3L, 3L), pord = 2L,
+#'          nest.div = c(1L, 1L), prefix = "spl")
 #' @name rx_spl2d
 NULL
 
@@ -988,7 +1010,7 @@ NULL
 #' returns the ratio of a genotype term, which is the generalised heritability
 #' of Oakey et al. (2006), `1 - mean(PEV) / s2_g` corrected for the fixed
 #' effects. `rx_spatial_trend()` evaluates the fitted surface (null part plus
-#' the three smooth parts) on a regular grid over the field, as a data frame
+#' the five smooth parts) on a regular grid over the field, as a data frame
 #' ready for export or for any plotting package. `plot()` draws six panels:
 #' data, fitted values, residuals, spatial trend, histogram of the genotype
 #' BLUPs, and residuals against fitted values; `file =` writes them directly to
@@ -996,10 +1018,10 @@ NULL
 #' `X beta + sum Z u` and `y` minus it.
 #'
 #' The effective dimension is computed for single-trait `iid` terms without a
-#' relationship matrix; other terms are listed with `NA`. The spatial surface
-#' of `spl2d()` has three variances (`_x`, `_y`, `_xy`), where the PS-ANOVA of
-#' 'SpATS' has five, so its partial effective dimensions are not term by term
-#' those of 'SpATS'.
+#' relationship matrix; other terms are listed with `NA`. The surface of
+#' `spl2d()` is the PS-ANOVA of 'SpATS', term for term, so its five partial
+#' effective dimensions are those that `summary()` of a 'SpATS' fit with
+#' `PSANOVA()` reports.
 #'
 #' @param fit,object,x an `rx_fit` object from [rx_reml()].
 #' @param genotype name of the random genotype term. `plot()` takes the first
