@@ -864,7 +864,9 @@ NULL
 #' @param dir directory of the virtual environment (default: `venv` under
 #'   `tools::R_user_dir("remlax", "data")`, the per-user data directory R
 #'   provides for a package).
-#' @param cuda install the CUDA 12 build of jax.
+#' @param cuda install the CUDA 12 build of jax. It downloads the NVIDIA CUDA
+#'   libraries, which are distributed under NVIDIA's proprietary licence; the
+#'   default CPU build uses open-source packages only.
 #' @param python base interpreter (>= 3.10) used to create the venv.
 #' @param upgrade reinstall the packages if the venv already exists.
 #' @param ask ask for confirmation before writing or deleting (default: in

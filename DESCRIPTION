@@ -47,7 +47,9 @@ Suggests:
     knitr,
     rmarkdown
 SystemRequirements: Python (>= 3.10) with jax (>= 0.4.30), numpy (>= 1.24)
-    and scipy (>= 1.10); optionally a CUDA build of jax for GPU fitting.
+    and scipy (>= 1.10), all under permissive open-source licences.
+    Optionally, for GPU fitting only, the CUDA build of jax, which relies on
+    the proprietary NVIDIA CUDA libraries; it is never required.
 VignetteBuilder: knitr
 Config/testthat/edition: 3
 Roxygen: list(markdown = TRUE)

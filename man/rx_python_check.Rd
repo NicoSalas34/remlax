@@ -22,7 +22,9 @@ rx_remove_python(dir = file.path(tools::R_user_dir("remlax", "data"), "venv"),
 \code{tools::R_user_dir("remlax", "data")}, the per-user data directory R
 provides for a package).}
 
-\item{cuda}{install the CUDA 12 build of jax.}
+\item{cuda}{install the CUDA 12 build of jax. It downloads the NVIDIA CUDA
+libraries, which are distributed under NVIDIA's proprietary licence; the
+default CPU build uses open-source packages only.}
 
 \item{python}{base interpreter (>= 3.10) used to create the venv.}
 
