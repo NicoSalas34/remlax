@@ -972,8 +972,9 @@ standard errors at `2e-8` relative for variances, shares and heritabilities,
 `2e-7` for correlations (the reference differentiates by Richardson
 extrapolation, this function by central differences), Fisher intervals at
 `2e-5` (the reference multiplies by 1.96, this function by `qnorm(0.975)`),
-non-estimable flags identical, TBV and tau2 at `5e-15`
-(`validation/results/ch3_ratios_vs_ige.csv`).
+non-estimable flags identical, TBV and tau2 at `5e-15`.
+The comparison script and its table are kept with the analysis code of the
+study.
 
 ### `rx_cor_z()`
 
