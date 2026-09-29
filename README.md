@@ -43,9 +43,16 @@ parametrised, never `Sigma` itself — followed by regularised Newton polishing.
 ## Installation
 
 ```r
-remotes::install_github("NicoSalas34/remlax")
-# or, from a clone
-install.packages(".", repos = NULL, type = "source")
+remotes::install_github("NicoSalas34/remlax", build_vignettes = TRUE)
+```
+
+From a clone, build the archive first. Installing the source folder directly
+works, but R then skips the vignettes and `vignette(package = "remlax")` finds
+none.
+
+```sh
+R CMD build remlax
+R CMD INSTALL remlax_0.1.0.tar.gz
 ```
 
 The package needs a Python interpreter (>= 3.10) with `jax >= 0.4.30`,
