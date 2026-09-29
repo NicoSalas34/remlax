@@ -31,6 +31,8 @@ BugReports: https://github.com/NicoSalas34/remlax/issues
 Encoding: UTF-8
 Depends: R (>= 4.1)
 Imports:
+    graphics,
+    grDevices,
     methods,
     Matrix,
     jsonlite,

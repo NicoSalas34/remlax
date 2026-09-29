@@ -448,6 +448,31 @@ Both routes give the same fit to `1e-8` on the log-likelihood. The formula
 route covers one trait; for several traits, build the basis with `rx_spl2d()`
 and assemble the model with `rx_model()`.
 
+### Output in the manner of SpATS
+
+With a `spl2d()` surface, `rx_reml()` requests the prediction error variances
+by default. `summary()` then prints a table of dimensions: for each component,
+its effective dimension, model dimension, nominal dimension
+`rank[X, Z_k] - rank[X]` and their ratio. For a genotype term without a
+relationship matrix, the ratio is the generalised heritability of Oakey et al.
+(2006), also returned by `rx_heritability()`.
+
+```r
+summary(fs)$dimensions
+rx_heritability(fs, "gid")
+tr <- rx_spatial_trend(fs, grid = c(100, 100))   # data frame: x, y, trend
+write.csv(tr, "trend.csv", row.names = FALSE)
+maps <- plot(fs, file = "maps.pdf")               # six panels, png/pdf/svg/...
+head(maps$plots)                                  # observed, fitted, residual, trend
+```
+
+`plot()` draws the data, the fitted values, the residuals, the spatial trend
+on a fine grid, the histogram of the genotype BLUPs, and the residuals
+against the fitted values. It returns the plot-level values and the grid as
+data frames, so any other plotting tool can redraw them. The surface has
+three variances, where the PS-ANOVA of 'SpATS' has five: its partial
+effective dimensions are therefore not those of 'SpATS' term by term.
+
 ```r
 X <- cbind("(Intercept)" = 1, sp$X)
 mod <- rx_model(d$y, X,

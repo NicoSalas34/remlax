@@ -1639,7 +1639,11 @@ rx_reml <- function(fixed, random = NULL, residual = "units", data,
                                 unit  = if (!is.null(unit))  unit  else un)
   mod <- rx_model(y, X, terms_l, res_obj,
                   name = deparse(fixed[[2]])[1])
-  fit <- rx_fit(mod, backend = backend, ...)
+  # Une surface spl2d() demande les PEV (dimensions effectives, heritabilite
+  # generalisee) : on les calcule par defaut, sauf si l'appel dit pev =.
+  dots <- list(...)
+  if (!is.null(spl$X) && is.null(dots$pev)) dots$pev <- TRUE
+  fit <- do.call(rx_fit, c(list(mod, backend = backend), dots))
   fit$model <- mod
   # Conserve de quoi predire : formule des effets fixes, donnees nettoyees et
   # niveaux des facteurs. Sans les xlevels, une prediction construite sur une
@@ -1650,7 +1654,8 @@ rx_reml <- function(fixed, random = NULL, residual = "units", data,
   fit$xlevels <- stats::.getXlevels(terms(fixed, data = data),
                                     model.frame(fixed, data, na.action = stats::na.pass))
   fit$call    <- match.call()
-  fit$spl2d   <- if (!is.null(spl$X)) list(columns = colnames(spl$X), terms = unique(spl$groups))
+  fit$spl2d   <- if (!is.null(spl$X)) list(columns = colnames(spl$X), terms = unique(spl$groups),
+                                             surfaces = spl$surfaces)
   fit
 }
 
@@ -1682,7 +1687,7 @@ rx_reml <- function(fixed, random = NULL, residual = "units", data,
            nrow(data), ".", call. = FALSE)
     v
   }
-  termes <- list(); Xs <- list(); grp <- character(); vus <- character()
+  termes <- list(); Xs <- list(); grp <- character(); vus <- character(); surfaces <- list()
   for (txt in tt[est]) {
     e <- str2lang(txt); args <- as.list(e)[-1]
     nm <- names(args); if (is.null(nm)) nm <- rep("", length(args))
@@ -1697,16 +1702,20 @@ rx_reml <- function(fixed, random = NULL, residual = "units", data,
     prefix <- as.character(ev(opt$name, if (!length(vus)) "spl" else paste0("spl", length(vus) + 1L)))
     if (prefix %in% vus) stop("spl2d() : deux surfaces portent le nom '", prefix, "'.", call. = FALSE)
     vus <- c(vus, prefix)
-    s <- rx_spl2d(coord(xa, "x"), coord(ya, "y"), nseg = nseg,
+    xv <- coord(xa, "x"); yv <- coord(ya, "y")
+    s <- rx_spl2d(xv, yv, nseg = nseg,
                   deg = as.integer(ev(opt$deg, 3L)), pord = as.integer(ev(opt$pord, 2L)),
                   prefix = prefix)
     termes <- c(termes, s$terms); Xs[[length(Xs) + 1L]] <- s$X
     grp <- c(grp, rep(txt, ncol(s$X)))
+    surfaces[[prefix]] <- list(basis = s$basis, x = xv, y = yv, label = txt,
+                               x_name = paste(deparse(xa), collapse = ""),
+                               y_name = paste(deparse(ya), collapse = ""))
   }
   reste <- tt[!est]
   list(random = if (length(reste)) stats::as.formula(paste("~", paste(reste, collapse = " + ")),
                                                       env = env) else NULL,
-       terms = termes, X = do.call(cbind, Xs), groups = grp)
+       terms = termes, X = do.call(cbind, Xs), groups = grp, surfaces = surfaces)
 }
 
 # ==============================================================================
@@ -1743,42 +1752,67 @@ rx_reml <- function(fixed, random = NULL, residual = "units", data,
   splines::spline.des(kn, x, deg + 1L, 0 * x, outer.ok = TRUE)$design
 }
 
+# Decomposition de la penalite d'une base 1D : vecteurs propres PENALISES (et
+# leurs valeurs) et NOYAU (constante + pente). Conserves dans la base, pour
+# reevaluer la surface en de nouveaux points avec EXACTEMENT la meme
+# reparametrisation.
+.rx_pen_decomp <- function(c_, pord) {
+  D <- diff(diag(c_), differences = pord); e <- eigen(crossprod(D), symmetric = TRUE)
+  keep <- e$values > 1e-10 * max(e$values)
+  list(U = e$vectors[, keep, drop = FALSE], d = e$values[keep],
+       N = e$vectors[, !keep, drop = FALSE])
+}
+
+.rx_rowk <- function(A, B)                 # produit de Khatri-Rao par ligne
+  do.call(cbind, lapply(seq_len(ncol(B)), function(j) A * B[, j]))
+
+# Evalue une base spl2d en (x, y). Rend la partie nulle (centree, colonnes
+# retenues) et les trois incidences penalisees. Hors du domaine d'ajustement,
+# les B-splines sont extrapolees (outer.ok) : la carte sur grille reste donc
+# dans le rectangle des donnees.
+.rx_spl2d_eval <- function(basis, x, y) {
+  bx <- basis$x; by <- basis$y
+  Bx <- .rx_bbase(as.numeric(x), bx$nseg, basis$deg, bx$xl, bx$xr)
+  By <- .rx_bbase(as.numeric(y), by$nseg, basis$deg, by$xl, by$xr)
+  Zcx <- Bx %*% bx$pen$U %*% diag(1 / sqrt(bx$pen$d), length(bx$pen$d))
+  Zcy <- By %*% by$pen$U %*% diag(1 / sqrt(by$pen$d), length(by$pen$d))
+  Nx <- Bx %*% bx$pen$N; Ny <- By %*% by$pen$N
+  Xn <- .rx_rowk(Nx, Ny)
+  Xn <- sweep(Xn, 2L, basis$centre)[, basis$keep, drop = FALSE]
+  list(X = Xn, Zx = .rx_rowk(Zcx, Ny), Zy = .rx_rowk(Nx, Zcy), Zxy = .rx_rowk(Zcx, Zcy))
+}
+
 # Base P-spline 2D, prete pour rx_model()
-# @return list(X = partie nulle (fixe), terms = liste de rx_term aleatoires)
+# @return list(X = partie nulle (fixe), terms = liste de rx_term aleatoires,
+#   basis = de quoi reevaluer la surface, voir .rx_spl2d_eval())
 rx_spl2d <- function(x, y, nseg = c(6L, 6L), deg = 3L, pord = 2L, prefix = "spl") {
   x <- as.numeric(x); y <- as.numeric(y); n <- length(x)
   if (length(y) != n) stop("rx_spl2d : x et y de longueurs differentes.")
-  Bx <- .rx_bbase(x, nseg[1], deg); By <- .rx_bbase(y, nseg[min(2, length(nseg))], deg)
-  # Decomposition de la penalite : U_pen (colonnes penalisees) et noyau
-  decomp <- function(B, pord) {
-    c_ <- ncol(B); D <- diff(diag(c_), differences = pord); P <- crossprod(D)
-    e <- eigen(P, symmetric = TRUE)
-    keep <- e$values > 1e-10 * max(e$values)
-    list(Zc = B %*% e$vectors[, keep, drop = FALSE] %*%
-           diag(1 / sqrt(e$values[keep]), sum(keep)),
-         Xn = B %*% e$vectors[, !keep, drop = FALSE])   # noyau : constante + pente
-  }
-  dx <- decomp(Bx, pord); dy <- decomp(By, pord)
-  rowk <- function(A, B) {                    # produit de Khatri-Rao par ligne
-    do.call(cbind, lapply(seq_len(ncol(B)), function(j) A * B[, j]))
-  }
-  Zx  <- rowk(dx$Zc, dy$Xn)                   # lissage en x, lineaire en y
-  Zy  <- rowk(dx$Xn, dy$Zc)
-  Zxy <- rowk(dx$Zc, dy$Zc)                   # interaction lisse
-  Xn  <- rowk(dx$Xn, dy$Xn)                   # partie NULLE -> effets fixes
+  ns <- c(nseg[1], nseg[min(2, length(nseg))])
+  basis <- list(deg = deg, pord = pord, prefix = prefix,
+                x = list(xl = min(x), xr = max(x), nseg = ns[1]),
+                y = list(xl = min(y), xr = max(y), nseg = ns[2]))
+  basis$x$pen <- .rx_pen_decomp(ns[1] + deg, pord)
+  basis$y$pen <- .rx_pen_decomp(ns[2] + deg, pord)
   # La partie nulle CONTIENT la direction constante : cbind(1, Xn) serait de rang
   # deficient et rx_model() le refuserait (a raison). On projette donc Xn hors de
   # l'intercept, puis on ne garde qu'une base independante par QR revelatrice de
   # rang. `X` est ainsi utilisable tel quel a cote d'un intercept.
-  Xn <- Xn - matrix(colMeans(Xn), n, ncol(Xn), byrow = TRUE)
-  qrX <- qr(Xn, tol = 1e-9)
-  Xn <- Xn[, sort(qrX$pivot[seq_len(qrX$rank)]), drop = FALSE]
+  basis$centre <- 0; basis$keep <- TRUE
+  brut <- .rx_spl2d_eval(basis, x, y)
+  basis$centre <- colMeans(brut$X)
+  Xc <- sweep(brut$X, 2L, basis$centre)
+  qrX <- qr(Xc, tol = 1e-9)
+  basis$keep <- sort(qrX$pivot[seq_len(qrX$rank)])
+  Xn <- Xc[, basis$keep, drop = FALSE]
   colnames(Xn) <- paste0(prefix, "_lin", seq_len(ncol(Xn)))
+  basis$columns <- colnames(Xn)
   list(X = Xn,
        terms = list(
-         rx_term(paste0(prefix, "_x"),  list(Zx),  struct = "iid"),
-         rx_term(paste0(prefix, "_y"),  list(Zy),  struct = "iid"),
-         rx_term(paste0(prefix, "_xy"), list(Zxy), struct = "iid")))
+         rx_term(paste0(prefix, "_x"),  list(brut$Zx),  struct = "iid"),
+         rx_term(paste0(prefix, "_y"),  list(brut$Zy),  struct = "iid"),
+         rx_term(paste0(prefix, "_xy"), list(brut$Zxy), struct = "iid")),
+       basis = basis)
 }
 
 # ==============================================================================

@@ -66,6 +66,10 @@ summary.rx_fit <- function(object, coef = FALSE, ...) {
     }))
   }
 
+  # Dimensions effectives a la SpATS, des que des PEV sont disponibles.
+  dims <- if (length(x$pev) && !is.null(x$model))
+    tryCatch(rx_dimensions(x), error = function(e) NULL) else NULL
+
   conv <- c(decrement = x$conv_decrement, gradient = x$conv_grad_rel, hessian = x$conv_hessien_ok)
   structure(list(
     call = x$call, backend = x$backend, n_obs = n, nedf = nedf, n_par = n_par,
@@ -76,7 +80,7 @@ summary.rx_fit <- function(object, coef = FALSE, ...) {
     convergence = list(max_grad = x$max_grad, newton_decrement = x$newton_decrement %||% NA,
                        n_iter = x$n_iter %||% NA, n_neg_eig = x$n_neg_eig %||% NA,
                        seconds = x$secondes %||% NA),
-    varcomp = varcomp, coef.fixed = fixed, coef.random = random,
+    varcomp = varcomp, dimensions = dims, coef.fixed = fixed, coef.random = random,
     vpredict = x$vpredict$predictions, wald = x$wald$tests),
     class = "summary.rx_fit")
 }
@@ -105,6 +109,14 @@ print.summary.rx_fit <- function(x, digits = max(4L, getOption("digits") - 3L), 
   print(vc, na.print = "")
   cat("  bound : P variance, U non contrainte, B a une borne, F fixee\n")
 
+  if (!is.null(x$dimensions)) {
+    cat("\nDimensions (a la maniere de SpATS) :\n")
+    dd <- x$dimensions
+    print(data.frame(Effective = round(dd$Effective, 1), Model = dd$Model,
+                     Nominal = round(dd$Nominal, 1), Ratio = round(dd$Ratio, 3), Type = dd$Type,
+                     row.names = rownames(dd)), na.print = "")
+    cat("  Pour un genotype sans parente, Ratio = heritabilite generalisee (Oakey et al. 2006).\n")
+  }
   if (!is.null(x$vpredict) && NROW(x$vpredict)) {
     cat("\nFonctions des composantes (vpredict) :\n")
     vp <- data.frame(estimate = signif(x$vpredict$valeur, digits),

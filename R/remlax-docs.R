@@ -974,6 +974,85 @@ NULL
 
 # ------------------------------------------------------------------------------
 
+#' Spatial output of a fit with a spl2d() surface, in the manner of SpATS
+#'
+#' Four functions reproduce the spatial output of 'SpATS' (Rodriguez-Alvarez
+#' et al. 2018) for a fit made by [rx_reml()] with a `spl2d()` term.
+#' `rx_dimensions()` gives, for each component, the effective dimension (ED,
+#' or effective degrees of freedom), the model dimension, the nominal dimension
+#' `rank[X, Z_k] - rank[X]` and their ratio. For a random term
+#' `u ~ N(0, s2 I_q)` the effective dimension is `q - tr(PEV) / s2`, so it
+#' needs a fit made with `pev = TRUE`, which [rx_reml()] requests by default
+#' when the model holds a `spl2d()` surface. The residual row closes the
+#' table, so that the effective dimensions add up to `n`. `rx_heritability()`
+#' returns the ratio of a genotype term, which is the generalised heritability
+#' of Oakey et al. (2006), `1 - mean(PEV) / s2_g` corrected for the fixed
+#' effects. `rx_spatial_trend()` evaluates the fitted surface (null part plus
+#' the three smooth parts) on a regular grid over the field, as a data frame
+#' ready for export or for any plotting package. `plot()` draws six panels:
+#' data, fitted values, residuals, spatial trend, histogram of the genotype
+#' BLUPs, and residuals against fitted values; `file =` writes them directly to
+#' a png, jpeg, tiff, pdf or svg file. `fitted()` and `residuals()` return
+#' `X beta + sum Z u` and `y` minus it.
+#'
+#' The effective dimension is computed for single-trait `iid` terms without a
+#' relationship matrix; other terms are listed with `NA`. The spatial surface
+#' of `spl2d()` has three variances (`_x`, `_y`, `_xy`), where the PS-ANOVA of
+#' 'SpATS' has five, so its partial effective dimensions are not term by term
+#' those of 'SpATS'.
+#'
+#' @param fit,object,x an `rx_fit` object from [rx_reml()].
+#' @param genotype name of the random genotype term. `plot()` takes the first
+#'   random term that is not part of a surface when `NULL`.
+#' @param surface name of the surface (the `name` of `spl2d()`, `"spl"` by
+#'   default); `NULL` takes the first one.
+#' @param grid number of grid points along x and y.
+#' @param spaTrend `"raw"` or `"percentage"` of the mean response.
+#' @param file output file; its extension sets the format. `NULL` draws on the
+#'   current device.
+#' @param width,height,res size in inches and resolution of a raster file.
+#' @param ... ignored.
+#' @return `rx_dimensions()`: a data frame with `component`, `Effective`,
+#'   `Model`, `Nominal`, `Ratio`, `Type`. `rx_heritability()`: a number.
+#'   `rx_spatial_trend()`: a data frame with the two coordinates and `trend`.
+#'   `plot()`: invisibly, a list with `plots` (coordinates, `observed`,
+#'   `fitted`, `residual`, `trend` for each plot) and `trend` (the grid).
+#'   `fitted()`, `residuals()`: numeric vectors.
+#' @references Oakey H, Verbyla A, Pitchford W, Cullis B, Kuchel H (2006).
+#'   Joint modeling of additive and non-additive genetic line effects in single
+#'   field trials. Theoretical and Applied Genetics 113, 809-819.
+#'   Rodriguez-Alvarez MX, Boer MP, van Eeuwijk FA, Eilers PHC (2018).
+#'   Correcting for spatial heterogeneity in plant breeding experiments with
+#'   P-splines. Spatial Statistics 23, 52-71.
+#' @seealso [rx_spl2d()], [rx_reml()], [summary.rx_fit()]
+#' @examplesIf rx_python_check(quiet = TRUE)$ok
+#' \donttest{
+#' set.seed(7)
+#' g <- expand.grid(row = 1:12, col = 1:10)
+#' g$gid <- factor(sample(rep(1:30, 4)))
+#' g$y <- 0.05 * (g$row - 6)^2 + rnorm(30)[g$gid] + rnorm(nrow(g), 0, 0.5)
+#' fit <- rx_reml(y ~ 1, random = ~ gid + spl2d(col, row, nseg = c(4, 5)),
+#'                data = g, backend = "cpu", verbose = FALSE)
+#' rx_dimensions(fit)
+#' rx_heritability(fit, "gid")
+#' tr <- rx_spatial_trend(fit, grid = c(40, 40))
+#' head(tr)
+#' maps <- plot(fit, file = file.path(tempdir(), "maps.png"))
+#' head(maps$plots)
+#' }
+#' @usage
+#' rx_dimensions(fit)
+#' rx_heritability(fit, genotype)
+#' rx_spatial_trend(fit, surface = NULL, grid = c(100L, 100L))
+#' \method{plot}{rx_fit}(x, genotype = NULL, surface = NULL,
+#'      spaTrend = c("raw", "percentage"), grid = c(100L, 100L), file = NULL,
+#'      width = 12, height = 7.5, res = 150, ...)
+#' \method{fitted}{rx_fit}(object, ...)
+#' \method{residuals}{rx_fit}(object, ...)
+#' @name rx_spatial
+#' @aliases rx_dimensions rx_heritability rx_spatial_trend plot.rx_fit fitted.rx_fit residuals.rx_fit
+NULL
+
 #' Summary of a REML fit
 #'
 #' `summary()` on an object returned by [rx_reml()] or [rx_fit()] gathers what
