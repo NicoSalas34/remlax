@@ -104,8 +104,8 @@ NULL
 #' @seealso [rx_fit()], [rx_model()], [rx_predict()]
 #' @examplesIf rx_python_check(quiet = TRUE)$ok
 #' set.seed(2026)
-#' d <- expand.grid(gid = factor(1:60), bloc = factor(1:4))
-#' g <- rnorm(60, 0, sqrt(1.5)); b <- rnorm(4, 0, sqrt(0.4))
+#' d <- expand.grid(gid = factor(1:30), bloc = factor(1:3))
+#' g <- rnorm(30, 0, sqrt(1.5)); b <- rnorm(3, 0, sqrt(0.4))
 #' d$y <- 12 + g[d$gid] + b[d$bloc] + rnorm(nrow(d))
 #' fit <- rx_reml(y ~ 1, random = ~ gid + iid(bloc), data = d,
 #'                backend = "cpu", verbose = FALSE)
@@ -957,6 +957,62 @@ NULL
 NULL
 
 # ------------------------------------------------------------------------------
+
+#' Summary of a REML fit
+#'
+#' `summary()` on an object returned by [rx_reml()] or [rx_fit()] gathers what
+#' `summary.asreml` reports, in the same layout: the call, the number of
+#' observations and residual degrees of freedom, the log-likelihood, AIC and
+#' BIC, the table of variance components, and the fixed effects. The
+#' log-likelihood is given in two conventions: the complete REML
+#' log-likelihood (`fit$logLik`, the one of 'lme4' and 'nlme') and the one of
+#' 'asreml', which omits a constant. Convergence is judged on the slope
+#' (projected gradient and Newton decrement), and a negative eigenvalue of the
+#' Hessian is reported.
+#'
+#' The variance components are listed in the order `V1, V2, ...` used by
+#' `vpredict`: the terms, then the residual (one section after the other with
+#' `dsum`); within a matrix, the lower triangle row by row (`gid[2,1]` is the
+#' covariance between traits 1 and 2); then the parameters of the structure
+#' between levels, named `<term>!<structure><k>` in the order of its factors
+#' (for `ar1(row):ar1(col)`, 1 is the row correlation and 2 the column one). Their standard errors come from the delta method with the exact
+#' Jacobian of the components with respect to `theta`, and a covariance of
+#' `theta` equal to `2 H^-1` on the directions of positive curvature of the
+#' Hessian `H` of `-2 logL`. The `bound` column follows 'asreml': `P` a
+#' variance, `U` an unconstrained parameter (covariance, correlation, range),
+#' `B` a component at a bound or on a flat direction of the likelihood, whose
+#' standard error is not reported, `F` a fixed component. AIC and BIC count the
+#' variance parameters that are not fixed: `AIC = -2 logL + 2 k` and
+#' `BIC = -2 logL + k log(n - p)`, with `p` the rank of `X`.
+#'
+#' @param object an `rx_fit` object.
+#' @param coef also return the BLUPs of the random effects, with standard
+#'   errors when the fit was made with `pev = TRUE`.
+#' @param x a `summary.rx_fit` object.
+#' @param digits significant digits.
+#' @param ... ignored.
+#' @return A list of class `summary.rx_fit`: `call`, `backend`, `n_obs`,
+#'   `nedf`, `n_par`, `n_estimated`, `n_at_bound`, `loglik`, `loglik_asreml`,
+#'   `aic`, `bic`, `criteria`, `converged`, `convergence`, `varcomp` (data frame
+#'   with `component`, `std.error`, `z.ratio`, `bound`), `coef.fixed` (with
+#'   `solution`, `std.error`, `z.ratio`), `coef.random` (when `coef = TRUE`),
+#'   `vpredict` and `wald` when requested in the fit.
+#' @seealso [rx_reml()], [rx_fit()]
+#' @examplesIf rx_python_check(quiet = TRUE)$ok
+#' set.seed(2026)
+#' d <- expand.grid(gid = factor(1:60), bloc = factor(1:4))
+#' d$y <- 12 + rnorm(60)[d$gid] + rnorm(4, 0, 0.6)[d$bloc] + rnorm(nrow(d))
+#' fit <- rx_reml(y ~ 1, random = ~ gid + bloc, data = d, backend = "cpu",
+#'                verbose = FALSE)
+#' s <- summary(fit)
+#' s
+#' s$varcomp
+#' @usage
+#' \method{summary}{rx_fit}(object, coef = FALSE, ...)
+#' \method{print}{summary.rx_fit}(x, digits = max(4L, getOption("digits") - 3L), ...)
+#' @name summary.rx_fit
+#' @aliases print.summary.rx_fit
+NULL
 
 #' Print methods
 #'

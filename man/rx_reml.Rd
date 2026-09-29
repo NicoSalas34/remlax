@@ -56,8 +56,8 @@ isolation instead of the whole term.
 \examples{
 \dontshow{if (rx_python_check(quiet = TRUE)$ok) withAutoprint(\{ # examplesIf}
 set.seed(2026)
-d <- expand.grid(gid = factor(1:60), bloc = factor(1:4))
-g <- rnorm(60, 0, sqrt(1.5)); b <- rnorm(4, 0, sqrt(0.4))
+d <- expand.grid(gid = factor(1:30), bloc = factor(1:3))
+g <- rnorm(30, 0, sqrt(1.5)); b <- rnorm(3, 0, sqrt(0.4))
 d$y <- 12 + g[d$gid] + b[d$bloc] + rnorm(nrow(d))
 fit <- rx_reml(y ~ 1, random = ~ gid + iid(bloc), data = d,
                backend = "cpu", verbose = FALSE)

@@ -131,6 +131,14 @@ def main(argv=None):
     if a.only_predict and len(r["theta"]) != len(r["composantes_noms"]) and not a.quiet:
         print("[remlax] mode predict seul : %d parametre(s) relus"
               % len(r["theta"]), flush=True)
+    if not a.only_predict:
+        from remlax.inference import varcomp_table
+        try:
+            r["varcomp"] = varcomp_table(r["theta"], r.get("hessian"), terms, res,
+                                         floor=a.floor, ceil=a.ceil, fixed_idx=fixe)
+        except Exception as e:  # la table ne doit jamais faire echouer un ajustement
+            if not a.quiet:
+                print("[remlax] table des composantes non calculee : %s" % e, flush=True)
     if exprs:
         libre = np.ones(len(r["theta"]), dtype=bool)
         if fixe:

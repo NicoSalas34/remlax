@@ -185,6 +185,71 @@ def components_from_theta(theta, terms, res):
     return jnp.stack(out)
 
 
+def varcomp_table(theta, H, terms, res, floor=-12.0, ceil=12.0, fixed_idx=None, tol=1e-7):
+    """Table des composantes de variance, a la maniere de summary.asreml.
+
+    Pour chaque composante (dans l'ordre V1, V2, ... de vpredict) : sa valeur,
+    son erreur-type par la methode delta, et un code de contrainte :
+      F  ne depend que de parametres fixes ;
+      B  depend d'un parametre a une borne (plancher ou plafond de theta) ;
+      P  variance (diagonale d'une Sigma, ou terme a un caractere) ;
+      U  covariance ou parametre de niveau (correlation, portee...).
+    La jacobienne est exacte (JAX), la covariance de theta vaut 2 H^-1 sur le
+    sous-espace libre. Une erreur-type est NaN pour F et B, et partout si le
+    Hessien libre n'est pas defini positif.
+    """
+    import re
+    theta = np.asarray(theta, dtype=float)
+    p = len(theta)
+    comp_fn = lambda th: components_from_theta(th, terms, res)  # noqa: E731
+    vals = np.asarray(comp_fn(jnp.asarray(theta)))
+    J = np.asarray(jax.jacfwd(comp_fn)(jnp.asarray(theta))).reshape(len(vals), p)
+    noms = component_names(terms, res)
+    fixe = np.zeros(p, dtype=bool)
+    if fixed_idx:
+        fixe[np.asarray(fixed_idx, dtype=int)] = True
+    borne = (theta <= floor + tol) | (theta >= ceil - tol)
+    libre = ~fixe & ~borne
+    # Covariance de theta sur les directions de courbure POSITIVE du Hessien
+    # libre. Une variance qui tend vers zero sans atteindre le plancher laisse
+    # une direction presque plate : l'inverser rendrait toutes les erreurs-types
+    # absurdes ou absentes. On l'ecarte, et les composantes qui en dependent
+    # sont traitees comme a la borne (B), comme asreml le fait.
+    Vth, Uz, idx_l = None, None, np.where(libre)[0]
+    if H is not None and libre.sum() > 0:
+        Hf = np.asarray(H)[np.ix_(libre, libre)]
+        try:
+            w, U = np.linalg.eigh(0.5 * (Hf + Hf.T))
+            garde = w > 1e-8 * max(abs(w).max(), 1.0)
+            if garde.any():
+                Vth = np.zeros((p, p))
+                Up = U[:, garde]
+                Vth[np.ix_(libre, libre)] = 2.0 * (Up @ np.diag(1.0 / w[garde]) @ Up.T)
+            Uz = U[:, ~garde] if (~garde).any() else None
+        except np.linalg.LinAlgError:
+            Vth = None
+    out = []
+    for k in range(len(vals)):
+        dep = np.abs(J[k]) > 1e-12 * max(1.0, np.abs(J[k]).max())
+        plat = False
+        if Uz is not None:
+            jl = J[k][idx_l]
+            n2 = float(jl @ jl)
+            plat = n2 > 0 and float(np.sum((jl @ Uz) ** 2)) / n2 > 0.05
+        if dep.any() and np.all(fixe[dep]):
+            code = "F"
+        elif np.any(borne[dep]) or plat:
+            code = "B"
+        else:
+            m = re.search(r"\[(\d+),(\d+)\]$", noms[k])
+            code = "U" if ("!" in noms[k] or (m and m.group(1) != m.group(2))) else "P"
+        se = float("nan")
+        if Vth is not None and code not in ("F", "B"):
+            se = float(np.sqrt(max(J[k] @ Vth @ J[k], 0.0)))
+        out.append(dict(i=k + 1, nom=noms[k], valeur=float(vals[k]), se=se, contrainte=code))
+    return out
+
+
 VPREDICT_FONCTIONS = ("sqrt", "log", "exp", "abs")
 
 

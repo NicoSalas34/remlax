@@ -57,6 +57,8 @@ S3method(print, rx_predict)
 S3method(print, rx_neighbourhood)
 S3method(print, rx_ratios)
 S3method(print, rx_grid_summary)
+S3method(summary, rx_fit)
+S3method(print, summary.rx_fit)
 
 import(Matrix)
 importFrom(jsonlite, toJSON, fromJSON)
