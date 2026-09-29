@@ -26,7 +26,12 @@ rx_spatial_trend(fit, surface = NULL, grid = c(100L, 100L))
 random term that is not part of a surface when \code{NULL}.}
 
 \item{surface}{name of the surface (the \code{name} of \code{spl2d()}, \code{"spl"} by
-default); \code{NULL} takes the first one.}
+default, or \code{"<name>_<level>"} for a surface per level with \verb{at =});
+\code{NULL} takes the first one. Several names, or \code{"all"}, give every
+surface: \code{rx_spatial_trend()} then stacks them in one data frame with the
+columns \code{surface} and \code{level}, and \code{plot()} draws one page per surface
+(one pdf with several pages, or one raster file per surface, suffixed by
+the surface name).}
 
 \item{grid}{number of grid points along x and y.}
 
@@ -44,7 +49,8 @@ current device.}
 \code{Model}, \code{Nominal}, \code{Ratio}, \code{Type}. \code{rx_heritability()}: a number.
 \code{rx_spatial_trend()}: a data frame with the two coordinates and \code{trend}.
 \code{plot()}: invisibly, a list with \code{plots} (coordinates, \code{observed},
-\code{fitted}, \code{residual}, \code{trend} for each plot) and \code{trend} (the grid).
+\code{fitted}, \code{residual}, \code{trend} for each plot of the surface) and \code{trend}
+(the grid); for several surfaces, a list of those, named by surface.
 \code{fitted()}, \code{residuals()}: numeric vectors.
 }
 \description{

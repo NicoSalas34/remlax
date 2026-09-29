@@ -23,7 +23,15 @@ terms. \code{spl2d(x, y, nseg = c(10, 10), deg = c(3, 3), pord = 2, nest.div = c
 over numeric coordinates, the PS-ANOVA of 'SpATS', built by \code{\link[=rx_spl2d]{rx_spl2d()}}:
 its five smooth parts become random terms \verb{<name>_fx}, \verb{<name>_fy},
 \verb{<name>_fx_y}, \verb{<name>_x_fy} and \verb{<name>_fx_fy}, each with its own
-variance, and its null part joins the fixed effects as one term. The complete grammar is described in
+variance, and its null part joins the fixed effects as one term.
+\code{spl2d(x, y, at = bloc)} fits one surface per level of \code{bloc}, in the
+manner of \code{spl2Dc()} in 'sommer' (\verb{at.var =} is accepted as a synonym):
+each level has its own basis over the range of its own coordinates, its
+own five variances (\verb{<name>_<level>_fx}, ...) and its own null part, and
+is zero on the plots of the other levels. \verb{at.levels =} restricts the
+surfaces to some levels. The null part of a level holds \code{x}, \code{y} and
+\code{x * y} but not the constant, so \code{bloc} belongs in the fixed (or random)
+formula; a message says so when it is missing. The complete grammar is described in
 \code{vignette("r-interface", package = "remlax")}.}
 
 \item{residual}{\code{"units"}, \code{"diag"}, \code{"us"}, or a one-sided formula such as

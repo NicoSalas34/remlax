@@ -19,6 +19,9 @@
   `nest.div`, and the defaults of 'SpATS' (`nseg = c(10, 10)`). Variance
   components, effective dimensions and fitted values agree with those of
   'SpATS'.
+* `spl2d(x, y, at = bloc, at.levels =)`: one surface per level, in the manner
+  of `spl2Dc()` in 'sommer', each with its own basis, five variances and null
+  part. `rx_spatial_trend()` and `plot()` accept `surface = "all"`.
 * Spatial output in the manner of 'SpATS': `rx_dimensions()` (effective,
   model and nominal dimensions), `rx_heritability()` (generalised
   heritability of Oakey et al. 2006), `rx_spatial_trend()` (surface on a grid,

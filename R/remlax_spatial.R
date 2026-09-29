@@ -37,6 +37,19 @@ residuals.rx_fit <- function(object, ...) {
   as.numeric(object$model$y) - fitted.rx_fit(object)
 }
 
+# Noms des surfaces demandees : NULL = la premiere, "all" = toutes.
+.rx_noms_surfaces <- function(fit, surface) {
+  sf <- fit$spl2d$surfaces
+  if (!length(sf)) stop("aucune surface spl2d() dans cet ajustement.", call. = FALSE)
+  if (is.null(surface)) return(names(sf)[1])
+  if (identical(surface, "all")) return(names(sf))
+  inc <- setdiff(surface, names(sf))
+  if (length(inc))
+    stop("surface '", inc[1], "' inconnue ; disponibles : ", paste(names(sf), collapse = ", "),
+         call. = FALSE)
+  surface
+}
+
 .rx_surface <- function(fit, surface) {
   sf <- fit$spl2d$surfaces
   if (!length(sf)) stop("aucune surface spl2d() dans cet ajustement.", call. = FALSE)
@@ -62,7 +75,24 @@ residuals.rx_fit <- function(object, ...) {
 }
 
 rx_spatial_trend <- function(fit, surface = NULL, grid = c(100L, 100L)) {
-  s <- .rx_surface(fit, surface)
+  noms <- .rx_noms_surfaces(fit, surface)
+  if (length(noms) > 1L) {
+    # Plusieurs surfaces : un seul tableau, avec la surface et son niveau.
+    tabs <- lapply(noms, function(nm) {
+      g <- rx_spatial_trend(fit, surface = nm, grid = grid)
+      at <- fit$spl2d$surfaces[[nm]]$at
+      names(g)[1:2] <- c("x", "y")
+      cbind(surface = nm, level = if (is.null(at)) NA_character_ else at$level, g) })
+    out <- do.call(rbind, tabs)
+    s1 <- fit$spl2d$surfaces[[noms[1]]]
+    same <- all(vapply(noms, function(nm) identical(c(fit$spl2d$surfaces[[nm]]$x_name,
+                                                      fit$spl2d$surfaces[[nm]]$y_name),
+                                                    c(s1$x_name, s1$y_name)), TRUE))
+    if (same) names(out)[3:4] <- c(s1$x_name, s1$y_name)
+    rownames(out) <- NULL
+    return(out)
+  }
+  s <- .rx_surface(fit, noms)
   grid <- rep_len(as.integer(grid), 2L)
   gx <- seq(min(s$x), max(s$x), length.out = grid[1])
   gy <- seq(min(s$y), max(s$y), length.out = grid[2])
@@ -160,39 +190,64 @@ rx_heritability <- function(fit, genotype) {
 plot.rx_fit <- function(x, genotype = NULL, surface = NULL, spaTrend = c("raw", "percentage"),
                         grid = c(100L, 100L), file = NULL, width = 12, height = 7.5, res = 150, ...) {
   fit <- x; spaTrend <- match.arg(spaTrend)
-  s <- .rx_surface(fit, surface)
-  obs <- as.numeric(fit$model$y); aj <- fitted.rx_fit(fit); rs <- obs - aj
-  tp <- .rx_trend_at(fit, s, s$x, s$y)
-  tg <- rx_spatial_trend(fit, surface = s$basis$prefix, grid = grid)
-  vt <- tg$trend
-  if (spaTrend == "percentage") vt <- 100 * vt / mean(obs)
-  termes <- vapply(fit$model$terms, `[[`, "", "name")
+  noms <- .rx_noms_surfaces(fit, surface)
   if (is.null(genotype)) {
+    termes <- vapply(fit$model$terms, `[[`, "", "name")
     autres <- setdiff(termes, unlist(lapply(fit$spl2d$surfaces, function(z) z$basis$terms)))
     genotype <- if (length(autres)) autres[1] else NA_character_
   }
+  ext <- if (!is.null(file)) tolower(tools::file_ext(file)) else ""
+  if (!is.null(file) && !ext %in% c("png", "jpg", "jpeg", "tiff", "tif", "pdf", "svg"))
+    stop("plot : extension '", ext, "' non geree (png, jpeg, tiff, pdf, svg).", call. = FALSE)
+  # Plusieurs surfaces dans un format a une page : un fichier par surface,
+  # suffixe par le nom de la surface.
+  if (length(noms) > 1L && !is.null(file) && ext != "pdf") {
+    out <- lapply(noms, function(nm) {
+      f <- sub(paste0("\\.", tools::file_ext(file), "$"), paste0("_", nm, ".", tools::file_ext(file)), file)
+      r <- plot.rx_fit(fit, genotype = genotype, surface = nm, spaTrend = spaTrend, grid = grid,
+                       file = f, width = width, height = height, res = res)
+      r$file <- f; r })
+    return(invisible(stats::setNames(out, noms)))
+  }
   if (!is.null(file)) {
-    ext <- tolower(tools::file_ext(file))
     switch(ext,
            png  = grDevices::png(file, width = width, height = height, units = "in", res = res),
            jpg  = , jpeg = grDevices::jpeg(file, width = width, height = height, units = "in", res = res),
            tiff = , tif = grDevices::tiff(file, width = width, height = height, units = "in", res = res),
            pdf  = grDevices::pdf(file, width = width, height = height),
-           svg  = grDevices::svg(file, width = width, height = height),
-           stop("plot : extension '", ext, "' non geree (png, jpeg, tiff, pdf, svg).", call. = FALSE))
+           svg  = grDevices::svg(file, width = width, height = height))
     # Le fichier est ferme a la sortie. Ne PAS restaurer par() ensuite : sans
     # peripherique ouvert, par() en ouvrirait un par defaut (Rplots.pdf).
     on.exit(grDevices::dev.off(), add = TRUE)
   } else {
     op <- graphics::par(no.readonly = TRUE); on.exit(graphics::par(op), add = TRUE)
+    if (length(noms) > 1L && grDevices::dev.interactive()) {
+      ask <- grDevices::devAskNewPage(TRUE); on.exit(grDevices::devAskNewPage(ask), add = TRUE)
+    }
   }
+  out <- lapply(noms, function(nm)
+    .rx_dessin(fit, fit$spl2d$surfaces[[nm]], genotype, spaTrend, grid))
+  invisible(if (length(noms) == 1L) out[[1]] else stats::setNames(out, noms))
+}
+
+# Les six panneaux d'une surface : donnees, valeurs ajustees, residus,
+# tendance, BLUP du genotype, residus contre valeurs ajustees.
+.rx_dessin <- function(fit, s, genotype, spaTrend, grid) {
+  # Une surface par niveau (at =) ne couvre que les parcelles de son niveau.
+  idx <- if (is.null(s$rows)) seq_along(fit$model$y) else s$rows
+  obs <- as.numeric(fit$model$y)[idx]; aj <- fitted.rx_fit(fit)[idx]; rs <- obs - aj
+  tp <- .rx_trend_at(fit, s, s$x, s$y)
+  tg <- rx_spatial_trend(fit, surface = s$basis$prefix, grid = grid)
+  vt <- tg$trend
+  if (spaTrend == "percentage") vt <- 100 * vt / mean(obs)
   graphics::layout(matrix(c(1:6, 7, 8, 9, 9, 10, 10), 2, byrow = TRUE), widths = rep(c(4, 1), 3))
   seqp <- grDevices::hcl.colors(100, "YlGnBu", rev = TRUE)
   divp <- grDevices::hcl.colors(101, "Blue-Red 2")
   zl <- range(c(obs, aj), na.rm = TRUE)
   sym <- function(v) { a <- max(abs(v), na.rm = TRUE); c(-a, a) }
   xl <- s$x_name; yl <- s$y_name
-  .rx_carte(s$x, s$y, obs, "Donnees", seqp, zl, xl, yl)
+  niveau <- if (!is.null(s$at)) paste0(" : ", s$at$name, " = ", s$at$level) else ""
+  .rx_carte(s$x, s$y, obs, paste0("Donnees", niveau), seqp, zl, xl, yl)
   .rx_carte(s$x, s$y, aj, "Valeurs ajustees", seqp, zl, xl, yl)
   .rx_carte(s$x, s$y, rs, "Residus", divp, sym(rs), xl, yl)
   graphics::par(mar = c(3.2, 3.2, 2, 0.4), mgp = c(2, 0.6, 0))
@@ -214,8 +269,7 @@ plot.rx_fit <- function(x, genotype = NULL, surface = NULL, spaTrend = c("raw", 
   graphics::plot(aj, rs, pch = 16, cex = 0.6, col = grDevices::adjustcolor("grey20", 0.6),
                  main = "Residus contre valeurs ajustees", xlab = "Valeurs ajustees", ylab = "Residus")
   graphics::abline(h = 0, lty = 2, col = "grey50")
-  out <- list(plots = stats::setNames(data.frame(s$x, s$y, obs, aj, rs, tp),
-                                      c(xl, yl, "observed", "fitted", "residual", "trend")),
-              trend = tg)
-  invisible(out)
+  list(plots = stats::setNames(data.frame(s$x, s$y, obs, aj, rs, tp),
+                               c(xl, yl, "observed", "fitted", "residual", "trend")),
+       trend = tg)
 }

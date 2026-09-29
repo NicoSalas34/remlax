@@ -87,7 +87,15 @@ NULL
 #'   over numeric coordinates, the PS-ANOVA of 'SpATS', built by [rx_spl2d()]:
 #'   its five smooth parts become random terms `<name>_fx`, `<name>_fy`,
 #'   `<name>_fx_y`, `<name>_x_fy` and `<name>_fx_fy`, each with its own
-#'   variance, and its null part joins the fixed effects as one term. The complete grammar is described in
+#'   variance, and its null part joins the fixed effects as one term.
+#'   `spl2d(x, y, at = bloc)` fits one surface per level of `bloc`, in the
+#'   manner of `spl2Dc()` in 'sommer' (`at.var =` is accepted as a synonym):
+#'   each level has its own basis over the range of its own coordinates, its
+#'   own five variances (`<name>_<level>_fx`, ...) and its own null part, and
+#'   is zero on the plots of the other levels. `at.levels =` restricts the
+#'   surfaces to some levels. The null part of a level holds `x`, `y` and
+#'   `x * y` but not the constant, so `bloc` belongs in the fixed (or random)
+#'   formula; a message says so when it is missing. The complete grammar is described in
 #'   `vignette("r-interface", package = "remlax")`.
 #' @param residual `"units"`, `"diag"`, `"us"`, or a one-sided formula such as
 #'   `~ ar1(row):ar1(col)` or `~ dsum(~ units | section)`.
@@ -1027,7 +1035,12 @@ NULL
 #' @param genotype name of the random genotype term. `plot()` takes the first
 #'   random term that is not part of a surface when `NULL`.
 #' @param surface name of the surface (the `name` of `spl2d()`, `"spl"` by
-#'   default); `NULL` takes the first one.
+#'   default, or `"<name>_<level>"` for a surface per level with `at =`);
+#'   `NULL` takes the first one. Several names, or `"all"`, give every
+#'   surface: `rx_spatial_trend()` then stacks them in one data frame with the
+#'   columns `surface` and `level`, and `plot()` draws one page per surface
+#'   (one pdf with several pages, or one raster file per surface, suffixed by
+#'   the surface name).
 #' @param grid number of grid points along x and y.
 #' @param spaTrend `"raw"` or `"percentage"` of the mean response.
 #' @param file output file; its extension sets the format. `NULL` draws on the
@@ -1038,7 +1051,8 @@ NULL
 #'   `Model`, `Nominal`, `Ratio`, `Type`. `rx_heritability()`: a number.
 #'   `rx_spatial_trend()`: a data frame with the two coordinates and `trend`.
 #'   `plot()`: invisibly, a list with `plots` (coordinates, `observed`,
-#'   `fitted`, `residual`, `trend` for each plot) and `trend` (the grid).
+#'   `fitted`, `residual`, `trend` for each plot of the surface) and `trend`
+#'   (the grid); for several surfaces, a list of those, named by surface.
 #'   `fitted()`, `residuals()`: numeric vectors.
 #' @references Oakey H, Verbyla A, Pitchford W, Cullis B, Kuchel H (2006).
 #'   Joint modeling of additive and non-additive genetic line effects in single

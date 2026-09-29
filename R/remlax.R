@@ -1626,6 +1626,13 @@ rx_reml <- function(fixed, random = NULL, residual = "units", data,
   # un terme fixe a part entiere (un seul test de Wald pour ses colonnes).
   spl <- .rx_extraire_spl2d(random, data, trait = tr)
   random <- spl$random
+  # Par niveau, la partie nulle de chaque surface ne porte que x, y et x*y :
+  # la moyenne du niveau doit venir d'ailleurs (bloc fixe ou aleatoire).
+  for (a in unique(unlist(lapply(spl$surfaces, function(z) z$at$name))))
+    if (!a %in% c(all.vars(fixed), if (!is.null(random)) all.vars(random)))
+      message("spl2d(at = ", a, ") : ", a, " n'est ni dans les effets fixes ni dans les ",
+              "effets aleatoires ; la moyenne de chaque surface n'est donc pas estimee. ",
+              "Ajouter ", a, " a la formule fixe, en general.")
   if (!is.null(spl$X)) {
     asg <- attr(X, "assign"); lab <- attr(X, "termes"); ctr <- attr(X, "contrasts")
     X <- cbind(X, spl$X)
@@ -1703,14 +1710,56 @@ rx_reml <- function(fixed, random = NULL, residual = "units", data,
     if (prefix %in% vus) stop("spl2d() : deux surfaces portent le nom '", prefix, "'.", call. = FALSE)
     vus <- c(vus, prefix)
     xv <- coord(xa, "x"); yv <- coord(ya, "y")
-    s <- rx_spl2d(xv, yv, nseg = nseg,
-                  deg = as.integer(ev(opt$deg, c(3L, 3L))), pord = as.integer(ev(opt$pord, 2L)),
-                  nest.div = as.integer(ev(opt$nest.div, c(1L, 1L))), prefix = prefix)
-    termes <- c(termes, s$terms); Xs[[length(Xs) + 1L]] <- s$X
-    grp <- c(grp, rep(txt, ncol(s$X)))
-    surfaces[[prefix]] <- list(basis = s$basis, x = xv, y = yv, label = txt,
-                               x_name = paste(deparse(xa), collapse = ""),
-                               y_name = paste(deparse(ya), collapse = ""))
+    deg <- as.integer(ev(opt$deg, c(3L, 3L))); pord <- as.integer(ev(opt$pord, 2L))
+    nest <- as.integer(ev(opt$nest.div, c(1L, 1L)))
+    x_name <- paste(deparse(xa), collapse = ""); y_name <- paste(deparse(ya), collapse = "")
+    # Une surface par niveau (at = , at.levels =), a la maniere de spl2Dc() de
+    # sommer : chaque niveau a sa base, construite sur l'etendue de SES
+    # coordonnees, ses cinq variances et sa partie nulle ; ses lignes hors du
+    # niveau sont nulles.
+    aa <- if (!is.null(opt$at)) opt$at else opt$at.var
+    if (is.null(aa)) {
+      niv <- list(list(rows = seq_len(nrow(data)), prefix = prefix, level = NULL))
+      at_name <- NULL
+    } else {
+      at_name <- paste(deparse(aa), collapse = "")
+      av <- eval(aa, data, env)
+      if (length(av) != nrow(data) || anyNA(av))
+        stop("spl2d() : la variable at = ", at_name, " doit etre complete, de longueur ",
+             nrow(data), ".", call. = FALSE)
+      av <- factor(av)
+      lv <- ev(opt$at.levels, levels(av))
+      lv <- as.character(lv)
+      hors <- setdiff(lv, levels(av))
+      if (length(hors))
+        stop("spl2d() : at.levels contient des niveaux absents de ", at_name, " : ",
+             paste(hors, collapse = ", "), ".", call. = FALSE)
+      niv <- lapply(lv, function(l) list(rows = which(av == l), level = l,
+                                         prefix = paste0(prefix, "_", gsub("[^A-Za-z0-9.]", "_", l))))
+      pf <- vapply(niv, `[[`, "", "prefix")
+      if (anyDuplicated(pf))
+        stop("spl2d() : deux niveaux de ", at_name, " donnent le meme nom de terme ('",
+             pf[duplicated(pf)][1], "').", call. = FALSE)
+    }
+    for (nv in niv) {
+      r <- nv$rows
+      if (length(unique(xv[r])) < 2L || length(unique(yv[r])) < 2L)
+        stop("spl2d() : ", if (is.null(nv$level)) "la surface" else
+             paste0("le niveau '", nv$level, "' de ", at_name),
+             " n'a qu'une valeur de x ou de y ; une surface demande deux dimensions.", call. = FALSE)
+      s <- rx_spl2d(xv[r], yv[r], nseg = nseg, deg = deg, pord = pord, nest.div = nest,
+                    prefix = nv$prefix)
+      plein <- function(M) { P <- matrix(0, nrow(data), ncol(M), dimnames = list(NULL, colnames(M)))
+                             P[r, ] <- as.matrix(M); P }
+      if (length(r) < nrow(data))
+        s$terms <- lapply(s$terms, function(tm) {
+          rx_term(tm$name, list(plein(tm$Zl[[1]])), struct = "iid") })
+      termes <- c(termes, s$terms); Xs[[length(Xs) + 1L]] <- plein(s$X)
+      grp <- c(grp, rep(txt, ncol(s$X)))
+      surfaces[[nv$prefix]] <- list(basis = s$basis, x = xv[r], y = yv[r], rows = r, label = txt,
+                                    x_name = x_name, y_name = y_name,
+                                    at = if (!is.null(nv$level)) list(name = at_name, level = nv$level))
+    }
   }
   reste <- tt[!est]
   list(random = if (length(reste)) stats::as.formula(paste("~", paste(reste, collapse = " + ")),
@@ -1723,7 +1772,7 @@ rx_reml <- function(fixed, random = NULL, residual = "units", data,
 # ------------------------------------------------------------------------------
 # Une surface lisse en deux dimensions s'ecrit comme un effet ALEATOIRE a
 # incidence connue : il n'y a donc rien a ajouter au solveur, seulement des
-# matrices a construire. C'est ainsi que procedent sommer (spl2Da) et asreml.
+# matrices a construire. C'est ainsi que procedent sommer (spl2Dc) et asreml.
 #
 # CONSTRUCTION (Eilers & Marx ; decomposition PS-ANOVA de Rodriguez-Alvarez et al.)
 #   1. base de B-splines B_x (n x c_x) et B_y (n x c_y), degre 3, `nseg` segments ;

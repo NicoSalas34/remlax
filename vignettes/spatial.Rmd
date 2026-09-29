@@ -460,6 +460,34 @@ Both routes give the same fit to `1e-8` on the log-likelihood. The formula
 route covers one trait; for several traits, build the basis with `rx_spl2d()`
 and assemble the model with `rx_model()`.
 
+### One surface per block
+
+`spl2d(x, y, at = bloc)` fits one surface per level of `bloc`, as `spl2Dc()`
+does in 'sommer'. Each block gets its own basis, built over the range of its
+own coordinates, its own five variances and its own null part. A surface is
+zero on the plots of the other blocks. `at.levels = c("B1", "B3")` restricts
+the surfaces to some blocks.
+
+```r
+fb <- rx_reml(y ~ bloc, random = ~ gid + spl2d(col, row, nseg = c(5, 8), at = bloc),
+              data = g, backend = "cpu", verbose = FALSE)
+names(fb$spl2d$surfaces)     # "spl_B1" "spl_B2" "spl_B3"
+names(fb$sigmas)[2:6]        # "spl_B1_fx" "spl_B1_fy" "spl_B1_fx_y" "spl_B1_x_fy" "spl_B1_fx_fy"
+tr <- rx_spatial_trend(fb, surface = "all")        # columns surface, level, col, row, trend
+plot(fb, surface = "all", file = "blocks.pdf")     # one page per block
+```
+
+The null part of a block holds `x`, `y` and `x * y`, not the constant: the
+block mean comes from `bloc` in the fixed formula, as above, or from a random
+block effect. Without either, `rx_reml()` says so.
+
+Two differences with 'sommer' are deliberate. In `spl2Dc()`, each block has a
+single variance, and the null part is penalised with the rest of the surface.
+Here each block keeps the PS-ANOVA of 'SpATS': five variances, and a null part
+among the fixed effects. The price is five variances per block. On small
+blocks, several of them will sit at their boundary, which the `B` code of
+`summary()` shows.
+
 ### Output in the manner of SpATS
 
 With a `spl2d()` surface, `rx_reml()` requests the prediction error variances
