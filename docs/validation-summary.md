@@ -135,6 +135,49 @@ Where asreml is not available, the honest CPU comparison is: remlax reaches
 the same optimum, in minutes rather than seconds at n = 2000; with a GPU, in
 seconds.
 
+### The complete benchmark: size, model complexity and density (2026-09-28/29)
+
+The table above is the first campaign (five models, n <= 2000 on CPU). The
+complete campaign, `benchmarks/bench_complexite.R`, is written up in
+[benchmarks.md](benchmarks.md) with its tables
+(`benchmarks/results/benchc_2026-09-28_wide.md`) and five figures. Ten models
+from 2 to 157 variance parameters, n = 500 to 16000 (32000 attempted on the
+A100), and a density axis at fixed n where the number of replicates per
+genotype goes from 40 to 1. Three findings.
+
+1. On classical designs asreml is flat in n (5 to 8 s from n = 500 to 16000,
+   even with 157 parameters) because it solves sparse mixed model equations
+   of dimension q x t. remlax factorises the dense n x n matrix V at every
+   evaluation, so its time per evaluation is cubic in n: 0.0026, 0.017, 0.32
+   and 1.7 s on the A100 at n = 500 to 16000. remlax is never faster than
+   asreml on these designs.
+2. Where the problem is dense, many genotypes for few replicates, a dense
+   relationship matrix, weighted neighbourhood incidences, asreml's equations
+   fill in and its cost grows with q while the remlax solver does not see q.
+   On the model of chapter 3 the A100 is ahead from n = 2000 (13 s against
+   19 s), by a factor 7 at n = 8000 (114 s against 816 s) and 8 at n = 16000
+   (644 s against 5422 s), at the same log-likelihood to 1e-6. On
+   `usK3`/`usK6` at n = 16000 the A100 takes 442/449 s against 547/550 s. At
+   n = 8000 the A100 passes asreml between 200 and 800 genotypes for the
+   chapter 3 model and between 2000 and 4000 for a single trait on a GRM.
+3. The costs specific to remlax are the number of evaluations, which grows
+   with the number of variance parameters (thousands on 91 to 157 parameters
+   fitted on small samples), and XLA compilation when the relationship and
+   incidence matrices are captured as constants (300 to 400 s at n = 8000 on
+   `grm`, `usK3`, `usK6`, against 10 to 25 s when the constant is too large to
+   be folded). Passing K and Z as arguments is the fix; the same capture
+   limits the dense formulation to n between 16000 and 32000 on an 80 GB
+   card.
+
+In the benchmark table no remlax fit has a lower log-likelihood than the
+asreml fit it is paired with (119 pairs, smallest gap 0.0). In five cases
+remlax is higher by more than 1e-3 (`ige` 500, `usK6` 2000 with 8
+genotypes, `us9` 500, `us12` 500 and 2000); in four of them asreml had not
+declared convergence at `maxit = 100`. Continued with `update()`
+(`benchmarks/verif_ecarts_asreml.R`), asreml moves toward remlax's value in
+all five and never passes it; on `ige` it reaches it to 4e-8 after 4
+updates, on the others it is still moving after 40.
+
 ## Defects found by this validation, and fixed
 
 The nlme comparison on `corExp` revealed that the metric structures written

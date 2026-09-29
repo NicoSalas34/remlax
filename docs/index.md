@@ -64,7 +64,7 @@ each fit takes a couple of seconds, so they are quick to replay.
 |---|---|
 | [validation-summary.md](validation-summary.md) | one page: which structure was compared to which program (asreml, lme4, sommer, nlme, pbkrtest), largest gaps, speed at equal model, the defect this validation found, and the limits |
 | [validation.md](validation.md) | the full table, one row per check, regenerated from the logs of 2026-09-28 (288 checks against asreml, lme4, sommer, nlme, pbkrtest, closed-form REML, the sparse engine) |
-| [benchmarks.md](benchmarks.md) | timings and memory across model sizes on CPU and GPU, from `benchmarks/bench.py` |
+| [benchmarks.md](benchmarks.md) | speed at equal model against asreml on three axes (size, model complexity, density of genotypes against replicates), 4 CPU cores and one A100, from `benchmarks/bench_complexite.R`; plus the 2026-09-01 engine-only timings from `benchmarks/bench.py` |
 
 Those two pages are written separately from the cluster runs; they are not
 part of this documentation set.

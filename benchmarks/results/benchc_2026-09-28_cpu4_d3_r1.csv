@@ -1,0 +1,2 @@
+"date","tag","backend","case","n","reps","q","n_par","software","version","status","wall_s","startup_s","compile_s","solver_s","n_iter","n_eval","s_per_iter","s_per_eval","eval_s","converged","logLik","components","error"
+"2026-09-29","cpu4_d3_r1","cpu","usK6",7998,1,1333,NA,"remlax","9a51c79/jax0.11.1","timeout",10805.3,NA,NA,NA,NA,NA,NA,NA,NA,NA,NA,NA,"solveur REML : echec"

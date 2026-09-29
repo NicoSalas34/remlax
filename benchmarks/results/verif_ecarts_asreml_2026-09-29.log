@@ -1,0 +1,40 @@
+Online License checked out Tue Sep 29 07:52:22 2026
+versions : remlax=9a51c79/jax0.11.1 | asreml=4.2.0.480 | backend gpu | coeurs 8 | OMP 8 | timeout 0 s
+
+=== us9 n=500 reps=2.03704 q=27 ===
+remlax : logLik -383.265071 | 391 iterations | 1145 evaluations | 15.0 s
+asreml, appel du banc (maxit 100) : logLik -383.311039 | converge TRUE | ecart a remlax -4.5968e-02
+asreml, apres 40 update(s) : logLik -383.276115 | converge TRUE | ecart a remlax -1.1044e-02
+  trajectoire : -383.3110 -383.3075 -383.3045 -383.3019 -383.2996 -383.2976 -383.2958 -383.2943 -383.2928 -383.2916 -383.2904 -383.2893 -383.2883 -383.2874 -383.2866 -383.2858 -383.2851 -383.2845 -383.2838 -383.2833 -383.2827 -383.2822 -383.2817 -383.2812 -383.2808 -383.2804 -383.2800 -383.2796 -383.2793 -383.2790 -383.2786 -383.2783 -383.2780 -383.2778 -383.2775 -383.2772 -383.2770 -383.2768 -383.2765 -383.2763 -383.2761 
+ECHEC us9:500:2.037037 : object 'res' not found 
+
+=== us12 n=500 reps=2.05 q=20 ===
+remlax : logLik -311.995277 | 3000 iterations | 10990 evaluations | 31.6 s
+asreml, appel du banc (maxit 100) : logLik -312.057348 | converge FALSE | ecart a remlax -6.2071e-02
+asreml, apres 40 update(s) : logLik -312.032196 | converge FALSE | ecart a remlax -3.6920e-02
+  trajectoire : -312.0573 -312.0447 -312.0404 -312.0382 -312.0369 -312.0360 -312.0354 -312.0349 -312.0345 -312.0342 -312.0340 -312.0338 -312.0336 -312.0335 -312.0333 -312.0332 -312.0331 -312.0330 -312.0330 -312.0329 -312.0328 -312.0328 -312.0327 -312.0327 -312.0326 -312.0326 -312.0325 -312.0325 -312.0325 -312.0324 -312.0324 -312.0324 -312.0324 -312.0323 -312.0323 -312.0323 -312.0323 -312.0322 -312.0322 -312.0322 -312.0322 
+ECHEC us12:500:2.05 : object 'res' not found 
+
+=== us12 n=2000 reps=2 q=83 ===
+remlax : logLik -1715.104926 | 478 iterations | 8373 evaluations | 107.2 s
+asreml, appel du banc (maxit 100) : logLik -1716.443566 | converge FALSE | ecart a remlax -1.3386e+00
+asreml, apres 40 update(s) : logLik -1716.409426 | converge FALSE | ecart a remlax -1.3045e+00
+  trajectoire : -1716.4436 -1716.4266 -1716.4207 -1716.4177 -1716.4159 -1716.4147 -1716.4138 -1716.4132 -1716.4127 -1716.4122 -1716.4119 -1716.4116 -1716.4114 -1716.4112 -1716.4110 -1716.4109 -1716.4107 -1716.4106 -1716.4105 -1716.4104 -1716.4103 -1716.4102 -1716.4101 -1716.4101 -1716.4100 -1716.4100 -1716.4099 -1716.4099 -1716.4098 -1716.4098 -1716.4097 -1716.4097 -1716.4096 -1716.4096 -1716.4096 -1716.4096 -1716.4095 -1716.4095 -1716.4095 -1716.4094 -1716.4094 
+ECHEC us12:2000:2 : object 'res' not found 
+
+=== ige n=500 reps=4 q=126 ===
+remlax : logLik -430.945132 | 19 iterations | 87 evaluations | 11.0 s
+asreml, appel du banc (maxit 100) : logLik -430.973665 | converge FALSE | ecart a remlax -2.8533e-02
+asreml, apres 4 update(s) : logLik -430.945132 | converge TRUE | ecart a remlax -4.4334e-08
+  trajectoire : -430.9737 -430.9452 -430.9451 -430.9451 -430.9451 
+ECHEC ige:500:4 : object 'res' not found 
+
+=== usK6 n=2000 reps=40 q=8 ===
+remlax : logLik -1321.040314 | 1161 iterations | 3382 evaluations | 48.7 s
+asreml, appel du banc (maxit 100) : logLik -1321.073557 | converge FALSE | ecart a remlax -3.3243e-02
+asreml, apres 40 update(s) : logLik -1321.041498 | converge FALSE | ecart a remlax -1.1840e-03
+  trajectoire : -1321.0736 -1321.0593 -1321.0536 -1321.0506 -1321.0487 -1321.0474 -1321.0465 -1321.0458 -1321.0452 -1321.0447 -1321.0444 -1321.0440 -1321.0438 -1321.0435 -1321.0433 -1321.0432 -1321.0430 -1321.0429 -1321.0427 -1321.0426 -1321.0425 -1321.0424 -1321.0423 -1321.0423 -1321.0422 -1321.0421 -1321.0421 -1321.0420 -1321.0419 -1321.0419 -1321.0419 -1321.0418 -1321.0418 -1321.0417 -1321.0417 -1321.0417 -1321.0416 -1321.0416 -1321.0416 -1321.0415 -1321.0415 
+ECHEC usK6:2000:40 : object 'res' not found 
+There were 39 warnings (use warnings() to see them)
+
+ecrit : ../out/verif_ecarts_asreml.json 
