@@ -414,3 +414,151 @@ package (`.Rbuildignore`).
 - decrement regularised: the truncated version ignored directions of
   curvature under rel * max|w|; on a fa with 28 environments (drops2_fa1) the
   finish concluded at -2logL 5598.78 when the optimum is 5595.41.
+
+### lag.py (Python)
+
+- The exact REML criterion `reml_y` follows the `igepath_reml` engine of the
+  IGE analysis project (study note `moteur_v2.md`, section 2), Harville term
+  on X_y = A^-1 X included. Example: psi_v = +0.6 on one trait gives
+  X_y ~ X / (1 - psi_v) inside, a shift of about log(1/0.4) = 0.9 in logLik.
+- The fast-path formula log|det A| = sum_k log det(I_q - lambda_k Psi) and
+  the scale theta_lag = Psi * s (psi_v of the whole neighbourhood) are those
+  of the `igepath_reml` engine.
+- Admissible region: the earlier test required every
+  det(I_q - lambda_k Psi) > 0 and accepted Psi = diag(0.96, 0.96) on a queen
+  grid, reachable from Psi = 0 only through det A = 0 (two factors changed
+  sign together). The current condition requires every real eigenvalue of M
+  below 1, checked exactly on the fast path through the eigenvalues of Psi
+  and the extreme eigenvalues of W.
+
+### econome.py
+
+- The low-memory mode exists because mvD7 (n = 12 760, 51 terms, 198
+  parameters) did not fit on a 10 GB MIG slice in the standard dense mode.
+- Full-height incidences Zs (dense_Z, n x sum of t q) took 3.35 GB on mvD7;
+  the standard mode created them on the GPU in make_neg2 and kept them until
+  the end-of-fit BLUPs.
+- Sparse residual: a us(trait) residual by plant on mvD7 has about 65 000
+  non-zero entries, against 10 911^2 for the dense form.
+- Tall factors: extending the factor of the genetic term of mvD7 to full
+  height costs n x w = 0.24 GB, instead of an n x n copy for the
+  dV[idx, idx] gather.
+- Adjoint by cho_solve on CPU (mvD7, 32 cores): the low-memory AI took 10.4 s
+  before the change, against 7.4 s for the standard AI; the low-memory
+  objective with cho_solve takes 8.6 s, against 13.0 s for the standard mode.
+- On GPU (mvD7, 10 GB MIG slice) the temporaries of the objective were
+  3.82 GiB with L^-1 then L^-T L^-1, and 5.03 GiB with cho_solve, which no
+  longer fits (XLA does not run the two triangular solves in place). Hence
+  REMLAX_ADJOINT, "inv" by default on GPU and "cho" on CPU.
+
+### selinv.py
+
+- C kernel of the selected inversion (selinv_c.c): the NumPy fallback is 5 to
+  15 times slower; 0.3 s against 3.9 s on a pedigree with m = 20 031.
+- METIS ordering: SuperLU minimum degree failed on mvD7 (m = 32 869), the
+  factor reaching 340 million entries; with METIS nested dissection it has 86
+  million entries (0.7 GB) and needs 20 times fewer operations (CHOLMOD,
+  2026-10-26).
+- SciPy perm_c: perm_c[i] is the new position of old column i, so the order
+  to apply is argsort(perm_c). Read the other way, the factor was nearly dense
+  (393 million entries for m = 20 031) and took 150 s per call.
+- CHOLMOD against SuperLU: on mvD7 SuperLU fails even with the METIS order
+  (86 million entries, beyond its internal limit of about 2 GB); CHOLMOD
+  factorises in 8.6 s (2026-10-26).
+- nmethods = 1: otherwise CHOLMOD tried its own orders and kept the cheapest;
+  on a C 40 % dense (ar1 x ar1 residual) the factor came in another order and
+  the selected inversion failed.
+- Fixed CHOLMOD pattern with copied values: building a cvxopt spmatrix from
+  triplets at every evaluation cost 60 s per evaluation on mvD7 (108 million
+  entries in L, about 2 million in C).
+- Supernodal solve: SciPy's spsolve_triangular works row by row without BLAS
+  and dominated the evaluation on mvD7 (823 supernodes, AI with 198
+  right-hand sides).
+- SuperLU sometimes drops exact zeros from the factor (40 entries out of 2.2
+  million on the wheat IGE model); the selected inversion finds each entry
+  again by its key in the analysis pattern.
+
+### mme_hybride.py
+
+- Index tables go to the device as 32-bit integers: on mvD7 they hold tens of
+  millions of entries, 1.6 GB in 64-bit.
+
+### decoupage.py
+
+- Contracting each term's edges to one edge per row of its support makes the
+  search about 10 times faster, with the same block graph.
+- The forward greedy search gets stuck when a cut needs several terms at
+  once (synthetic case of the econome test: two genetic terms each link all
+  tanks).
+- Ranked passes in the backward search (about 2T evaluations per pass instead
+  of T per step): 33 s on a model with 51 terms.
+
+### _x64.py
+
+- A round trip Sigma -> theta -> Sigma lost 2.6e-07 in float32, against about
+  1e-16 in float64; the log-determinant of an ill-conditioned matrix drifted
+  much faster.
+
+### bessel.py
+
+- The earlier series version of K_nu, through
+  K_nu = pi/2 (I_-nu - I_nu)/sin(nu pi), had an absolute error of 3.5e+06 at
+  nu = 3 and 4e-08 at nu = 3.7; trapezoidal quadrature replaced it.
+- Nodes and weights are NumPy arrays: a JAX array created at import
+  initialised the XLA backend when the module loaded (about 2 s on CPU with
+  the CUDA plugin), before the solver had chosen its device.
+
+### core.py
+
+- The REML kernel comes unchanged from the analysis code of the multispecies
+  model (Salas et al. 2026), where it was written, measured and validated.
+- The closed-form backward pass keeps three n x n matrices instead of about
+  ten, so the solver runs at n near 16 000 on a 10 GB slice (2.1 GB per
+  N x N matrix). The previous backward pass formed
+  Vinv = solve(L', solve(L, I)), then W = Vinv - Z'Z - r r', holding up to
+  seven N x N matrices.
+
+### device.py
+
+- 2026-09-01: jax.devices() without argument lists only the default platform;
+  with a GPU visible, filtering on platform == "cpu" gave an empty list and
+  --backend=cpu silently fell back to the GPU.
+- Persistent compilation cache (CPU, jax 0.11.1, 30 Cholesky factorisations
+  of 300 x 300 and their gradient): first call 2.35 s without the cache,
+  0.42 s on the second launch.
+- sans_greffons_gpu: in ige_reml.sif, loading the CUDA plugin took 1.65 s of
+  the 2.0 s of backend initialisation at each launch, even under
+  JAX_PLATFORMS=cpu.
+- BlasNumpyUnFil, genotoul node (8 cores, AMD EPYC 7513), full MME
+  evaluation: 1.46 s as is against 0.25 s with NumPy on one thread at
+  m = 1428; 0.77 s against 0.72 s at m = 3772.
+
+### fils.py
+
+- SLURM with task/affinity already confines jobs to their cores (checked on
+  genotoul and meso, 2026-10-27).
+- Overloaded meso nodes: unconfined neighbour jobs spilled onto the allocated
+  cores (load 300 for 192 cores); the same fit varied by a factor of 1 to 40
+  between two runs, with 8 affinity cores and 34 to 43 threads (A/B trial,
+  2026-10-27). srun --cpu-bind=cores had no effect; only --exclusive gives
+  reliable times.
+
+### serveur.py
+
+- Launching the solver as a subprocess costs about 1.5 s per fit (start-up,
+  imports, device initialisation), more than a small model's computation.
+- 2026-10-22: nine orphaned servers holding JAX saturated 28 GB of RAM during
+  a parallel verification suite, hence the check that the parent R process is
+  alive.
+
+### bundle.py
+
+- The bundle format (manifest.json plus raw .bin/.txt files) follows
+  export_06f_design.R of the IGE analysis. Files were chosen over reticulate
+  because R and JAX lived in two separate containers on the cluster.
+
+### scan_cli.py
+
+- A shared scan_M avoids duplicating 292 MB of doses in the project format.
+- Vi and Py weigh 2.1 GB at n = 16 000 and cannot travel to R through the
+  result file.
