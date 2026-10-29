@@ -360,9 +360,57 @@ package (`.Rbuildignore`).
 
 - Engine values at fixed theta (dense, low-memory, blocks, the three MME
   inversions), MME outputs and whole AI fits, compared to the bit.
-- The reference must be captured in the same session as the comparison: the
-  same commit captured under a heavy machine load and later under a light
-  one differed by up to 3e-13 on the dense AI matrix, the blocks gradient and
-  one AI fit, while repeated captures under the same conditions were
-  identical. Recapture the reference from a worktree of the reference commit
-  just before comparing.
+- The script pins itself to one CPU core. Allowed to use several cores, XLA
+  on CPU was not deterministic despite the thread flags: the same commit
+  differed by up to 3e-13 on the dense AI matrix, the blocks gradient and one
+  AI fit in about one run out of six (10 of 10 identical runs once pinned).
+  golden.R was stable for the same reason: the launcher bounds the solver to
+  one core.
+
+### ai.py
+
+- Salvos: on fa(2) with 5 traits, n = 1500 and 2000, three bench fits ended
+  460 to 690 logL units under the optimum (AI stuck, early L-BFGS-B
+  fallback), depending on the BLAS and the number of threads.
+- Variance scale: AI in theta crawls on us9, us12 at n ~ 500 and mv3_ref.
+- REDUCTION_MAX: without it, an AI step sent the residual variance of a
+  section to 1e-8 times its value; log|R| and log|C| become huge and cancel,
+  and AI declared convergence on a wrong point (Krause, 5 treatments, 600
+  genotypes: 3364.93 against 3338.25 at the optimum). The factor also decides
+  the optimum reached when there are several: on DROPS one-stage us(5) (ar1
+  fields with rho near 1), /10 reaches -1146.19, /100 -1384.0 and /1000
+  -1189.6, three stationary points confirmed by the dense engine; /10 is the
+  only factor right on the three cases tested, and it slows an fa2 (104
+  iterations against 48 at /1000).
+- LEVEL_STEP_MAX: on DROPS one-stage (ar1 fields, rho ~ 0.997), a full AI step
+  moved rho from one basin to another, and the optimum depended on the number
+  of BLAS threads (-1146.19, -1305.6 or -1462.5 for the same model); clamped
+  at 0.5, right on DROPS fa1 and us with 6 and 8 threads.
+- RATIO_MIN: changed no optimum on the cases tested and cost up to 60 % of
+  time, hence optional.
+- N_CLAMP_TO_FLOOR: Heywood case of an fa, 104 -> 50 iterations on Krause fa2
+  (600 genotypes), same optimum; no other bench case changes.
+- f_only: on drops2 (dense MME, m = 1428) the value alone costs 0.10 s against
+  0.49 s for the full evaluation, and a damped iteration tries up to 20 steps.
+- Faces of the cone: without them the Newton step points out of the cone and
+  the loop stalls (us9 at n = 500: 1.4 units under the optimum). Without the
+  rotations, AI stopped after 9 iterations on the face, followed by 490
+  L-BFGS-B iterations and 4 polishing steps for 1.98 units of -2logL (absolute
+  bench, us(8), q = 1000, A100); us(12) up to 3000 iterations. With a face
+  threshold equal to the projection floor (MME, 1e-8) the rank changed at each
+  iteration (us(12): 11, 9, 10). Requiring all null directions on the same
+  side freed the whole block (us(12), MME). us9 at n = 500: -798.76 on the
+  face, -796.94 after the fallback, before the rotations.
+- LM damping: fa of rank 2, n = 500, the decrement stayed at 1.26e3 with steps
+  of 3e-5 for twelve iterations without it. Keeping mu: fa2 at t = 8,
+  q = 1000, three damped iterations of 20 to 35 s against 4 s for a full one.
+  The full Newton step first after a damped iteration: drops2 fa1 7.2 s in v10
+  against 14.5 s with mu kept alone.
+- make_fga without forming P: on ar1 x ar1 at n = 2000, 7.25 n x n
+  temporaries before, 3.7 GB at n = 8000 and a failed AI on a 10 GB MIG slice.
+
+### finition.py
+
+- decrement regularised: the truncated version ignored directions of
+  curvature under rel * max|w|; on a fa with 28 environments (drops2_fa1) the
+  finish concluded at -2logL 5598.78 when the optimum is 5595.41.

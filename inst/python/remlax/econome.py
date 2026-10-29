@@ -51,7 +51,7 @@ from .incidence import support_groups, restrict_Z, prefold_fixed_K, orthonormal_
 from .residual import _section_V, _section_S, section_matvec
 from .model import term_factor
 from .core import _reml_fwd
-from .ai import _sigma_et_K
+from .ai import _sigma_and_K
 
 # Un groupe dont le support couvre au moins cette fraction des lignes est etendu
 # a toute la hauteur (point 4 de l'en-tete). En dessous, la dispersion d'un bloc
@@ -327,7 +327,7 @@ def make_fga_econome(plan, adjoint=None):
         U = (Z.T @ v[rows]).reshape(t, q)
 
         def g(th):
-            S, K = _sigma_et_K(th, term)
+            S, K = _sigma_and_K(th, term)
             M = U if K is None else U @ K
             return (S @ M).reshape(t * q)
         J = jax.jacfwd(g)(th_k)

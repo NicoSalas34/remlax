@@ -615,8 +615,8 @@ def _optimise_ai(obj, th0, bornes, terms, res, y, X, lag, eng, maxiter, tol, flo
     fga, f_only = _ai_functions(obj, eng, terms, res, y, X)
     floor_us = 1e-8 if eng.moteur == "mme" else 1e-10
     th_ai, info = ai_reml_var(fga, th0, bornes, terms, res, maxiter=maxiter,
-                              verbose=verbose, compteur=obj.hist, plancher_us=floor_us,
-                              fun_sc=obj.fun_sc, f_seul=f_only)
+                              verbose=verbose, counter=obj.hist, us_floor=floor_us,
+                              fun_sc=obj.fun_sc, f_only=f_only)
     if not info["success"]:
         if verbose:
             print("  [ai] %s -> L-BFGS-B depuis ce point" % info["message"], flush=True)
@@ -632,8 +632,8 @@ def _optimise_ai(obj, th0, bornes, terms, res, y, X, lag, eng, maxiter, tol, flo
         if th_ev is None:
             break
         th_ai, info2 = ai_reml_var(fga, th_ev, bornes, terms, res, maxiter=maxiter,
-                                   verbose=verbose, compteur=obj.hist, plancher_us=floor_us,
-                                   fun_sc=obj.fun_sc, f_seul=f_only)
+                                   verbose=verbose, counter=obj.hist, us_floor=floor_us,
+                                   fun_sc=obj.fun_sc, f_only=f_only)
         r = SimpleNamespace(x=th_ai, nit=int(getattr(r, "nit", 0)) + int(info2["nit"]),
                             success=info2["success"],
                             message="%s ; apres sortie du plancher : %s"
@@ -1015,8 +1015,8 @@ def _floor_escape(fun_jac, theta, th0, bornes, terms, res, floor, marge=3.0,
     variance lowers -2logL. Those variances are raised together towards their
     start (psi0 e^-2, then e^-6, then e^-10); the point is kept as soon as
     -2logL decreases. Returns None when there is nothing to do or no gain."""
-    from .ai import _blocs_echelle
-    blocs, p = _blocs_echelle(terms, res)
+    from .ai import variance_scale_blocks
+    blocs, p = variance_scale_blocks(terms, res)
     if p != len(theta):
         return None
     log_var = np.zeros(p, dtype=bool)
