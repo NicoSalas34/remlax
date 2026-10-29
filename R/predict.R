@@ -151,10 +151,10 @@ rx_predict <- function(fit, classify, levels = NULL, at = NULL,
     wbin("in_theta.bin", fit$theta); wbin("pred_L.bin", L)
     for (nm in names(M)) wbin(paste0("pred_M_", nm, ".bin"), M[[nm]])
     py <- rx_python_cmd()
-    .rx_python_assurer(py)
+    .rx_python_require(py)
     a <- c(rx_solver_args(), dir, "--backend", backend, "--only-predict",
            if (!verbose) "--quiet" else NULL)
-    .rx_lancer(py, a, verbose, "rx_predict : le solveur a echoue")
+    .rx_run_solver(py, a, verbose, "rx_predict : le solveur a echoue")
     rr <- rx_read_result(dir)
     val <- as.numeric(rr$predictions$valeur); Cv <- rr$predictions$cov
   }

@@ -1,3 +1,7 @@
+# ==============================================================================
+# python.R - locating and checking the Python solver
+# ==============================================================================
+
 # Arguments that select the solver entry point, placed before the bundle
 # directory on the command line: $RX_CLI when set, otherwise the launcher of the
 # copy shipped with this package followed by "cli". The shipped copy is used
@@ -19,13 +23,13 @@ rx_solver_args <- function() {
   f
 }
 
-# Commande Python : $RX_PY, sinon $IGE_JAX_CMD, sinon $IGE_JAX_SIF, sinon python3
+# Command that starts Python, split on spaces: $RX_PY, else $IGE_JAX_CMD, else
+# an Apptainer image $IGE_JAX_SIF, else python3.
 rx_python_cmd <- function() {
   if (nzchar(Sys.getenv("RX_PY"))) {
     py <- strsplit(Sys.getenv("RX_PY"), " +")[[1]]
-    # RX_PY qui designe le DOSSIER d'un venv (celui que cree rx_install_python)
-    # plutot que son interpreteur : erreur frequente, et le shell ne repondait
-    # que "Permission denied". On prend l'interpreteur du venv.
+    # RX_PY naming the directory of a virtual environment (the one made by
+    # rx_install_python()) rather than its interpreter: take the interpreter.
     if (length(py) == 1L && dir.exists(py)) {
       cand <- file.path(py, c("bin/python", "bin/python3", "Scripts/python.exe"))
       cand <- cand[file.exists(cand)]
@@ -39,27 +43,17 @@ rx_python_cmd <- function() {
   "python3"
 }
 
-# Cache des verifications d'interpreteur, par commande. Un `import jax` coute
-# une a deux secondes : le payer a chaque ajustement d'une grille serait
-# absurde, le payer une fois par session est invisible.
+# Checks of an interpreter, cached by command for the session: `import jax`
+# takes one to two seconds.
 .rx_python_cache <- new.env(parent = emptyenv())
 
-# L'interpreteur choisi porte-t-il jax, numpy et scipy ?
-#
-# Sans ce controle, un Python sans jax donnait un traceback Python de dix
-# lignes finissant par « No module named 'jax' » puis « solveur REML : echec »,
-# sans jamais dire QUEL interpreteur avait ete essaye ni COMMENT en designer
-# un autre. C'est arrive au premier essai du paquet installe : python3 du
-# systeme, pas de jax. Le diagnostic doit nommer l'interpreteur, la variable
-# RX_PY et la commande d'installation.
-#
-# @param py commande Python decoupee (defaut : rx_python_cmd()).
-# @param quiet ne rien imprimer.
-# @return liste(ok, python, versions, message), invisible si ok.
+# Does the interpreter carry jax, numpy and scipy? Returns list(ok, python,
+# versions, message). The message names the interpreter tried, the RX_PY
+# variable and how to install one.
 rx_python_check <- function(py = rx_python_cmd(), quiet = FALSE) {
-  cle <- paste(py, collapse = " ")
-  res <- .rx_python_cache[[cle]]
-  if (is.null(res)) res <- .rx_python_sonder(py, cle)
+  key <- paste(py, collapse = " ")
+  res <- .rx_python_cache[[key]]
+  if (is.null(res)) res <- .rx_python_probe(py, key)
   if (!quiet) {
     if (res$ok) message("remlax : ", res$versions[["executable"]], " : jax ", res$versions[["jax"]],
                         ", numpy ", res$versions[["numpy"]], ", scipy ", res$versions[["scipy"]])
@@ -68,8 +62,8 @@ rx_python_check <- function(py = rx_python_cmd(), quiet = FALSE) {
   invisible(res)
 }
 
-# Lance l'interpreteur une fois et met le resultat en cache.
-.rx_python_sonder <- function(py, cle) {
+# Runs the interpreter once and caches the result.
+.rx_python_probe <- function(py, key) {
   code <- paste0("import sys\n",
                  "try:\n    import jax, numpy, scipy\n",
                  "except Exception as e:\n    print('MANQUE', type(e).__name__, e); sys.exit(3)\n",
@@ -78,54 +72,45 @@ rx_python_check <- function(py = rx_python_cmd(), quiet = FALSE) {
     .rx_system2(py[1], shQuote(c(py[-1], "-c", code)), stdout = TRUE, stderr = TRUE),
     error = function(e) structure(conditionMessage(e), status = 127L)))
   st <- attr(out, "status") %||% 0L
-  ligne <- if (length(out)) out[length(out)] else ""
-  res <- list(ok = identical(as.integer(st), 0L) && startsWith(ligne, "OK "),
-              python = cle, versions = NULL, message = "")
+  last <- if (length(out)) out[length(out)] else ""
+  res <- list(ok = identical(as.integer(st), 0L) && startsWith(last, "OK "),
+              python = key, versions = NULL, message = "")
   if (res$ok) {
-    v <- strsplit(ligne, " ")[[1]]
+    v <- strsplit(last, " ")[[1]]
     res$versions <- c(jax = v[2], numpy = v[3], scipy = v[4], executable = v[5])
   } else {
     res$message <- paste0(
-      "remlax : l'interpreteur Python \"", cle, "\" ne porte pas jax, numpy et scipy",
-      if (nzchar(ligne)) paste0(" (", ligne, ")") else "", ".\n",
+      "remlax : l'interpreteur Python \"", key, "\" ne porte pas jax, numpy et scipy",
+      if (nzchar(last)) paste0(" (", last, ")") else "", ".\n",
       "  Designer un Python qui les a : Sys.setenv(RX_PY = \"/chemin/vers/python\")\n",
       "  ou dans ~/.Renviron : RX_PY=/chemin/vers/python\n",
       "  Pour en creer un : remlax::rx_install_python() (ou pip install jax numpy scipy).")
   }
-  .rx_python_cache[[cle]] <- res
+  .rx_python_cache[[key]] <- res
   res
 }
 
-# Arret net avant tout lancement du solveur si l'interpreteur ne convient pas.
-.rx_python_assurer <- function(py) {
+# Stops before launching the solver when the interpreter does not fit.
+.rx_python_require <- function(py) {
   r <- rx_python_check(py, quiet = TRUE)
   if (!r$ok) stop(r$message, call. = FALSE)
   invisible(r)
 }
 
-# Creer un environnement virtuel Python pour le solveur
-#
-# Cree `dir` par `python -m venv`, y installe jax, numpy et scipy par pip
-# (`jax[cuda12]` si cuda = TRUE), verifie l'import, et imprime la ligne
-# RX_PY a poser. Ne modifie ni ~/.Renviron ni la session : l'utilisateur
-# choisit ou et comment la conserver. Sans reticulate, par choix.
-#
-# @param dir repertoire du venv (defaut : tools::R_user_dir("remlax", "data"),
-#   repertoire de donnees utilisateur prevu par R pour un paquet).
-# @param cuda installer la version CUDA 12 de jax.
-# @param python interpreteur de base (>= 3.10) servant a creer le venv.
-# @param upgrade reinstaller si le venv existe deja.
-# @return chemin de l'interpreteur cree, invisible.
+# Creates a virtual environment `dir` with `python -m venv`, installs jax, numpy
+# and scipy with pip (jax[cuda12] when cuda = TRUE; blackjax when bayes =
+# TRUE), checks the import, and prints the RX_PY line to set. It modifies
+# neither ~/.Renviron nor the session.
 rx_install_python <- function(dir = file.path(tools::R_user_dir("remlax", "data"), "venv"), cuda = FALSE,
                               python = "python3", upgrade = FALSE, ask = interactive(),
                               bayes = FALSE) {
-  # Chemin ABSOLU : une RX_PY relative se resoudrait contre le repertoire
-  # courant de chaque session, donc tantot un venv, tantot rien.
+  # An absolute path: a relative RX_PY would resolve against the working
+  # directory of each session.
   dir <- normalizePath(dir, mustWork = FALSE)
   exe <- file.path(dir, if (.Platform$OS.type == "windows") "Scripts/python.exe" else "bin/python")
   if (!file.exists(exe) || upgrade) {
-    # Politique du CRAN : ecrire hors du repertoire temporaire, et telecharger
-    # plusieurs centaines de Mo, se fait sur confirmation en session interactive.
+    # CRAN policy: writing outside the temporary directory and downloading
+    # several hundred MB need a confirmation in an interactive session.
     if (isTRUE(ask)) {
       ok <- utils::askYesNo(paste0(
         "remlax : creer un environnement Python dans ", dir,
@@ -139,11 +124,10 @@ rx_install_python <- function(dir = file.path(tools::R_user_dir("remlax", "data"
         stop("remlax : `", python, " -m venv` a echoue (code ", st, "). Python >= 3.10 requis.",
              call. = FALSE)
     }
-    paquets <- c(if (cuda) "jax[cuda12]>=0.4.30" else "jax>=0.4.30", "numpy>=1.24", "scipy>=1.10",
-                 # voie bayesienne (rx_bayes) : BlackJAX (et optax), optionnel
-                 if (bayes) "blackjax>=1.7")
-    message("remlax : pip install ", paste(paquets, collapse = " "))
-    st <- system2(exe, c("-m", "pip", "install", "--upgrade", "--quiet", shQuote(paquets)))
+    packages <- c(if (cuda) "jax[cuda12]>=0.4.30" else "jax>=0.4.30", "numpy>=1.24", "scipy>=1.10",
+                  if (bayes) "blackjax>=1.7")
+    message("remlax : pip install ", paste(packages, collapse = " "))
+    st <- system2(exe, c("-m", "pip", "install", "--upgrade", "--quiet", shQuote(packages)))
     if (!identical(as.integer(st), 0L))
       stop("remlax : pip install a echoue (code ", st, ").", call. = FALSE)
   }
@@ -159,9 +143,9 @@ rx_install_python <- function(dir = file.path(tools::R_user_dir("remlax", "data"
   invisible(exe)
 }
 
-# Supprimer l'environnement cree par rx_install_python(). La politique du CRAN
-# admet des donnees dans tools::R_user_dir() si leur contenu est gere : cette
-# fonction en est le moyen. Le repertoire du paquet est retire s'il est vide.
+# Removes the environment made by rx_install_python(), and the package data
+# directory when it is left empty. CRAN accepts data in tools::R_user_dir()
+# when their content is managed; this function is the means.
 rx_remove_python <- function(dir = file.path(tools::R_user_dir("remlax", "data"), "venv"),
                              ask = interactive()) {
   dir <- normalizePath(dir, mustWork = FALSE)

@@ -33,7 +33,7 @@ rx_scan_solver_args <- function() {
   if (nzchar(Sys.getenv("RX_SCAN_CLI")))
     return(list(args = strsplit(Sys.getenv("RX_SCAN_CLI"), " +")[[1]], env = character(0)))
   py <- rx_python_cmd()
-  .rx_python_assurer(py)
+  .rx_python_require(py)
   list(args = c(.rx_launcher(), "scan_cli"), env = character(0))
 }
 

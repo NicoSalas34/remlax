@@ -1,53 +1,56 @@
-# =============================================================================
-# remlax : SOLVEUR PERSISTANT (inst/python/remlax/serveur.py)
-# =============================================================================
-# Un sous-processus par ajustement paie a chaque fois le demarrage de Python et
-# l'import de JAX : environ 1,5 s, plus que le calcul d'un petit modele (mesure
-# 2026-10-22, n = 500 : 2,3 s hors solveur pour 0,15 s de calcul). Le serveur
-# garde un processus ouvert pour la session R ; .rx_lancer() lui envoie la ligne
-# de commande sur un socket local et relaie sa sortie ligne par ligne. En cas de
-# probleme, .rx_lancer() revient au sous-processus.
+# ==============================================================================
+# server.R - the persistent solver process (inst/python/remlax/serveur.py)
+# ==============================================================================
+# A subprocess per fit pays each time the start of Python and the import of
+# JAX, about 1.5 s, more than the computation of a small model. The server
+# keeps one process open for the R session; .rx_run_solver() sends it the
+# command line on a local socket and relays its output line by line. When
+# anything goes wrong, .rx_run_solver() falls back to a subprocess.
 #
-# Desactive par options(remlax.server = FALSE), et d'office pendant R CMD check
-# (pas de processus qui survive a un exemple).
-# =============================================================================
+# It is turned off by options(remlax.server = FALSE), and always during
+# R CMD check, so that no process outlives an example. The JSON keys of the
+# protocol (jeton, argv, ordre, t_lancement) are those read by serveur.py.
+# ==============================================================================
 
-.rx_serveur <- new.env(parent = emptyenv())
+.rx_server <- new.env(parent = emptyenv())
 
-.rx_serveur_permis <- function() {
+.rx_server_allowed <- function() {
   o <- getOption("remlax.server")
   if (!is.null(o)) return(isTRUE(o))
   !nzchar(Sys.getenv("_R_CHECK_LIMIT_CORES_")) && !nzchar(Sys.getenv("RX_CLI"))
 }
 
-.rx_serveur_vivant <- function() {
-  !is.null(.rx_serveur$port) && .rx_serveur_ping()
+.rx_server_alive <- function() {
+  !is.null(.rx_server$port) && .rx_server_ping()
 }
 
-.rx_serveur_ping <- function() {
-  con <- tryCatch(suppressWarnings(socketConnection("127.0.0.1", .rx_serveur$port, blocking = TRUE,
-                                                    open = "r+b", timeout = 5)),
-                  error = function(e) NULL)
+.rx_server_connect <- function(timeout) {
+  tryCatch(suppressWarnings(socketConnection("127.0.0.1", .rx_server$port, blocking = TRUE,
+                                             open = "r+b", timeout = timeout)),
+           error = function(e) NULL)
+}
+
+.rx_server_ping <- function() {
+  con <- .rx_server_connect(5)
   if (is.null(con)) return(FALSE)
   close(con)
   TRUE
 }
 
-# Demarre le serveur pour la commande Python `py` ; rend TRUE s'il ecoute.
-.rx_serveur_demarrer <- function(py) {
+# Starts the server for the Python command `py`; TRUE when it listens. It
+# writes "<port> <pid>" to a file once it listens. XLA_PYTHON_CLIENT_PREALLOCATE
+# = false keeps an open server from holding 75 % of the GPU memory for the
+# whole session; without preallocation XLA_PYTHON_CLIENT_MEM_FRACTION is only
+# the ceiling of JAX's pool, set here because the backend of the server is
+# initialised once for every engine.
+.rx_server_start <- function(py) {
   srv <- tryCatch(c(.rx_launcher(), "serveur"), error = function(e) NULL)
   if (is.null(srv)) return(FALSE)
   f <- tempfile("rx_serveur_")
-  jeton <- paste(sample(c(letters, LETTERS, 0:9), 40, TRUE), collapse = "")
-  journal <- tempfile("rx_serveur_journal_")
-  # XLA_PYTHON_CLIENT_PREALLOCATE=false : un serveur ouvert ne doit pas garder
-  # 75 % de la memoire du GPU pendant toute la session.
-  # XLA_PYTHON_CLIENT_MEM_FRACTION : sans preallocation, c'est seulement le
-  # plafond de la reserve de JAX. Son defaut (75 %) faisait echouer le mode
-  # econome sur une tranche MIG de 10 Go (cf. cli.py) ; le serveur sert les deux
-  # modes et son backend s'initialise une seule fois, donc le plafond se pose ici.
-  .rx_system2(py[1], shQuote(c(py[-1], srv, f, jeton, Sys.getpid())), wait = FALSE,
-              stdout = journal, stderr = journal,
+  token <- paste(sample(c(letters, LETTERS, 0:9), 40, TRUE), collapse = "")
+  log_file <- tempfile("rx_serveur_journal_")
+  .rx_system2(py[1], shQuote(c(py[-1], srv, f, token, Sys.getpid())), wait = FALSE,
+              stdout = log_file, stderr = log_file,
               env = c(XLA_PYTHON_CLIENT_PREALLOCATE = "false",
                       XLA_PYTHON_CLIENT_MEM_FRACTION =
                         Sys.getenv("XLA_PYTHON_CLIENT_MEM_FRACTION", "0.95")))
@@ -56,13 +59,13 @@
   if (!file.exists(f)) return(FALSE)
   v <- scan(f, quiet = TRUE)
   unlink(f)
-  .rx_serveur$port <- as.integer(v[1]); .rx_serveur$pid <- as.integer(v[2])
-  .rx_serveur$jeton <- jeton; .rx_serveur$py <- paste(py, collapse = " ")
-  .rx_serveur$fils <- .rx_threads()
-  .rx_serveur$proprietaire <- Sys.getpid()
-  if (is.null(.rx_serveur$finaliseur)) {
-    reg.finalizer(.rx_serveur, function(e) rx_server_stop(), onexit = TRUE)
-    .rx_serveur$finaliseur <- TRUE
+  .rx_server$port <- as.integer(v[1]); .rx_server$pid <- as.integer(v[2])
+  .rx_server$token <- token; .rx_server$py <- paste(py, collapse = " ")
+  .rx_server$threads <- .rx_threads()
+  .rx_server$owner <- Sys.getpid()
+  if (is.null(.rx_server$finalizer)) {
+    reg.finalizer(.rx_server, function(e) rx_server_stop(), onexit = TRUE)
+    .rx_server$finalizer <- TRUE
   }
   TRUE
 }
@@ -78,57 +81,54 @@
 #' @return `TRUE`, invisibly, if a server was stopped.
 #' @name rx_server_stop
 rx_server_stop <- function() {
-  if (is.null(.rx_serveur$port)) return(invisible(FALSE))
-  con <- tryCatch(suppressWarnings(socketConnection("127.0.0.1", .rx_serveur$port, blocking = TRUE,
-                                                    open = "r+b", timeout = 5)),
-                  error = function(e) NULL)
+  if (is.null(.rx_server$port)) return(invisible(FALSE))
+  con <- .rx_server_connect(5)
   if (!is.null(con)) {
-    writeLines(jsonlite::toJSON(list(jeton = .rx_serveur$jeton, ordre = "stop"), auto_unbox = TRUE), con)
+    writeLines(jsonlite::toJSON(list(jeton = .rx_server$token, ordre = "stop"), auto_unbox = TRUE), con)
     close(con)
-  } else if (!is.null(.rx_serveur$pid)) {
-    tools::pskill(.rx_serveur$pid)
+  } else if (!is.null(.rx_server$pid)) {
+    tools::pskill(.rx_server$pid)
   }
-  .rx_serveur$port <- NULL; .rx_serveur$pid <- NULL
+  .rx_server$port <- NULL; .rx_server$pid <- NULL
   invisible(TRUE)
 }
 
-# Execute la ligne de commande du solveur (sans l'entree cli.py) sur le serveur.
-# Rend la liste(code, sortie), ou NULL si le serveur n'est pas utilisable : le
-# solveur est alors lance en sous-processus.
-.rx_serveur_executer <- function(py, argv, verbose) {
-  if (!.rx_serveur_permis()) return(NULL)
-  cle <- paste(py, collapse = " ")
-  if (!is.null(.rx_serveur$port) && !identical(.rx_serveur$proprietaire, Sys.getpid())) {
-    # processus fils (fork) : l'etat herite designe le serveur du PARENT, qui
-    # traiterait les requetes une a une. On l'oublie sans l'arreter et on
-    # lance celui de ce processus.
-    .rx_serveur$port <- NULL; .rx_serveur$pid <- NULL; .rx_serveur$finaliseur <- NULL
+# Runs the solver command line (without its entry point) on the server.
+# Returns list(code, sortie), or NULL when the server is not usable. A forked
+# child inherits the state of its parent's server, which would serve requests
+# one at a time: it forgets it without stopping it and starts its own. Another
+# interpreter or another thread count also needs a new server.
+.rx_server_run <- function(py, argv, verbose) {
+  if (!.rx_server_allowed()) return(NULL)
+  key <- paste(py, collapse = " ")
+  if (!is.null(.rx_server$port) && !identical(.rx_server$owner, Sys.getpid())) {
+    .rx_server$port <- NULL; .rx_server$pid <- NULL; .rx_server$finalizer <- NULL
   }
-  if (!identical(.rx_serveur$py, cle) || !identical(.rx_serveur$fils, .rx_threads()))
-    rx_server_stop()                         # autre interpreteur ou autre nombre de fils
-  if (!.rx_serveur_vivant() && !.rx_serveur_demarrer(py)) return(NULL)
-  con <- tryCatch(suppressWarnings(socketConnection("127.0.0.1", .rx_serveur$port, blocking = TRUE,
-                                                    open = "r+b", timeout = 1e7)),
-                  error = function(e) NULL)
+  if (!identical(.rx_server$py, key) || !identical(.rx_server$threads, .rx_threads()))
+    rx_server_stop()
+  if (!.rx_server_alive() && !.rx_server_start(py)) return(NULL)
+  con <- .rx_server_connect(1e7)
   if (is.null(con)) return(NULL)
   on.exit(close(con))
-  writeLines(jsonlite::toJSON(list(jeton = .rx_serveur$jeton, argv = as.character(argv),
-                                       t_lancement = as.numeric(Sys.time())),
+  writeLines(jsonlite::toJSON(list(jeton = .rx_server$token, argv = as.character(argv),
+                                   t_lancement = as.numeric(Sys.time())),
                               auto_unbox = TRUE), con)
-  sortie <- character(); code <- NA_integer_
+  # The server sends the solver's output line by line, then "\036RXFIN <code>"
+  # (0x1E, an ASCII separator that R can read).
+  output <- character(); code <- NA_integer_
   repeat {
     l <- readLines(con, n = 1L, warn = FALSE, encoding = "UTF-8")
-    if (!length(l)) break                    # serveur mort en cours de route
+    if (!length(l)) break
     if (startsWith(l, "\036RXFIN ")) {
       code <- as.integer(sub("^\036RXFIN (-?[0-9]+).*$", "\\1", l)); break
     }
-    sortie <- c(sortie, l)
+    output <- c(output, l)
     if (verbose) { cat(l, "\n", sep = ""); utils::flush.console() }
   }
   if (is.na(code)) {
     rx_server_stop()
     code <- 1L
-    sortie <- c(sortie, "[remlax] le processus solveur persistant s'est arrete en cours d'ajustement")
+    output <- c(output, "[remlax] le processus solveur persistant s'est arrete en cours d'ajustement")
   }
-  list(code = code, sortie = sortie)
+  list(code = code, sortie = output)
 }

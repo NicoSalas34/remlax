@@ -1,17 +1,19 @@
-# LANCEMENT DU SOUS-PROCESSUS PYTHON. Tout appel au moteur passe par ici,
-# pour trois raisons tenues par la politique du CRAN.
-#   1. Python ecrit par defaut ses .pyc dans __pycache__ a cote des sources,
-#      soit dans la bibliotheque R ou le paquet est installe. Un paquet ne
-#      doit ecrire que dans le repertoire temporaire de la session :
-#      PYTHONDONTWRITEBYTECODE=1 l'empeche.
-#   2. JAX sur CPU prend tous les coeurs. Pendant R CMD check
-#      (_R_CHECK_LIMIT_CORES_ pose, ce que fait --as-cran), un paquet ne doit
-#      pas en prendre plus de deux. Mesure sur 20 coeurs : OMP_NUM_THREADS=2
-#      laisse 2,3 coeurs occupes, un seul fil de calcul et Eigen coupe en
-#      laissent 1,2. On prend donc un fil. L'option remlax.threads fixe le
-#      nombre hors check.
-#   3. system2(env=) est ignore sous Windows. Les variables sont donc posees
-#      par Sys.setenv() pour la duree de l'appel, puis restaurees.
+# ==============================================================================
+# launch.R - starting the solver
+# ==============================================================================
+# Every call to the solver goes through .rx_system2(), for three reasons held
+# by the CRAN policy:
+#   1. Python writes its .pyc files next to the sources, in the R library where
+#      the package is installed; PYTHONDONTWRITEBYTECODE=1 prevents it.
+#   2. JAX takes every core on CPU. During R CMD check (_R_CHECK_LIMIT_CORES_
+#      set, as --as-cran does) a package may use at most two; one computation
+#      thread with Eigen threading off is used then. The option remlax.threads
+#      sets the number otherwise.
+#   3. system2(env =) is ignored on Windows, so the variables are set with
+#      Sys.setenv() for the duration of the call, then restored.
+# ==============================================================================
+
+# Number of computation threads to impose, or NULL for no limit.
 .rx_threads <- function() {
   o <- getOption("remlax.threads")
   if (!is.null(o)) return(as.integer(o))
@@ -20,6 +22,7 @@
   NULL
 }
 
+# system2() with the solver's environment variables set for the call.
 .rx_system2 <- function(command, args = character(), ..., env = character()) {
   v <- c(PYTHONDONTWRITEBYTECODE = "1")
   n <- .rx_threads()
@@ -30,51 +33,53 @@
         "--xla_cpu_multi_thread_eigen=false intra_op_parallelism_threads=1")))
   }
   v <- c(v, env)
-  ancien <- Sys.getenv(names(v), unset = NA, names = TRUE)
+  previous <- Sys.getenv(names(v), unset = NA, names = TRUE)
   on.exit({
-    for (k in names(ancien))
-      if (is.na(ancien[[k]])) Sys.unsetenv(k)
-      else do.call(Sys.setenv, stats::setNames(list(ancien[[k]]), k))
+    for (k in names(previous))
+      if (is.na(previous[[k]])) Sys.unsetenv(k)
+      else do.call(Sys.setenv, stats::setNames(list(previous[[k]]), k))
   }, add = TRUE)
   do.call(Sys.setenv, as.list(v))
   system2(command, args, ...)
 }
 
-# Lance le solveur et arrete avec son message s'il echoue. En mode verbeux la
-# progression (stdout) s'affiche en direct et la sortie d'erreur va dans un
-# fichier temporaire : sous R, capturer stderr forcerait aussi la capture de
-# stdout. Sans cela, un echec ne rendait que « echec » sans la cause.
-.rx_lancer <- function(py, a, verbose, quoi) {
-  # SOLVEUR PERSISTANT d'abord (remlax_serveur.R) : il evite le demarrage de
-  # Python et l'import de JAX a chaque ajustement. NULL : pas de serveur
-  # utilisable, on lance le sous-processus comme avant.
-  ent <- rx_solver_args(); n0 <- length(ent)
-  r <- if (identical(as.character(a[seq_len(n0)]), as.character(ent)))
-    .rx_serveur_executer(py, a[-seq_len(n0)], verbose) else NULL
+# Runs the solver with the command line `a` and stops with its output if it
+# fails. The persistent server is tried first (server.R); when it is not
+# usable the solver runs as a subprocess.
+.rx_run_solver <- function(py, a, verbose, what) {
+  entry <- rx_solver_args(); n0 <- length(entry)
+  r <- if (identical(as.character(a[seq_len(n0)]), as.character(entry)))
+    .rx_server_run(py, a[-seq_len(n0)], verbose) else NULL
   if (!is.null(r)) {
-    if (!identical(r$code, 0L))
-      stop(paste(c(paste0(quoi, ". Sortie du solveur :"), utils::tail(r$sortie, 40)),
-                 collapse = "\n"), call. = FALSE)
+    if (!identical(r$code, 0L)) .rx_solver_error(what, r$sortie)
     return(invisible(r$sortie))
   }
+  .rx_run_subprocess(py, a, verbose, what)
+}
+
+# The solver as a subprocess. In verbose mode the progress (stdout) is shown
+# live and stderr goes to a temporary file: capturing stderr in R would also
+# capture stdout. With backend = "cpu", JAX_PLATFORMS=cpu keeps JAX away from
+# the GPU, which it would otherwise initialise and try to reserve.
+# RX_T_LANCEMENT dates the launch for the solver's timing of its start-up.
+.rx_run_subprocess <- function(py, a, verbose, what) {
   err <- tempfile("rx_err_"); on.exit(unlink(err), add = TRUE)
-  # backend = "cpu" : JAX ne doit pas toucher au GPU. Sinon il l'initialise quand
-  # meme et tente d'en reserver 75 % de la memoire, ce qui echoue bruyamment
-  # (CUDA_ERROR_OUT_OF_MEMORY) des qu'un autre processus occupe la carte.
   ib <- match("--backend", a)
   env <- if (!is.na(ib) && identical(as.character(a[ib + 1L]), "cpu"))
     c(JAX_PLATFORMS = "cpu") else character()
-  # instant du lancement, pour le chrono du solveur (chrono.py) : sa premiere
-  # etape mesure alors le demarrage de Python
   env <- c(env, RX_T_LANCEMENT = format(as.numeric(Sys.time()), digits = 17))
   st <- suppressWarnings(.rx_system2(py[1], shQuote(c(py[-1], as.character(a))),
                                      stdout = if (verbose) "" else TRUE,
                                      stderr = if (verbose) err else TRUE, env = env))
   code <- if (verbose) as.integer(st) else as.integer(attr(st, "status") %||% 0L)
-  sortie <- if (verbose) { if (file.exists(err)) readLines(err, warn = FALSE) else character() } else st
-  if (!identical(code, 0L))
-    stop(paste(c(paste0(quoi, ". Sortie du solveur :"), utils::tail(sortie, 40)),
-               collapse = "\n"), call. = FALSE)
-  if (verbose && length(sortie)) message(paste(sortie, collapse = "\n"))
-  invisible(sortie)
+  output <- if (verbose) { if (file.exists(err)) readLines(err, warn = FALSE) else character() } else st
+  if (!identical(code, 0L)) .rx_solver_error(what, output)
+  if (verbose && length(output)) message(paste(output, collapse = "\n"))
+  invisible(output)
+}
+
+# Error with the last 40 lines of the solver's output.
+.rx_solver_error <- function(what, output) {
+  stop(paste(c(paste0(what, ". Sortie du solveur :"), utils::tail(output, 40)),
+             collapse = "\n"), call. = FALSE)
 }
