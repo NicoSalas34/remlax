@@ -1,47 +1,29 @@
 # ==============================================================================
-# summary() D'UN AJUSTEMENT, A LA MANIERE DE summary.asreml
+# summary.R - summary of a fit, in the layout of summary.asreml
 # ==============================================================================
+# From summary.asreml: call, loglik, nedf (residual degrees of freedom), aic,
+# bic, varcomp (component, std.error, z.ratio, bound), and coef.fixed and
+# coef.random on request. Added: the convergence, judged on the slope
+# (projected gradient and Newton decrement) rather than on the change of logLik
+# between iterations, and the log-likelihood in both conventions (complete, and
+# that of asreml without the constant).
 #
-# Ce que rend summary.asreml, et ce que l'on reprend :
-#   call, loglik, nedf (ddl residuels), aic, bic, varcomp (component,
-#   std.error, z.ratio, bound), coef.fixed et coef.random sur demande.
-# Ce que l'on ajoute : la convergence, jugee sur la pente (gradient projete et
-#   decrement de Newton) et non sur la variation de logLik entre iterations,
-#   et la vraisemblance dans les deux conventions (complete, et celle
-#   d'asreml, sans la constante), pour qu'une comparaison soit directe.
-#
-# Les erreurs-types des composantes viennent du moteur (table `varcomp`,
-# methode delta, jacobienne exacte, covariance 2 H^-1 sur les directions de
-# courbure positive). Codes de contrainte : F fixe, B borne, P variance,
-# U non contrainte.
+# The standard errors of the components come from the solver (table
+# `varcomp`: delta method, exact Jacobian, covariance 2 H^-1 on the directions
+# of positive curvature). Bound codes: F fixed, B at a bound, P variance,
+# U unconstrained.
 
 summary.rx_fit <- function(object, coef = FALSE, ...) {
   x <- object
-  vc <- x$varcomp
-  if (is.null(vc) || !NROW(vc)) {
-    noms <- x$composantes_noms %||% character()
-    vc <- data.frame(i = seq_along(noms), nom = noms, valeur = NA_real_, se = NA_real_,
-                     contrainte = NA_character_, stringsAsFactors = FALSE)
-    if (length(noms)) warning("summary : ajustement sans table des composantes ",
-                              "(moteur anterieur ?) ; refaire l'ajustement.", call. = FALSE)
-  }
-  varcomp <- data.frame(component = as.numeric(vc$valeur),
-                        std.error = as.numeric(vc$se),
-                        z.ratio = as.numeric(vc$valeur) / as.numeric(vc$se),
-                        bound = as.character(vc$contrainte),
-                        row.names = make.unique(as.character(vc$nom)),
-                        stringsAsFactors = FALSE)
-  varcomp$z.ratio[!is.finite(varcomp$z.ratio)] <- NA_real_
-
+  varcomp <- .rx_varcomp_table(x)
   X <- x$model$X
   p <- if (!is.null(X)) qr(as.matrix(X))$rank else length(x$beta)
   n <- as.integer(x$n_obs %||% NA)
   nedf <- n - p
   n_par <- as.integer(x$n_par %||% nrow(varcomp))
-  # PARAMETRES IDENTIFIES. Des entrees de Sigma de meme motif dans V (le bloc
-  # residuelle-IEE d'un terme de plante [I, W] avec W symetrique) n'entrent que
-  # par leur somme : q(q-1)/2 parametres de VP+ ne sont pas identifies. Ils ne
-  # comptent ni dans l'AIC ni dans le BIC, ni dans les ddl d'un LRT.
+  # Entries of Sigma with the same pattern in V (the residual-IEE block of a
+  # plant term [I, W] with a symmetric W) enter only through their sum: they
+  # count neither in the AIC and BIC nor in the degrees of freedom of a LRT.
   n_plat <- as.integer(x[["n_plat_attendu"]] %||% 0L)
   n_est <- n_par - n_plat - as.integer(x$n_fixed %||% 0)
   m2l <- -2 * x$logLik
@@ -49,29 +31,9 @@ summary.rx_fit <- function(object, coef = FALSE, ...) {
     criterion = c("logLik", "logLik (asreml)", "AIC", "BIC"),
     value = c(x$logLik, x$logLik_asreml %||% NA, m2l + 2 * n_est, m2l + n_est * log(nedf)))
 
-  fixed <- NULL
-  if (length(x$beta)) {
-    se <- if (!is.null(x$vbeta)) sqrt(pmax(diag(as.matrix(x$vbeta)), 0)) else NA_real_
-    nm <- if (!is.null(X) && !is.null(colnames(X))) colnames(X) else paste0("beta", seq_along(x$beta))
-    fixed <- data.frame(solution = as.numeric(x$beta), std.error = se,
-                        z.ratio = as.numeric(x$beta) / se, row.names = nm)
-  }
-
-  random <- NULL
-  if (isTRUE(coef) && length(x$blups)) {
-    random <- do.call(rbind, lapply(names(x$blups), function(tn) {
-      B <- as.matrix(x$blups[[tn]])
-      P <- x$pev[[tn]]
-      niv <- rownames(B) %||% as.character(seq_len(nrow(B)))
-      car <- colnames(B) %||% as.character(seq_len(ncol(B)))
-      lab <- if (ncol(B) == 1L) paste0(tn, "_", niv)
-             else paste0(tn, "_", rep(niv, ncol(B)), ":", rep(car, each = nrow(B)))
-      se <- if (!is.null(P) && length(P) == length(B)) sqrt(pmax(as.numeric(P), 0)) else NA_real_
-      data.frame(solution = as.numeric(B), std.error = se, row.names = lab)
-    }))
-  }
-
-  # Dimensions effectives a la SpATS, des que des PEV sont disponibles.
+  fixed <- .rx_fixed_table(x, X)
+  random <- if (isTRUE(coef) && length(x$blups)) .rx_random_table(x) else NULL
+  # Effective dimensions, as in SpATS, whenever the PEV are available.
   dims <- if (length(x$pev) && !is.null(x$model))
     tryCatch(rx_dimensions(x), error = function(e) NULL) else NULL
 
@@ -85,13 +47,58 @@ summary.rx_fit <- function(object, coef = FALSE, ...) {
     convergence = list(max_grad = x$max_grad, newton_decrement = x$newton_decrement %||% NA,
                        n_iter = x$n_iter %||% NA, n_neg_eig = x$n_neg_eig %||% NA,
                        seconds = x$secondes %||% NA),
-    varcomp = varcomp, dimensions = dims, surfaces = .rx_noms_spats(x),
+    varcomp = varcomp, dimensions = dims, surfaces = .rx_spats_names(x),
     lag = if (!is.null(x[["lag"]])) x[["lag"]][c("criterion", "chemin", "logdet_A", "logdet_mean",
                                                  "rayon_spectral", "admissible", "logLik_ystar",
                                                  "logLik_jacobian", "Psi", "Psi_se")],
     coef.fixed = fixed, coef.random = random,
     vpredict = x$vpredict$predictions, wald = x$wald$tests),
     class = "summary.rx_fit")
+}
+
+# Table of the variance components (component, std.error, z.ratio, bound),
+# from the solver's table `varcomp`.
+.rx_varcomp_table <- function(x) {
+  vc <- x$varcomp
+  if (is.null(vc) || !NROW(vc)) {
+    comp_names <- x$composantes_noms %||% character()
+    vc <- data.frame(i = seq_along(comp_names), nom = comp_names, valeur = NA_real_, se = NA_real_,
+                     contrainte = NA_character_, stringsAsFactors = FALSE)
+    if (length(comp_names)) warning("summary : ajustement sans table des composantes ",
+                                    "(moteur anterieur ?) ; refaire l'ajustement.", call. = FALSE)
+  }
+  varcomp <- data.frame(component = as.numeric(vc$valeur),
+                        std.error = as.numeric(vc$se),
+                        z.ratio = as.numeric(vc$valeur) / as.numeric(vc$se),
+                        bound = as.character(vc$contrainte),
+                        row.names = make.unique(as.character(vc$nom)),
+                        stringsAsFactors = FALSE)
+  varcomp$z.ratio[!is.finite(varcomp$z.ratio)] <- NA_real_
+  varcomp
+}
+
+# Fixed effects with their standard errors and z ratios.
+.rx_fixed_table <- function(x, X) {
+  if (!length(x$beta)) return(NULL)
+  se <- if (!is.null(x$vbeta)) sqrt(pmax(diag(as.matrix(x$vbeta)), 0)) else NA_real_
+  nm <- if (!is.null(X) && !is.null(colnames(X))) colnames(X) else paste0("beta", seq_along(x$beta))
+  data.frame(solution = as.numeric(x$beta), std.error = se,
+             z.ratio = as.numeric(x$beta) / se, row.names = nm)
+}
+
+# BLUPs of every term, labelled term_level (or term_level:column), with the
+# square root of their PEV when available.
+.rx_random_table <- function(x) {
+  do.call(rbind, lapply(names(x$blups), function(tn) {
+    B <- as.matrix(x$blups[[tn]])
+    P <- x$pev[[tn]]
+    lv <- rownames(B) %||% as.character(seq_len(nrow(B)))
+    cols <- colnames(B) %||% as.character(seq_len(ncol(B)))
+    lab <- if (ncol(B) == 1L) paste0(tn, "_", lv)
+           else paste0(tn, "_", rep(lv, ncol(B)), ":", rep(cols, each = nrow(B)))
+    se <- if (!is.null(P) && length(P) == length(B)) sqrt(pmax(as.numeric(P), 0)) else NA_real_
+    data.frame(solution = as.numeric(B), std.error = se, row.names = lab)
+  }))
 }
 
 print.summary.rx_fit <- function(x, digits = max(4L, getOption("digits") - 3L), ...) {
@@ -172,9 +179,9 @@ print.summary.rx_fit <- function(x, digits = max(4L, getOption("digits") - 3L), 
   invisible(x)
 }
 
-# Correspondance des termes d'une surface spl2d() avec les noms de SpATS, une
-# ligne par surface : "spl_fx = f(col), spl_fy = f(row), ...".
-.rx_noms_spats <- function(fit) {
+# The terms of each spl2d() surface with their SpATS names, one line per
+# surface: "spl_fx = f(col), spl_fy = f(row), ...".
+.rx_spats_names <- function(fit) {
   sf <- fit$spl2d$surfaces
   if (!length(sf)) return(character())
   vapply(sf, function(s) {

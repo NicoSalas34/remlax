@@ -1,47 +1,38 @@
 # ==============================================================================
-# remlax_design.R - incidences de voisinage et fonctionnelles d'exposition,
-# POSE A COTE de R/remlax.R
+# design.R - neighbourhood incidences and exposure functionals
 # ==============================================================================
-# Ce fichier n'est pas source par R/remlax.R et n'en modifie rien. Il le
-# SUPPOSE deja source (il lit des objets rx_model / rx_term par [[ ]]) mais
-# n'appelle aucune de ses fonctions : tout ici est du R pur avec Matrix.
-#
-#   source("R/remlax.R")
-#   source("R/remlax_design.R")
 #   nb <- rx_neighbourhood(coord = d[, c("row", "col")], group = d$species,
 #                          block = d$plot, level = d$genotype, id = d$id,
 #                          rank = list("A<-A" = 5, "A<-B" = 7), reach = 0,
 #                          dilution = 0, spacing = c(5, 5))
 #   ex <- rx_exposure(Z_direct, nb$level[["A<-A"]][rows, ], K = K_A)
 #
-# CE QUE CES FONCTIONS NE SAVENT PAS. Elles ne connaissent ni espece, ni
-# caractere, ni effet genetique indirect. Elles connaissent des UNITES posees
-# sur une grille, des GROUPES d'unites, des NIVEAUX auxquels les poids sont
-# sommes, et des paires (groupe recevant, groupe emettant). C'est l'appelant
-# qui dit que le groupe est une espece et le niveau un genotype.
+# These functions know nothing of species, traits or indirect genetic effects.
+# They know units placed on a grid, groups of units, levels at which the
+# weights are summed, and pairs (receiving group, emitting group). The caller
+# says that a group is a species and a level a genotype.
 #
-# CONVENTIONS NUMERIQUES, fixees ici et verifiees par les tests :
-#   - la fenetre est prise en INDICES de grille (|d_ligne| <= r et
-#     |d_colonne| <= r, l'unite elle-meme exclue) ; le poids est pris sur la
-#     distance PHYSIQUE delta = sqrt((s1 d_ligne)^2 + (s2 d_colonne)^2) ;
-#   - noyau "power" : w = delta^(-lambda), donc w = 1 partout a lambda = 0 ;
-#   - la dilution divise chaque ligne par n_i^d ou n_i est le NOMBRE de
-#     voisins de l'unite dans le groupe emettant, pas la somme des poids ;
-#   - l'ordre est dilution PUIS normalisation L2, l'inverse annulerait la
-#     dilution ;
-#   - les noms des niveaux sont rendus TELS QUELS.
+# Numerical conventions, fixed here and checked by the tests:
+#   - the window is taken in grid indices (|d_row| <= r and |d_col| <= r, the
+#     unit itself excluded); the weight uses the physical distance
+#     delta = sqrt((s1 d_row)^2 + (s2 d_col)^2);
+#   - kernel "power": w = delta^(-lambda), so w = 1 everywhere at lambda = 0;
+#   - the dilution divides each row by n_i^d, where n_i is the number of
+#     neighbours of the unit in the emitting group, not the sum of the weights;
+#   - dilution comes before the L2 normalisation, which would otherwise undo
+#     it;
+#   - level names are returned as they are.
 # ==============================================================================
 
-# Un parametre par paire. Accepte un scalaire (toutes les paires), une matrice
-# G x G nommee (lignes = groupe recevant, colonnes = groupe emettant), un
-# vecteur ou une liste nommes par paire "recevant<-emettant". Rend un vecteur
-# numerique nomme par paire, dans l'ordre de `pairs`. Une paire absente d'une
-# forme nommee est une ERREUR : la deviner donnerait un dispositif plausible et
-# faux.
-.rx_par_paire <- function(x, pairs, groups, nom) {
+# One parameter per pair: a scalar (every pair), a named G x G matrix (rows:
+# receiving group, columns: emitting group), or a vector or list named by pair
+# "receiver<-emitter". Returns a numeric vector named by pair, in the order of
+# `pairs`. A pair missing from a named form is an error: guessing it would give
+# a plausible and wrong design.
+.rx_per_pair <- function(x, pairs, groups, what) {
   if (is.matrix(x)) {
     if (is.null(dimnames(x)) || !all(groups %in% rownames(x)) || !all(groups %in% colnames(x)))
-      stop("rx_neighbourhood : `", nom, "` est une matrice sans les dimnames des groupes (",
+      stop("rx_neighbourhood : `", what, "` est une matrice sans les dimnames des groupes (",
            paste(groups, collapse = ", "), ").", call. = FALSE)
     a <- sub("<-.*$", "", pairs); b <- sub("^.*<-", "", pairs)
     out <- as.numeric(x[cbind(match(a, rownames(x)), match(b, colnames(x)))])
@@ -50,48 +41,34 @@
   if (is.list(x) || (length(x) > 1L || !is.null(names(x)))) {
     x <- unlist(x)
     if (is.null(names(x)))
-      stop("rx_neighbourhood : `", nom, "` a plusieurs valeurs mais aucun nom de paire.",
+      stop("rx_neighbourhood : `", what, "` a plusieurs valeurs mais aucun nom de paire.",
            call. = FALSE)
-    manque <- setdiff(pairs, names(x))
-    if (length(manque))
-      stop("rx_neighbourhood : `", nom, "` ne donne rien pour la ou les paires ",
-           paste(manque, collapse = ", "), ".", call. = FALSE)
+    missing_pairs <- setdiff(pairs, names(x))
+    if (length(missing_pairs))
+      stop("rx_neighbourhood : `", what, "` ne donne rien pour la ou les paires ",
+           paste(missing_pairs, collapse = ", "), ".", call. = FALSE)
     return(stats::setNames(as.numeric(x[pairs]), pairs))
   }
   if (length(x) != 1L || !is.numeric(x) || !is.finite(x))
-    stop("rx_neighbourhood : `", nom, "` doit etre un scalaire fini, une matrice nommee ",
+    stop("rx_neighbourhood : `", what, "` doit etre un scalaire fini, une matrice nommee ",
          "ou une liste nommee par paire.", call. = FALSE)
   stats::setNames(rep(as.numeric(x), length(pairs)), pairs)
 }
 
-# Triplets (i, j, x) -> matrice creuse ou dense selon `sparse`, avec dimnames.
-.rx_assembler <- function(i, j, x, dims, dn, sparse) {
+# Triplets (i, j, x) to a sparse or dense matrix, with dimnames.
+.rx_assemble_sparse <- function(i, j, x, dims, dn, sparse) {
   M <- Matrix::sparseMatrix(i = i, j = j, x = x, dims = dims, dimnames = dn)
   if (sparse) M else as.matrix(M)
 }
 
-# Incidences de voisinage ponderees par la distance
-#
-# @param coord matrice ou data.frame n x 2 de positions ENTIERES (ligne, colonne)
-# @param group facteur de longueur n : la classe de chaque unite
-# @param block facteur de longueur n ou NULL : deux unites de blocs differents
-#   ne sont jamais voisines
-# @param level facteur de longueur n : le niveau auquel les poids sont sommes
-#   dans la sortie par niveau (requis si output contient "level")
-# @param id identifiants des unites (noms de lignes des sorties)
-# @param rank rayon en pas de grille : scalaire, matrice G x G nommee, ou liste
-#   nommee par paire "recevant<-emettant"
-# @param reach exposant lambda du noyau, memes formes
-# @param dilution exposant d de la dilution, memes formes
-# @param kernel "power" (delta^-lambda), "exponential" (exp(-lambda (delta -
-#   delta_0)), delta_0 = plus petit pas physique) ou "none" (w = 1)
-# @param window "chebyshev" (carre en indices) ou "euclidean" (delta <= r min(spacing))
-# @param spacing c(pas_ligne, pas_colonne) en unite physique
-# @param normalise diviser chaque ligne par sa norme L2 APRES la dilution
-# @param pairs NULL (toutes les paires) ou vecteur de "recevant<-emettant"
-# @param output "level", "unit" ou "both"
-# @param sparse rendre des dgCMatrix
-# @return liste de classe rx_neighbourhood : level, unit, n_neighbours, params
+# Divides each row by its L2 norm (rows of zeros are left as they are).
+.rx_l2_normalise <- function(M, sparse, dn) {
+  nr <- sqrt(Matrix::rowSums(M^2)); nr[nr == 0] <- 1
+  M <- if (sparse) Matrix::Diagonal(x = 1 / nr) %*% M else M / nr
+  if (sparse) { M <- methods::as(M, "CsparseMatrix"); dimnames(M) <- dn }
+  M
+}
+
 rx_neighbourhood <- function(coord, group, block = NULL, level = NULL, id = NULL,
                              rank, reach = 0, dilution = 0,
                              kernel = c("power", "exponential", "none"),
@@ -100,6 +77,42 @@ rx_neighbourhood <- function(coord, group, block = NULL, level = NULL, id = NULL
                              pairs = NULL, output = c("level", "unit", "both"),
                              sparse = TRUE) {
   kernel <- match.arg(kernel); window <- match.arg(window); output <- match.arg(output)
+  u <- .rx_nb_units(coord, group, block, id, level, spacing, output)
+  pairs <- .rx_nb_pairs(pairs, u$groups)
+  r_p <- .rx_per_pair(rank, pairs, u$groups, "rank")
+  l_p <- .rx_per_pair(reach, pairs, u$groups, "reach")
+  d_p <- .rx_per_pair(dilution, pairs, u$groups, "dilution")
+  if (any(r_p < 0) || any(r_p != round(r_p)))
+    stop("rx_neighbourhood : `rank` doit etre un entier >= 0 pour chaque paire.", call. = FALSE)
+  if (any(l_p < 0) || any(d_p < 0))
+    stop("rx_neighbourhood : `reach` et `dilution` doivent etre >= 0.", call. = FALSE)
+  # Levels of each emitting group, in the order sort(unique(level)).
+  u$levels_of <- if (output != "unit")
+    lapply(stats::setNames(u$groups, u$groups), function(g) sort(unique(u$level[u$group == g]))) else NULL
+  u$positions <- lapply(stats::setNames(u$groups, u$groups), function(g) which(u$group == g))
+
+  out_level <- list(); out_unit <- list(); n_neighbours <- list()
+  for (pr in pairs) {
+    p <- .rx_nb_pair(u, pr, r_p[[pr]], l_p[[pr]], d_p[[pr]], kernel, window, output, normalise, sparse)
+    if (output != "unit") out_level[[pr]] <- p$level
+    if (output != "level") out_unit[[pr]] <- p$unit
+    n_neighbours[[pr]] <- p$n_neighbours
+  }
+  params <- data.frame(pair = pairs, receiver = sub("<-.*$", "", pairs),
+                       emitter = sub("^.*<-", "", pairs),
+                       rank = as.numeric(r_p), reach = as.numeric(l_p),
+                       dilution = as.numeric(d_p), kernel = kernel, window = window,
+                       spacing_row = u$spacing[1L], spacing_col = u$spacing[2L],
+                       normalise = normalise, stringsAsFactors = FALSE, row.names = NULL)
+  structure(list(level = if (output != "unit") out_level else NULL,
+                 unit = if (output != "level") out_unit else NULL,
+                 n_neighbours = n_neighbours, params = params),
+            class = "rx_neighbourhood")
+}
+
+# Checked units: integer grid positions, groups, blocks, identifiers, levels
+# (needed for the output by level) and the physical spacing.
+.rx_nb_units <- function(coord, group, block, id, level, spacing, output) {
   coord <- as.matrix(coord)
   if (ncol(coord) != 2L) stop("rx_neighbourhood : `coord` doit avoir deux colonnes (ligne, colonne).",
                               call. = FALSE)
@@ -112,7 +125,6 @@ rx_neighbourhood <- function(coord, group, block = NULL, level = NULL, id = NULL
   if (length(group) != n) stop("rx_neighbourhood : `group` n'a pas ", n, " elements.", call. = FALSE)
   group <- factor(group)
   if (anyNA(group)) stop("rx_neighbourhood : `group` porte des NA.", call. = FALSE)
-  groups <- levels(group)
   block <- if (is.null(block)) factor(rep(1L, n)) else factor(block)
   if (length(block) != n) stop("rx_neighbourhood : `block` n'a pas ", n, " elements.", call. = FALSE)
   id <- if (is.null(id)) as.character(seq_len(n)) else as.character(id)
@@ -129,105 +141,82 @@ rx_neighbourhood <- function(coord, group, block = NULL, level = NULL, id = NULL
   if (length(spacing) == 1L) spacing <- rep(spacing, 2L)
   if (length(spacing) != 2L || any(!is.finite(spacing)) || any(spacing <= 0))
     stop("rx_neighbourhood : `spacing` doit etre deux pas strictement positifs.", call. = FALSE)
+  list(coord = coord, group = group, groups = levels(group), block = block, id = id,
+       level = level, spacing = spacing, delta0 = min(spacing))
+}
 
-  toutes <- as.vector(t(outer(groups, groups, function(a, b) paste0(a, "<-", b))))
-  if (is.null(pairs)) pairs <- toutes
-  else {
-    inconnues <- setdiff(pairs, toutes)
-    if (length(inconnues))
-      stop("rx_neighbourhood : paire(s) inconnue(s) : ", paste(inconnues, collapse = ", "),
-           ". Forme attendue \"recevant<-emettant\" avec les groupes ",
-           paste(groups, collapse = ", "), ".", call. = FALSE)
-  }
-  r_p <- .rx_par_paire(rank, pairs, groups, "rank")
-  l_p <- .rx_par_paire(reach, pairs, groups, "reach")
-  d_p <- .rx_par_paire(dilution, pairs, groups, "dilution")
-  if (any(r_p < 0) || any(r_p != round(r_p)))
-    stop("rx_neighbourhood : `rank` doit etre un entier >= 0 pour chaque paire.", call. = FALSE)
-  if (any(l_p < 0) || any(d_p < 0))
-    stop("rx_neighbourhood : `reach` et `dilution` doivent etre >= 0.", call. = FALSE)
+# Pairs "receiver<-emitter": all of them by default, else the given ones.
+.rx_nb_pairs <- function(pairs, groups) {
+  all_pairs <- as.vector(t(outer(groups, groups, function(a, b) paste0(a, "<-", b))))
+  if (is.null(pairs)) return(all_pairs)
+  unknown <- setdiff(pairs, all_pairs)
+  if (length(unknown))
+    stop("rx_neighbourhood : paire(s) inconnue(s) : ", paste(unknown, collapse = ", "),
+         ". Forme attendue \"recevant<-emettant\" avec les groupes ",
+         paste(groups, collapse = ", "), ".", call. = FALSE)
+  pairs
+}
 
-  delta0 <- min(spacing)
-  # niveaux par groupe emettant, dans l'ordre sort(unique(level))
-  lev_de <- if (output != "unit")
-    lapply(stats::setNames(groups, groups), function(g) sort(unique(level[group == g]))) else NULL
-  pos_g <- lapply(stats::setNames(groups, groups), function(g) which(group == g))
-
-  out_level <- list(); out_unit <- list(); n_vois <- list()
-  for (pr in pairs) {
-    a <- sub("<-.*$", "", pr); b <- sub("^.*<-", "", pr)
-    ia <- pos_g[[a]]; ib <- pos_g[[b]]
-    na_ <- length(ia); nb_ <- length(ib)
-    r <- r_p[[pr]]; lam <- l_p[[pr]]; dd <- d_p[[pr]]
-    # accumulation en triplets, en indices LOCAUX (position dans le groupe)
-    ui <- integer(0); uj <- integer(0); ux <- numeric(0)
-    li <- integer(0); lj <- integer(0); lx <- numeric(0)
-    nn <- integer(na_)
-    if (r > 0 && na_ && nb_) for (bl in levels(block)) {
-      sa <- which(block[ia] == bl); sb <- which(block[ib] == bl)
-      if (!length(sa) || !length(sb)) next
-      ra <- coord[ia[sa], 1L]; ca <- coord[ia[sa], 2L]
-      rb <- coord[ib[sb], 1L]; cb <- coord[ib[sb], 2L]
-      dr <- abs(outer(ra, rb, "-")); dc <- abs(outer(ca, cb, "-"))
-      # distance physique : meme arithmetique que dist() sur (s1 ligne, s2 colonne)
-      delta <- sqrt(outer(spacing[1L] * ra, spacing[1L] * rb, "-")^2 +
-                      outer(spacing[2L] * ca, spacing[2L] * cb, "-")^2)
-      m <- if (window == "chebyshev") (dr <= r) & (dc <= r) & (delta > 0)
-           else (delta <= r * delta0) & (delta > 0)
-      W <- matrix(0, length(sa), length(sb))
-      if (kernel == "power")            W[m] <- delta[m]^(-lam)
-      else if (kernel == "exponential") W[m] <- exp(-lam * (delta[m] - delta0))
-      else                              W[m] <- 1
-      W[is.infinite(W)] <- 0
-      ni <- rowSums(m)
-      nn[sa] <- ni
-      div <- ni; div[div == 0] <- 1
-      div <- if (dd == 0) rep(1, length(sa)) else div^dd
-      if (output != "level") {
-        Wd <- W / div
-        nz <- which(Wd != 0, arr.ind = TRUE)
-        ui <- c(ui, sa[nz[, 1L]]); uj <- c(uj, sb[nz[, 2L]]); ux <- c(ux, Wd[nz])
-      }
-      if (output != "unit") {
-        lv <- lev_de[[b]]
-        Gb <- matrix(0, length(sb), length(lv))
-        Gb[cbind(seq_along(sb), match(level[ib[sb]], lv))] <- 1
-        M <- (W %*% Gb) / div
-        nz <- which(M != 0, arr.ind = TRUE)
-        li <- c(li, sa[nz[, 1L]]); lj <- c(lj, nz[, 2L]); lx <- c(lx, M[nz])
-      }
+# One pair: within each block, the kernel weights between the receiving and
+# the emitting units, divided by n_i^d, accumulated as triplets in local
+# indices (positions within the groups); then the incidence by level (weights
+# summed per emitting level) and by unit, optionally L2-normalised, and the
+# neighbour counts n_i.
+.rx_nb_pair <- function(u, pr, r, lam, dd, kernel, window, output, normalise, sparse) {
+  a <- sub("<-.*$", "", pr); b <- sub("^.*<-", "", pr)
+  ia <- u$positions[[a]]; ib <- u$positions[[b]]
+  na_ <- length(ia); nb_ <- length(ib)
+  coord <- u$coord; block <- u$block
+  ui <- integer(0); uj <- integer(0); ux <- numeric(0)
+  li <- integer(0); lj <- integer(0); lx <- numeric(0)
+  nn <- integer(na_)
+  if (r > 0 && na_ && nb_) for (bl in levels(block)) {
+    sa <- which(block[ia] == bl); sb <- which(block[ib] == bl)
+    if (!length(sa) || !length(sb)) next
+    ra <- coord[ia[sa], 1L]; ca <- coord[ia[sa], 2L]
+    rb <- coord[ib[sb], 1L]; cb <- coord[ib[sb], 2L]
+    dr <- abs(outer(ra, rb, "-")); dc <- abs(outer(ca, cb, "-"))
+    # Physical distance, with the arithmetic of dist() on (s1 row, s2 column).
+    delta <- sqrt(outer(u$spacing[1L] * ra, u$spacing[1L] * rb, "-")^2 +
+                    outer(u$spacing[2L] * ca, u$spacing[2L] * cb, "-")^2)
+    m <- if (window == "chebyshev") (dr <= r) & (dc <= r) & (delta > 0)
+         else (delta <= r * u$delta0) & (delta > 0)
+    W <- matrix(0, length(sa), length(sb))
+    if (kernel == "power")            W[m] <- delta[m]^(-lam)
+    else if (kernel == "exponential") W[m] <- exp(-lam * (delta[m] - u$delta0))
+    else                              W[m] <- 1
+    W[is.infinite(W)] <- 0
+    ni <- rowSums(m)
+    nn[sa] <- ni
+    div <- ni; div[div == 0] <- 1
+    div <- if (dd == 0) rep(1, length(sa)) else div^dd
+    if (output != "level") {
+      Wd <- W / div
+      nz <- which(Wd != 0, arr.ind = TRUE)
+      ui <- c(ui, sa[nz[, 1L]]); uj <- c(uj, sb[nz[, 2L]]); ux <- c(ux, Wd[nz])
     }
     if (output != "unit") {
-      lv <- lev_de[[b]]
-      M <- .rx_assembler(li, lj, lx, c(na_, length(lv)), list(id[ia], lv), sparse)
-      if (normalise) {
-        nr <- sqrt(Matrix::rowSums(M^2)); nr[nr == 0] <- 1
-        M <- if (sparse) Matrix::Diagonal(x = 1 / nr) %*% M else M / nr
-        if (sparse) { M <- methods::as(M, "CsparseMatrix"); dimnames(M) <- list(id[ia], lv) }
-      }
-      out_level[[pr]] <- M
+      lv <- u$levels_of[[b]]
+      Gb <- matrix(0, length(sb), length(lv))
+      Gb[cbind(seq_along(sb), match(u$level[ib[sb]], lv))] <- 1
+      M <- (W %*% Gb) / div
+      nz <- which(M != 0, arr.ind = TRUE)
+      li <- c(li, sa[nz[, 1L]]); lj <- c(lj, nz[, 2L]); lx <- c(lx, M[nz])
     }
-    if (output != "level") {
-      U <- .rx_assembler(ui, uj, ux, c(na_, nb_), list(id[ia], id[ib]), sparse)
-      if (normalise) {
-        nr <- sqrt(Matrix::rowSums(U^2)); nr[nr == 0] <- 1
-        U <- if (sparse) Matrix::Diagonal(x = 1 / nr) %*% U else U / nr
-        if (sparse) { U <- methods::as(U, "CsparseMatrix"); dimnames(U) <- list(id[ia], id[ib]) }
-      }
-      out_unit[[pr]] <- U
-    }
-    n_vois[[pr]] <- stats::setNames(nn, id[ia])
   }
-  params <- data.frame(pair = pairs, receiver = sub("<-.*$", "", pairs),
-                       emitter = sub("^.*<-", "", pairs),
-                       rank = as.numeric(r_p), reach = as.numeric(l_p),
-                       dilution = as.numeric(d_p), kernel = kernel, window = window,
-                       spacing_row = spacing[1L], spacing_col = spacing[2L],
-                       normalise = normalise, stringsAsFactors = FALSE, row.names = NULL)
-  structure(list(level = if (output != "unit") out_level else NULL,
-                 unit = if (output != "level") out_unit else NULL,
-                 n_neighbours = n_vois, params = params),
-            class = "rx_neighbourhood")
+  out <- list(n_neighbours = stats::setNames(nn, u$id[ia]))
+  if (output != "unit") {
+    lv <- u$levels_of[[b]]
+    dn <- list(u$id[ia], lv)
+    M <- .rx_assemble_sparse(li, lj, lx, c(na_, length(lv)), dn, sparse)
+    out$level <- if (normalise) .rx_l2_normalise(M, sparse, dn) else M
+  }
+  if (output != "level") {
+    dn <- list(u$id[ia], u$id[ib])
+    U <- .rx_assemble_sparse(ui, uj, ux, c(na_, nb_), dn, sparse)
+    out$unit <- if (normalise) .rx_l2_normalise(U, sparse, dn) else U
+  }
+  out
 }
 
 print.rx_neighbourhood <- function(x, ...) {
@@ -247,26 +236,24 @@ print.rx_neighbourhood <- function(x, ...) {
 }
 
 # ------------------------------------------------------------------------------
-# Fonctionnelles d'exposition : d, k, k_identity, c, S, n_eff
+# Exposure functionals: d, k, k_identity, c, S, n_eff
 # ------------------------------------------------------------------------------
-# Ce que ces nombres font : la variance phenotypique apportee par une
-# composante indirecte de variance s2_I vaut k s2_I ; celle de la composante
-# directe vaut d s2_D ; la covariance directe-indirecte entre dans Var(P) avec
-# le coefficient 2 c ; la valeur genetique totale d'un niveau vaut
-# sqrt(d) (u_D + S u_I). Toutes les moyennes se prennent sur `rows`.
-#
-# POURQUOI `rows` EXISTE. Dans un modele empile sur plusieurs cibles, les
-# incidences couvrent toutes les lignes ; moyenner sur toutes divise chaque
-# statistique par la part des lignes qui appartiennent a la cible. La forme
-# modele prend rows = "auto" : les lignes ou l'incidence directe est non nulle.
+# The phenotypic variance brought by an indirect component of variance s2_I is
+# k s2_I; that of the direct component is d s2_D; the direct-indirect
+# covariance enters Var(P) with the coefficient 2 c; the total genetic value of
+# a level is sqrt(d) (u_D + S u_I). Every mean is taken over `rows`: in a model
+# stacked over several targets the incidences cover every row, and averaging
+# over all of them would divide each statistic by the share of rows belonging
+# to the target. The model form takes rows = "auto", the rows where the direct
+# incidence is not zero.
 
 .rx_kstat <- function(Z, K, rows) {
   rs <- if (is.null(K)) Matrix::rowSums(Z^2) else Matrix::rowSums((Z %*% K) * Z)
   mean(as.numeric(rs)[rows])
 }
 
-# Resout "terme:etiquette", "terme[i]" ou "terme" (t = 1) en (terme, colonne).
-.rx_ref_colonne <- function(model, ref, quoi) {
+# Resolves "term:label", "term[i]" or "term" (t = 1) into (term, column).
+.rx_column_ref <- function(model, ref, quoi) {
   tm_nom <- sub("[:\\[].*$", "", ref)
   tm <- model[["terms"]][[tm_nom]]
   if (is.null(tm)) stop("rx_exposure : `", quoi, "` nomme le terme '", tm_nom,
@@ -293,21 +280,13 @@ print.rx_neighbourhood <- function(x, ...) {
        K = if (is.null(tm[["LK"]])) NULL else tm[["LK"]] %*% t(tm[["LK"]]))
 }
 
-# Fonctionnelles d'exposition d'une paire (incidence directe, incidence indirecte)
-#
-# Deux formes. Forme matricielle : rx_exposure(Z_direct, Z_indirect, K, rows,
-# K_direct). Forme modele : rx_exposure(model, direct = "terme:etiquette",
-# indirect = "terme:etiquette", rows = "auto"), ou K est lu dans le terme de
-# l'incidence indirecte et K_direct dans celui de l'incidence directe.
-#
-# @param Z_direct incidence n x q de l'effet direct, ou NULL, ou un rx_model / rx_fit
-# @param Z_indirect incidence n x q_e de l'effet indirect
-# @param K parente q_e x q_e du groupe EMETTANT, NULL pour l'identite
-# @param rows indices des lignes a moyenner ; NULL = toutes ; "auto" = lignes
-#   ou Z_direct est non nulle (forme modele)
-# @param K_direct parente du groupe de l'effet direct, par defaut K
-# @param direct,indirect references "terme:etiquette" ou "terme[i]" (forme modele)
-# @return liste : d, k, k_identity, c, S, n_eff, n_rows, convention
+# Exposure functionals of a pair (direct incidence, indirect incidence), in
+# two forms. Matrix form: rx_exposure(Z_direct, Z_indirect, K, rows, K_direct),
+# K being the relationship of the emitting group (NULL for the identity).
+# Model form: rx_exposure(model, direct = "term:label", indirect =
+# "term:label", rows = "auto"), where K is read from the term of the indirect
+# incidence and K_direct from that of the direct incidence. Returns d, k,
+# k_identity, c, S, n_eff, n_rows and the convention.
 rx_exposure <- function(Z_direct = NULL, Z_indirect = NULL, K = NULL, rows = NULL,
                         K_direct = K, direct = NULL, indirect = NULL) {
   meme_groupe <- TRUE
@@ -318,11 +297,11 @@ rx_exposure <- function(Z_direct = NULL, Z_indirect = NULL, K = NULL, rows = NUL
            call. = FALSE)
     if (is.null(indirect)) stop("rx_exposure : `indirect` est requis dans la forme modele.",
                                 call. = FALSE)
-    ri <- .rx_ref_colonne(model, indirect, "indirect")
+    ri <- .rx_column_ref(model, indirect, "indirect")
     Z_indirect <- ri$Z
     if (is.null(K)) K <- ri$K
     if (!is.null(direct)) {
-      rd <- .rx_ref_colonne(model, direct, "direct")
+      rd <- .rx_column_ref(model, direct, "direct")
       Z_direct <- rd$Z
       if (missing(K_direct) || is.null(K_direct)) K_direct <- rd$K
       meme_groupe <- identical(rd$term[["name"]], ri$term[["name"]])
@@ -346,7 +325,7 @@ rx_exposure <- function(Z_direct = NULL, Z_indirect = NULL, K = NULL, rows = NUL
     if (nrow(K) != ncol(Z_indirect) || ncol(K) != ncol(Z_indirect))
       stop("rx_exposure : K est ", nrow(K), "x", ncol(K), " pour ", ncol(Z_indirect),
            " colonnes de Z_indirect.", call. = FALSE)
-    # alignement par nom quand les deux cotes en portent
+    # alignment by name when both sides carry names
     if (!is.null(colnames(Z_indirect)) && !is.null(rownames(K))) {
       manque <- setdiff(colnames(Z_indirect), rownames(K))
       if (length(manque)) stop("rx_exposure : ", length(manque), " colonne(s) de Z_indirect ",
@@ -370,9 +349,9 @@ rx_exposure <- function(Z_direct = NULL, Z_indirect = NULL, K = NULL, rows = NUL
   k_id <- .rx_kstat(Z_indirect, NULL, rows)
   k <- if (is.null(K)) k_id else .rx_kstat(Z_indirect, K, rows)
   d <- if (is.null(Z_direct)) NA_real_ else .rx_kstat(Z_direct, K_direct, rows)
-  # c : moyenne de (Zd K Zn')_ii ; NA si pas d'incidence directe ou si les deux
-  # groupes different (K ne relie pas deux groupes) ou si les dimensions ne
-  # permettent pas le produit.
+  # c: mean of (Zd K Zn')_ii; NA without a direct incidence, when the two
+  # groups differ (K does not link two groups), or when the dimensions do not
+  # allow the product.
   cc <- NA_real_
   if (!is.null(Z_direct) && meme_groupe && ncol(Z_direct) == ncol(Z_indirect)) {
     rs <- if (is.null(K)) Matrix::rowSums(Z_direct * Z_indirect)
@@ -386,15 +365,12 @@ rx_exposure <- function(Z_direct = NULL, Z_indirect = NULL, K = NULL, rows = NUL
 }
 
 # ------------------------------------------------------------------------------
-# Matrice de parente genomique (VanRaden 1, ploidie quelconque, blending)
+# Genomic relationship matrix (VanRaden 1, any ploidy, blending)
 # ------------------------------------------------------------------------------
-# @param M matrice individus x marqueurs de doses alleliques, codees en
-#   FRACTION de la ploidie (0, 1/k, ..., 1) ; avec `coding = "count"` les doses
-#   sont en nombre d'alleles (0..k)
-# @param ploidy ploidie k
-# @param blend part de l'identite ajoutee : G_b = (1 - blend) G + blend I
-# @param coding "fraction" ou "count"
-# @return matrice q x q avec les rownames de M ; attribut "denominator"
+# M holds allele doses (individuals x markers) as a fraction of the ploidy k
+# (0, 1/k, ..., 1), or as counts 0..k with coding = "count". blend adds a share
+# of the identity: G_b = (1 - blend) G + blend I. Returns a q x q matrix with
+# the row names of M and the attribute "denominator".
 rx_grm <- function(M, ploidy = 2, blend = 0, coding = c("fraction", "count")) {
   coding <- match.arg(coding)
   M <- as.matrix(M)

@@ -1,12 +1,13 @@
-# =============================================================================
-# remlax : voie BAYESIENNE (facade R)
-# =============================================================================
-# Le calcul est en Python (inst/python/remlax/bayes.py) : HMC adapte par ChEES
-# (BlackJAX) sur la vraisemblance restreinte, beta et u integres analytiquement,
-# depuis l'optimum REML, avec de nombreuses chaines courtes vectorisees. Cote R : deux constructeurs (rx_prior, rx_bayes), l'ecriture de la loi
-# a priori dans le paquet binaire (prior.json), les options de la ligne de
-# commande, la relecture des tirages et leur affichage.
-# =============================================================================
+# ==============================================================================
+# bayes.R - the Bayesian route (R side)
+# ==============================================================================
+# The computation is in Python (inst/python/remlax/bayes.py): Hamiltonian Monte
+# Carlo adapted by the ChEES criterion (BlackJAX) on the restricted likelihood,
+# with beta and u integrated out analytically, and many short chains run
+# together. The R side holds the two constructors (rx_prior(), rx_bayes()), the
+# prior written to the bundle (prior.json), the command-line flags, and the
+# reading and printing of the draws.
+# ==============================================================================
 
 #' Prior distributions for the Bayesian route
 #'
@@ -61,7 +62,6 @@ rx_prior <- function(sd = c("half_t", "half_normal", "half_cauchy", "inv_gamma",
                  terms = terms), class = "rx_prior")
 }
 
-# methode d'affichage (NAMESPACE ecrit a la main)
 print.rx_prior <- function(x, ...) {
   cat(sprintf("rx_prior : ecarts-types %s%s, echelle %s ; LKJ(%g) ; loadings N(0, %s) ; niveaux %s\n",
               x$sd, if (x$sd == "half_t") sprintf("(df = %g)", x$df) else "",
@@ -163,7 +163,7 @@ rx_bayes_available <- function() {
   is.null(attr(out, "status"))
 }
 
-# loi a priori -> JSON lu par bayes._resoudre_prior
+# The prior as the JSON read by bayes._resoudre_prior (keys in French).
 .rx_prior_json <- function(pr) {
   fam <- function(x) if (identical(x, "uniform")) "uniforme" else x
   sd_spec <- function(o) {
@@ -194,7 +194,7 @@ rx_bayes_available <- function() {
   j
 }
 
-# options de la ligne de commande ; ecrit prior.json dans le paquet
+# Command-line flags of the Bayesian route; writes prior.json to the bundle.
 .rx_bayes_args <- function(bayes, dir) {
   if (is.null(bayes)) return(NULL)
   if (!inherits(bayes, "rx_bayes"))
@@ -209,7 +209,8 @@ rx_bayes_available <- function() {
     "--bayes-effets", bayes$effects)
 }
 
-# relecture des tirages ; `rd` lit un binaire du paquet
+# Reads the draws, their summary (columns renamed in English) and the
+# Rao-Blackwellised means of beta and of the BLUPs; `rd` reads a binary file.
 .rx_bayes_read <- function(r, rd) {
   b <- r[["bayes"]]
   if (is.null(b)) return(r)
@@ -249,7 +250,7 @@ rx_bayes_available <- function() {
   r
 }
 
-# affichage, appele par print.rx_fit
+# Printed by print.rx_fit().
 .rx_bayes_print <- function(x) {
   b <- x[["bayes"]]
   if (is.null(b) || is.null(b$summary)) return(invisible())

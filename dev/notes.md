@@ -123,3 +123,12 @@ package (`.Rbuildignore`).
   against the working directory of the Python process.
 - Identical doses for both families are written once: 292 MB in the format of
   the IGE project.
+
+### lag.R
+
+- Reciprocal Psi with IEE* (theorie_v2.md of the IGE project, T1b and study
+  A): freeing the reciprocal entry raised the standard error of psi_21 by 8 to
+  87 % at psi_v = -2, multiplied it by 6.4 at psi_v = -0.5, or made the
+  information singular. Hence the warning of .rx_warn_tb_iee().
+- Border covariates: see IGE_trait_paths_sim and revision_moyennes_bordures.md
+  of the IGE project.

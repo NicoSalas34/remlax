@@ -1,41 +1,29 @@
 # ==============================================================================
-# remlax_ratios.R - ratios, erreurs-types par methode delta, intervalles de
-# correlation, bilan d'une grille d'AIC. POSE A COTE de R/remlax.R
+# ratios.R - ratios with delta-method standard errors, correlation intervals,
+# and the AIC summary of a grid of fits
 # ==============================================================================
-# Ce fichier n'est pas source par R/remlax.R et n'en modifie rien. Il le
-# SUPPOSE deja source : il appelle rx_n_params(), rx_n_level(), rx_se_theta()
-# et `%||%`, toutes existantes.
-#
-#   source("R/remlax.R")
-#   source("R/remlax_ratios.R")
-#   S   <- rx_sigmas_from_theta(fit[["theta"]], model)      # la carte theta -> Sigma
+#   S   <- rx_sigmas_from_theta(fit[["theta"]], model)      # theta -> Sigma
 #   rat <- rx_ratios(fit, components, exposure, model = model)
 #   ci  <- rx_cor_z(r, se)
 #   g   <- rx_grid_summary(table, coords = c("rank_within", "rank_between"), by = "trait")
 #
-# CONVENTIONS, reprises du solveur et verifiees par les tests :
-#   - theta est un log d'ecart-type : var = exp(2 theta) ;
-#   - us : Sigma = L L', L triangulaire inferieure remplie LIGNE PAR LIGNE,
-#     diagonale exp(theta), hors-diagonale theta brut ;
-#   - le Hessien rendu est celui de -2 logL, donc cov(theta) = 2 H^-1 sur le
-#     sous-espace libre ;
-#   - les constantes d'exposition (d, k, c, S) sont des constantes du
-#     dispositif : elles multiplient la quantite et son erreur-type a l'identique.
+# Conventions of the solver, checked by the tests:
+#   - theta is a log standard deviation: var = exp(2 theta);
+#   - us: Sigma = L L', L lower triangular filled row by row, diagonal
+#     exp(theta), off-diagonal raw theta;
+#   - the Hessian is that of -2 logL, so cov(theta) = 2 H^-1 on the free
+#     subspace;
+#   - the exposure constants (d, k, c, S) are constants of the design: they
+#     multiply a quantity and its standard error alike.
 # ==============================================================================
 
 # ------------------------------------------------------------------------------
-# 1. Intervalles de correlation sur l'echelle z de Fisher
+# Correlation intervals on Fisher's z scale
 # ------------------------------------------------------------------------------
-# @param r correlations
-# @param se erreur-type de r sur l'echelle de la correlation (methode delta) ;
-#   exclusif avec n
-# @param n effectif d'une correlation de Pearson ; alors se_z = 1 / sqrt(n - 3)
-# @param level niveau de l'intervalle
-# @param width_max largeur au-dela de laquelle l'intervalle est declare non
-#   informatif ; NULL pour ne pas juger
-# @param clamp borne appliquee a r avant atanh
-# @return data.frame : r, se, z, z_fisher, se_z, ci_low, ci_high, width,
-#   informative, method
+# `se` is the standard error of r on the correlation scale (delta method), or
+# `n` the size of a Pearson correlation (se_z = 1 / sqrt(n - 3)). An interval
+# wider than width_max is declared uninformative (NULL: not judged); r is
+# clamped before atanh.
 rx_cor_z <- function(r, se = NULL, n = NULL, level = 0.95, width_max = 1.5,
                      clamp = 0.999999) {
   r <- as.numeric(r)
@@ -71,10 +59,10 @@ rx_cor_z <- function(r, se = NULL, n = NULL, level = 0.95, width_max = 1.5,
 }
 
 # ------------------------------------------------------------------------------
-# 2. La carte theta -> Sigma, cote R
+# The map theta -> Sigma on the R side
 # ------------------------------------------------------------------------------
-# Meme parametrisation que structures.py (chol_sigma). Elle est verifiee contre
-# fit$sigmas a 1e-8 avant tout jacobien : une permutation de theta echoue la.
+# Same parametrisation as structures.py (chol_sigma). It is checked against
+# fit$sigmas to 1e-8 before any Jacobian: a permuted theta fails there.
 
 .rx_L_us <- function(th, t) {
   L <- matrix(0, t, t); k <- 1L
@@ -83,12 +71,14 @@ rx_cor_z <- function(r, se = NULL, n = NULL, level = 0.95, width_max = 1.5,
   }
   L
 }
-.rx_trapeze <- function(th, t, rank) {
+# Lower trapezoidal loadings (t x rank), filled row by row.
+.rx_trapezoid <- function(th, t, rank) {
   Lam <- matrix(0, t, rank); k <- 1L
   for (i in seq_len(t)) for (j in seq_len(min(i, rank))) { Lam[i, j] <- th[k]; k <- k + 1L }
   Lam
 }
-.rx_bande <- function(th, t, k_b) {
+# Unit lower triangular matrix with k_b sub-diagonals, filled row by row.
+.rx_band <- function(th, t, k_b) {
   L <- diag(t); k <- 1L
   for (i in seq_len(t)) {
     js <- if (i > 1L) seq.int(max(1L, i - k_b), i - 1L) else integer(0)
@@ -97,18 +87,18 @@ rx_cor_z <- function(r, se = NULL, n = NULL, level = 0.95, width_max = 1.5,
   L
 }
 
-# Sigma d'une structure a partir de son theta (t x t)
+# Sigma (t x t) of a structure from its theta.
 rx_sigma_of <- function(th, struct, t, rank = 0L) {
   switch(struct,
     iid  = exp(2 * th[1L]) * diag(t),
     diag = diag(exp(2 * th[seq_len(t)]), t),
     us   = { L <- .rx_L_us(th, t); L %*% t(L) },
-    fa   = { nl <- rx_n_loadings(t, rank); Lam <- .rx_trapeze(th[seq_len(nl)], t, rank)
+    fa   = { nl <- rx_n_loadings(t, rank); Lam <- .rx_trapezoid(th[seq_len(nl)], t, rank)
              psi <- exp(th[nl + seq_len(t)]); Lam %*% t(Lam) + diag(psi^2, t) },
-    rr   = { Gam <- .rx_trapeze(th, t, rank); Gam %*% t(Gam) },
-    chol = { nb <- sum(pmin(seq_len(t) - 1L, rank)); L <- .rx_bande(th[seq_len(nb)], t, rank)
+    rr   = { Gam <- .rx_trapezoid(th, t, rank); Gam %*% t(Gam) },
+    chol = { nb <- sum(pmin(seq_len(t) - 1L, rank)); L <- .rx_band(th[seq_len(nb)], t, rank)
              d <- exp(th[nb + seq_len(t)]); L %*% diag(d^2, t) %*% t(L) },
-    ante = { nb <- sum(pmin(seq_len(t) - 1L, rank)); Ut <- .rx_bande(th[seq_len(nb)], t, rank)
+    ante = { nb <- sum(pmin(seq_len(t) - 1L, rank)); Ut <- .rx_band(th[seq_len(nb)], t, rank)
              d <- exp(th[nb + seq_len(t)]); A <- solve(Ut); A %*% diag(1 / d^2, t) %*% t(A) },
     corh = { sd <- exp(th[seq_len(t)]); lo <- -1 / max(t - 1L, 1L)
              r <- lo + (tanh(th[t + 1L]) + 1) * 0.5 * (1 - lo)
@@ -116,8 +106,8 @@ rx_sigma_of <- function(th, struct, t, rank = 0L) {
     stop("rx_sigma_of : structure '", struct, "' non prise en charge.", call. = FALSE))
 }
 
-# Decoupage de theta par terme puis par section residuelle : rend une liste de
-# (nom, struct, t, rank, idx_sigma, idx_level, labels) dans l'ordre du solveur.
+# Layout of theta by term, then by residual section: a list of (name, struct,
+# t, rank, idx_sigma, idx_level, labels) in the solver's order.
 .rx_theta_layout <- function(model) {
   if (is.null(model) || is.null(model[["terms"]]))
     stop("rx_ratios : le modele est requis (rx_model, ou fit[[\"model\"]]).", call. = FALSE)
@@ -145,18 +135,15 @@ rx_sigma_of <- function(th, struct, t, rank = 0L) {
                       idx_level = o + ns + seq_len(nl), labels = lab)
     o <- o + ns + nl
   }
-  # Les entrees libres de Psi (rx_lag) terminent theta ; elles ne sont pas une
-  # Sigma, mais comptent dans sa longueur.
+  # The free entries of Psi (rx_lag) end theta: not a Sigma, but part of its
+  # length.
   attr(out, "n_theta") <- o + (if (is.null(model[["lag"]])) 0L else model[["lag"]][["n_free"]])
   out
 }
 
-# Toutes les matrices Sigma (termes, puis sections residuelles) depuis theta
-#
-# @param theta vecteur theta du solveur
-# @param model le rx_model ajuste
-# @return liste nommee de matrices t x t avec dimnames ; les sections residuelles
-#   sont nommees "residual" ou "residual:<section>"
+# Every Sigma (terms, then residual sections) from theta, as a named list of
+# t x t matrices with dimnames; residual sections are named "residual" or
+# "residual:<section>".
 rx_sigmas_from_theta <- function(theta, model) {
   lay <- .rx_theta_layout(model)
   if (length(theta) != attr(lay, "n_theta"))
@@ -171,8 +158,8 @@ rx_sigmas_from_theta <- function(theta, model) {
   out
 }
 
-# Indices de theta des elements DIAGONAUX de chaque Sigma (NA quand la
-# parametrisation ne les isole pas : fa, rr, chol, ante, corh).
+# Indices in theta of the diagonal entries of each Sigma (NA when the
+# parametrisation does not isolate them: fa, rr, chol, ante, corh).
 .rx_idx_diag <- function(lay) {
   lapply(lay, function(l) {
     t <- l$t
@@ -184,8 +171,8 @@ rx_sigmas_from_theta <- function(theta, model) {
   })
 }
 
-# Resout une reference de composante : "nom", "nom[i]", "nom[i,j]",
-# "nom:etiquette", "nom:etiquette_a~etiquette_b". Rend list(sigma, i, j).
+# Resolves a component reference: "name", "name[i]", "name[i,j]",
+# "name:label", "name:label_a~label_b". Returns list(sigma, i, j).
 .rx_ref <- function(ref, lay) {
   ref <- as.character(ref)
   noms <- names(lay)
@@ -220,12 +207,12 @@ rx_sigmas_from_theta <- function(theta, model) {
 }
 
 # ------------------------------------------------------------------------------
-# 3. rx_ratios : la carte theta -> quantites, derivee une fois
+# rx_ratios(): the map theta -> quantities, differentiated once
 # ------------------------------------------------------------------------------
-# `components` nomme les composantes de chaque cible ; `exposure` porte les
-# constantes du dispositif. La carte q(theta) est ecrite UNE fois et derivee
-# numeriquement ; les erreurs-types de toutes les quantites en decoulent par
-# SE = sqrt(J V J'), V = 2 H^-1 sur le sous-espace libre.
+# `components` names the components of each target; `exposure` carries the
+# constants of the design. The map q(theta) is written once and differentiated
+# numerically; the standard errors of every quantity follow from
+# SE = sqrt(J V J'), V = 2 H^-1 on the free subspace.
 
 .rx_split_refs <- function(x) {
   if (is.null(x) || (length(x) == 1L && (is.na(x) || !nzchar(trimws(x))))) return(character(0))
@@ -233,7 +220,7 @@ rx_sigmas_from_theta <- function(theta, model) {
   trimws(unlist(strsplit(as.character(x), "+", fixed = TRUE)))
 }
 .rx_k_other <- function(x) {
-  # "ref=val+ref=val", vecteur nomme, ou liste nommee -> vecteur nomme
+  # "ref=val+ref=val", a named vector or a named list, to a named vector
   if (is.null(x) || (length(x) == 1L && is.na(x))) return(numeric(0))
   if (is.character(x) && length(x) == 1L) {
     if (!nzchar(trimws(x))) return(numeric(0))
@@ -244,25 +231,12 @@ rx_sigmas_from_theta <- function(theta, model) {
   unlist(x)
 }
 
-# Ratios, parts, heritabilites, tau2, correlations et leurs erreurs-types
-#
-# @param fit rx_fit avec theta, hessian, par_floor, par_ceil
-# @param components data.frame, une ligne par cible : target, direct,
-#   indirect_within (NA si absente), indirect_between (NA si absente), other
-#   (references separees par "+", composantes additives de la variance
-#   phenotypique), et facultativement group
-# @param exposure data.frame, une ligne par cible : target, d, k_within,
-#   k_between, c, S_within, S_between, k_other ("ref=val+ref=val") ; NULL = 1
-# @param model le rx_model si fit ne le porte pas
-# @param quantities sous-ensemble de variances, shares, h2, h2_ext, tau2,
-#   correlations, residual_correlations, tbv
-# @param scale appliquer exposure
-# @param level,width_max passes a rx_cor_z pour les correlations
-# @param jacobian "numeric" (differences finies centrees)
-# @param curvature "project" ou "refuse" face a une valeur propre negative de H
-# @param bound_tol,dep_bound tolerances pour les bornes
-# @param step pas relatif des differences finies
-# @return data.frame long de classe rx_ratios
+# Ratios, shares, heritabilities, tau2, correlations and their standard
+# errors. `components` has one row per target: target, direct,
+# indirect_within, indirect_between (NA when absent) and other (references
+# separated by "+", additive components of the phenotypic variance).
+# `exposure` has one row per target: d, k_within, k_between, c, S_within,
+# S_between and k_other ("ref=val+ref=val"); NULL means 1.
 rx_ratios <- function(fit, components, exposure = NULL, model = NULL,
                       quantities = c("variances", "shares", "h2", "h2_ext", "tau2",
                                      "correlations", "residual_correlations", "tbv"),
@@ -280,9 +254,73 @@ rx_ratios <- function(fit, components, exposure = NULL, model = NULL,
   if (length(theta) != attr(lay, "n_theta"))
     stop("rx_ratios : theta a ", length(theta), " valeurs, le modele en attend ",
          attr(lay, "n_theta"), ".", call. = FALSE)
-  # --- controle theta -> Sigma contre le solveur -----------------------------
   S0 <- rx_sigmas_from_theta(theta, model)
-  if (!is.null(fit[["sigmas"]])) for (nm in names(fit[["sigmas"]])) {
+  .rx_check_sigmas(fit, S0)
+  targets <- .rx_ratio_targets(components, lay)
+  ex <- .rx_exposure_table(exposure, names(targets), scale)
+  quantity_map <- .rx_ratio_map(model, lay, targets, ex$E, ex$k_other, quantities)
+  q0 <- quantity_map(theta)
+  nq <- length(q0)
+
+  cv <- .rx_free_theta_cov(fit, theta, bound_tol, curvature)
+  V <- cv$V; free <- cv$free; at_bound <- cv$at_bound; fixed <- cv$fixed
+  se_theta <- rep(NA_real_, length(theta))
+  if (!is.null(V)) se_theta[free] <- sqrt(pmax(diag(V), 0))
+  check_se <- NA_real_
+  if (!is.null(fit[["se_theta"]]) && any(is.finite(fit[["se_theta"]]) & is.finite(se_theta)))
+    check_se <- stats::median((se_theta / fit[["se_theta"]])[is.finite(se_theta) & is.finite(fit[["se_theta"]])])
+
+  # Standard errors SE = sqrt(J V J') with a central-difference Jacobian, and
+  # the share of each quantity's sensitivity carried by parameters at a bound
+  # (dep_b) or by directions excluded for negative curvature (dep_x).
+  J <- if (!is.null(V)) .rx_numeric_jacobian(quantity_map, theta, step, nq) else
+       matrix(NA_real_, nq, length(theta))
+  se <- rep(NA_real_, nq); dep_b <- rep(NA_real_, nq); dep_x <- rep(NA_real_, nq)
+  if (!is.null(V)) {
+    Jf <- J[, free, drop = FALSE]
+    Jf[is.na(Jf)] <- 0
+    se <- sqrt(pmax(rowSums((Jf %*% V) * Jf), 0))
+    Ja <- abs(J); Ja[is.na(Ja)] <- 0
+    tot <- rowSums(Ja); tot[tot == 0] <- 1
+    dep_b <- rowSums(Ja[, at_bound & !fixed, drop = FALSE]) / tot
+    dep_x <- if (is.null(cv$W_excl)) rep(0, nq)
+             else rowSums(Ja[, free, drop = FALSE][, cv$W_excl > 0.5, drop = FALSE]) / tot
+  }
+
+  # Long table: quantity|target|component names, Wald intervals, and Fisher-z
+  # intervals for the correlations.
+  parts <- strsplit(names(q0), "|", fixed = TRUE)
+  quantity <- vapply(parts, `[`, "", 1L); target <- vapply(parts, `[`, "", 2L)
+  component <- vapply(parts, function(p) paste(p[-(1:2)], collapse = "|"), "")
+  est <- as.numeric(q0)
+  is_cor <- quantity %in% c("cor", "rescor", "tbv_cor") |
+            (quantity == "h2" & component == "r_direct_indirect")
+  qn <- stats::qnorm(1 - (1 - level) / 2)
+  lo <- est - qn * se; hi <- est + qn * se
+  informative <- rep(NA, nq)
+  if (any(is_cor)) {
+    cz <- rx_cor_z(est[is_cor], se = ifelse(is.na(se[is_cor]), NA_real_, se[is_cor]),
+                   level = level, width_max = width_max)
+    lo[is_cor] <- cz$ci_low; hi[is_cor] <- cz$ci_high; informative[is_cor] <- cz$informative
+  }
+  flag <- .rx_ratio_flags(quantity, target, component, est, targets, lay, at_bound,
+                          cv$no_H, V, dep_x, dep_b, dep_bound, is_cor, informative)
+  scaled <- ex$scaled
+  out <- data.frame(target = target, quantity = quantity, component = component,
+                    estimate = est, se = se, z = est / se, ci_low = lo, ci_high = hi,
+                    flag = flag, dep_bound = dep_b, dep_excluded = dep_x,
+                    scaled = scaled, convention = if (scaled) "exposure" else "raw",
+                    stringsAsFactors = FALSE, row.names = NULL)
+  attr(out, "V") <- V; attr(out, "free") <- free; attr(out, "se_theta") <- se_theta
+  attr(out, "check_se") <- check_se; attr(out, "sigmas") <- S0; attr(out, "exposure") <- ex$E
+  class(out) <- c("rx_ratios", "data.frame")
+  out
+}
+
+# Sigma rebuilt from theta must equal the solver's: a permuted theta fails here.
+.rx_check_sigmas <- function(fit, S0) {
+  if (is.null(fit[["sigmas"]])) return(invisible())
+  for (nm in names(fit[["sigmas"]])) {
     A <- fit[["sigmas"]][[nm]]; B <- S0[[nm]]
     if (!is.null(A) && !is.null(B) && all(dim(A) == dim(B))) {
       e <- max(abs(as.matrix(A) - B)) / max(1, max(abs(B)))
@@ -292,7 +330,11 @@ rx_ratios <- function(fit, components, exposure = NULL, model = NULL,
                             "du modele fourni."), nm, e), call. = FALSE)
     }
   }
-  # --- composantes par cible --------------------------------------------------
+}
+
+# The components of each target, resolved in the theta layout: direct,
+# indirect_within (in the same term as direct), indirect_between and other.
+.rx_ratio_targets <- function(components, lay) {
   components <- as.data.frame(components, stringsAsFactors = FALSE)
   req <- c("target", "direct")
   if (!all(req %in% names(components)))
@@ -302,7 +344,7 @@ rx_ratios <- function(fit, components, exposure = NULL, model = NULL,
   nt <- nrow(components); tg <- as.character(components$target)
   if (anyDuplicated(tg)) stop("rx_ratios : cibles en double.", call. = FALSE)
   .na <- function(x) is.null(x) || (length(x) == 1L && (is.na(x) || !nzchar(x)))
-  cible <- lapply(seq_len(nt), function(i) {
+  targets <- lapply(seq_len(nt), function(i) {
     d <- .rx_ref(components$direct[i], lay)
     iw <- if (.na(components$indirect_within[i])) NULL else .rx_ref(components$indirect_within[i], lay)
     ib <- if (.na(components$indirect_between[i])) NULL else .rx_ref(components$indirect_between[i], lay)
@@ -313,8 +355,13 @@ rx_ratios <- function(fit, components, exposure = NULL, model = NULL,
     names(oth) <- .rx_split_refs(components$other[i])
     list(target = tg[i], d = d, iw = iw, ib = ib, other = oth)
   })
-  names(cible) <- tg
-  # --- expositions --------------------------------------------------------------
+  names(targets) <- tg
+  targets
+}
+
+# Exposure constants of each target (1 when absent or when scale = FALSE).
+.rx_exposure_table <- function(exposure, tg, scale) {
+  nt <- length(tg)
   scaled <- scale && !is.null(exposure)
   E <- data.frame(target = tg, d = 1, k_within = 1, k_between = 1, c = 1, S_within = 1,
                   S_between = 1, stringsAsFactors = FALSE)
@@ -333,12 +380,19 @@ rx_ratios <- function(fit, components, exposure = NULL, model = NULL,
       for (i in seq_len(nt)) k_other[[i]] <- .rx_k_other(exposure[["k_other"]][[m[i]]])
   }
   if (!scaled) { E[, -1] <- 1; k_other <- stats::setNames(vector("list", nt), tg) }
-  # --- la carte theta -> quantites --------------------------------------------
-  # les termes genetiques : ceux qui portent un effet direct ou un effet croise
+  list(E = E, k_other = k_other, scaled = scaled)
+}
+
+# The map theta -> quantities, written once: variances, shares, heritabilities,
+# correlations of the genetic terms (those carrying a direct or a cross
+# effect) and of the multi-trait residuals, and the variances, covariances and
+# correlations of total breeding values (tbv) and tau2.
+.rx_ratio_map <- function(model, lay, targets, E, k_other, quantities) {
+  cible <- targets; tg <- names(targets); nt <- length(tg)
   gen_terms <- unique(c(vapply(cible, function(z) z$d$sigma, ""),
                         unlist(lapply(cible, function(z) if (is.null(z$ib)) NULL else z$ib$sigma))))
   res_names <- names(lay)[vapply(lay, function(l) l$kind == "residual" && l$t > 1L, logical(1))]
-  carte <- function(th) {
+  function(th) {
     S <- rx_sigmas_from_theta(th, model)
     g <- function(r) S[[r$sigma]][r$i, r$j]
     q <- c()
@@ -399,7 +453,7 @@ rx_ratios <- function(fit, components, exposure = NULL, model = NULL,
     }
     if (any(c("tbv", "tau2") %in% quantities)) for (k in gen_terms) {
       M <- S[[k]]; t <- nrow(M)
-      # cibles dont l'effet direct vit dans k : les emetteurs de ce terme
+      # targets whose direct effect lives in k: the emitters of this term
       em <- which(vapply(cible, function(z) z$d$sigma == k, logical(1)))
       d_em <- mean(E$d[em])
       vecs <- list(); recv <- c()
@@ -434,18 +488,22 @@ rx_ratios <- function(fit, components, exposure = NULL, model = NULL,
     }
     q
   }
-  q0 <- carte(theta)
-  nq <- length(q0)
-  # --- sous-espace libre et covariance de theta -------------------------------
+}
+
+# Free subspace (neither at a bound nor fixed) and covariance of theta,
+# V = 2 H^-1 on it. With a negative eigenvalue, "refuse" gives no V and
+# "project" projects on the positive curvature, with the weight of each free
+# parameter in the excluded directions (W_excl).
+.rx_free_theta_cov <- function(fit, theta, bound_tol, curvature) {
   fl <- fit[["par_floor"]] %||% -12; ce <- fit[["par_ceil"]] %||% 12
   at_bound <- theta <= fl + bound_tol | theta >= ce - bound_tol
   fixed <- rep(FALSE, length(theta))
   if (length(fit[["fixed_theta"]])) fixed[as.integer(fit[["fixed_theta"]])] <- TRUE
-  libre <- which(!at_bound & !fixed)
+  free <- which(!at_bound & !fixed)
   H <- fit[["hessian"]]
   V <- NULL; W_excl <- NULL; no_H <- is.null(H)
-  if (!no_H && length(libre)) {
-    Hf <- as.matrix(H)[libre, libre, drop = FALSE]; Hf <- (Hf + t(Hf)) / 2
+  if (!no_H && length(free)) {
+    Hf <- as.matrix(H)[free, free, drop = FALSE]; Hf <- (Hf + t(Hf)) / 2
     ed <- eigen(Hf, symmetric = TRUE)
     pos <- ed$values > 0
     if (all(pos)) {
@@ -458,54 +516,32 @@ rx_ratios <- function(fit, components, exposure = NULL, model = NULL,
       Vi <- ed$vectors[, pos, drop = FALSE] %*% diag(1 / ed$values[pos], sum(pos)) %*%
             t(ed$vectors[, pos, drop = FALSE])
       V <- 2 * Vi
-      W_excl <- rowSums(ed$vectors[, !pos, drop = FALSE]^2)   # poids par parametre libre
+      W_excl <- rowSums(ed$vectors[, !pos, drop = FALSE]^2)
     }
   }
-  se_theta <- rep(NA_real_, length(theta))
-  if (!is.null(V)) se_theta[libre] <- sqrt(pmax(diag(V), 0))
-  check_se <- NA_real_
-  if (!is.null(fit[["se_theta"]]) && any(is.finite(fit[["se_theta"]]) & is.finite(se_theta)))
-    check_se <- stats::median((se_theta / fit[["se_theta"]])[is.finite(se_theta) & is.finite(fit[["se_theta"]])])
-  # --- jacobien numerique, differences centrees --------------------------------
-  J <- matrix(NA_real_, nq, length(theta))
-  if (!is.null(V)) {
-    J[] <- 0
-    for (j in seq_along(theta)) {
-      h <- step * max(1, abs(theta[j]))
-      tp <- theta; tp[j] <- tp[j] + h; tm <- theta; tm[j] <- tm[j] - h
-      J[, j] <- (carte(tp) - carte(tm)) / (2 * h)
-    }
+  list(V = V, W_excl = W_excl, no_H = no_H, free = free, at_bound = at_bound, fixed = fixed)
+}
+
+# Jacobian of the map by central differences, with a step relative to theta.
+.rx_numeric_jacobian <- function(quantity_map, theta, step, nq) {
+  J <- matrix(0, nq, length(theta))
+  for (j in seq_along(theta)) {
+    h <- step * max(1, abs(theta[j]))
+    tp <- theta; tp[j] <- tp[j] + h; tm <- theta; tm[j] <- tm[j] - h
+    J[, j] <- (quantity_map(tp) - quantity_map(tm)) / (2 * h)
   }
-  se <- rep(NA_real_, nq); dep_b <- rep(NA_real_, nq); dep_x <- rep(NA_real_, nq)
-  if (!is.null(V)) {
-    Jf <- J[, libre, drop = FALSE]
-    Jf[is.na(Jf)] <- 0
-    se <- sqrt(pmax(rowSums((Jf %*% V) * Jf), 0))
-    Ja <- abs(J); Ja[is.na(Ja)] <- 0
-    tot <- rowSums(Ja); tot[tot == 0] <- 1
-    dep_b <- rowSums(Ja[, at_bound & !fixed, drop = FALSE]) / tot
-    dep_x <- if (is.null(W_excl)) rep(0, nq)
-             else rowSums(Ja[, libre, drop = FALSE][, W_excl > 0.5, drop = FALSE]) / tot
-  }
-  # --- table longue -------------------------------------------------------------
-  parts <- strsplit(names(q0), "|", fixed = TRUE)
-  quantity <- vapply(parts, `[`, "", 1L); target <- vapply(parts, `[`, "", 2L)
-  component <- vapply(parts, function(p) paste(p[-(1:2)], collapse = "|"), "")
-  est <- as.numeric(q0)
-  is_cor <- quantity %in% c("cor", "rescor", "tbv_cor") |
-            (quantity == "h2" & component == "r_direct_indirect")
-  qn <- stats::qnorm(1 - (1 - level) / 2)
-  lo <- est - qn * se; hi <- est + qn * se
-  informative <- rep(NA, nq)
-  if (any(is_cor)) {
-    cz <- rx_cor_z(est[is_cor], se = ifelse(is.na(se[is_cor]), NA_real_, se[is_cor]),
-                   level = level, width_max = width_max)
-    lo[is_cor] <- cz$ci_low; hi[is_cor] <- cz$ci_high; informative[is_cor] <- cz$informative
-  }
-  # drapeaux
+  J
+}
+
+# Flag of each quantity: FLOOR (variance whose diagonal theta is at the bound),
+# NOT_ESTIMATED, NO_HESSIAN, NOT_IDENTIFIED (carried by excluded directions),
+# COND_BOUND (sensitive to parameters at a bound), NOT_ESTIMABLE (correlation
+# with an uninformative interval), else OK.
+.rx_ratio_flags <- function(quantity, target, component, est, cible, lay, at_bound,
+                            no_H, V, dep_x, dep_b, dep_bound, is_cor, informative) {
+  nq <- length(est)
   idx_diag <- .rx_idx_diag(lay)
   flag <- rep("OK", nq)
-  # FLOOR : variance brute d'une composante dont le theta diagonal est a la borne
   for (r in seq_len(nq)) if (quantity[r] == "var" &&
                              !component[r] %in% c("cov_direct_indirect", "sum", "phenotypic")) {
     z <- cible[[target[r]]]
@@ -523,15 +559,7 @@ rx_ratios <- function(fit, components, exposure = NULL, model = NULL,
     flag[flag == "OK" & is_cor & !is.na(informative) & !informative] <- "NOT_ESTIMABLE"
   }
   flag[!is.finite(est)] <- "NOT_ESTIMATED"
-  out <- data.frame(target = target, quantity = quantity, component = component,
-                    estimate = est, se = se, z = est / se, ci_low = lo, ci_high = hi,
-                    flag = flag, dep_bound = dep_b, dep_excluded = dep_x,
-                    scaled = scaled, convention = if (scaled) "exposure" else "raw",
-                    stringsAsFactors = FALSE, row.names = NULL)
-  attr(out, "V") <- V; attr(out, "free") <- libre; attr(out, "se_theta") <- se_theta
-  attr(out, "check_se") <- check_se; attr(out, "sigmas") <- S0; attr(out, "exposure") <- E
-  class(out) <- c("rx_ratios", "data.frame")
-  out
+  flag
 }
 
 print.rx_ratios <- function(x, ...) {
@@ -547,17 +575,14 @@ print.rx_ratios <- function(x, ...) {
 }
 
 # ------------------------------------------------------------------------------
-# 4. Bilan AIC d'une grille d'ajustements
+# AIC summary of a grid of fits
 # ------------------------------------------------------------------------------
-# @param table data.frame, une ligne par ajustement
-# @param coords noms des colonnes qui definissent une cellule
-# @param aic,loglik,n_par noms de colonnes ; aic recalcule si absent
-# @param by colonne(s) separant des grilles non comparables
-# @param tol largeur de l'ensemble soutenu en unites d'AIC
-# @param pd,n_at_bound,n_par_free,n_obs noms de colonnes optionnelles
-# @param effective calculer aussi le bilan sous AIC_eff = 2 n_par_free - 2 logLik
-# @return liste de classe rx_grid_summary : best, supported, ranges, n_supported,
-#   n_product, counts, best_pd, effective, delta
+# `table` has one row per fit; `coords` are the columns that define a cell.
+# The AIC is recomputed from logLik and n_par when absent. `by` separates grids
+# that cannot be compared; `tol` is the width of the supported set in AIC
+# units. With effective = TRUE, the summary is also computed under
+# AIC_eff = 2 n_par_free - 2 logLik. Returns an rx_grid_summary list: best,
+# supported, ranges, n_supported, n_product, counts, best_pd, effective, delta.
 rx_grid_summary <- function(table, coords, aic = "AIC", loglik = "logLik", n_par = "n_par",
                             by = NULL, tol = 2, pd = "pd_hessian", n_at_bound = "n_at_bound",
                             n_par_free = "n_par_free", n_obs = "n_obs", effective = FALSE) {
@@ -603,7 +628,7 @@ rx_grid_summary <- function(table, coords, aic = "AIC", loglik = "logLik", n_par
                  n_distinct = length(unique(v)), constant = length(unique(v)) == 1L,
                  stringsAsFactors = FALSE)
     }))
-    # cellules manquantes par rapport au produit cartesien des valeurs observees
+    # Cells missing from the Cartesian product of the observed values.
     n_cart <- prod(vapply(coords, function(cc) length(unique(sub[[cc]])), numeric(1)))
     cle <- do.call(paste, c(sub[coords], sep = "|"))
     counts <- data.frame(.group = sub$.group[1], n_cells = nrow(sub),
