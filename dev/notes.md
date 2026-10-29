@@ -28,3 +28,29 @@ package (`.Rbuildignore`).
 - The parameter count of a model includes the between-level parameters of the
   residual (the rho of an ar1 residual), one set per section. Omitting them
   displayed 2 parameters for an ar1 x ar1 field that has 4.
+
+### formula_residual.R
+
+- The parser needs the column name of `trait` to recognise diag(trait). When
+  only the vector was given, the trait factor was read as a unit factor and
+  the residual became iid with 4 "units" instead of 180, a different model
+  without any error. The name is now recovered from the columns of `data`.
+- The options of a residual structure (mtrn, own) were read after the early
+  exit of the 2D metric branch, so ~ mtrn(x, y, phi = ..., nu = ...) lost its
+  options: four different parameter sets gave the same log-likelihood,
+  -19.5572007, the sign that none of them arrived.
+- The duplicate check of ar1(row):ar1(col) once tested the cell alone. In long
+  format each cell appears once per trait by construction, so it refused
+  us(trait):ar1(row):ar1(col), the most common spatial multi-trait model. It
+  now tests the pair (cell, trait), as fit.py does.
+
+### formula_random.R
+
+- The 2D metric structures (iexp and its neighbours) were once tested inside a
+  branch that only accepted ar1/ar2/.../gau, so they fell into "terme non
+  reconnu" although both sides implemented them. A single list is now used.
+- struct = on a correlation structure (asreml's v/h suffixes) once passed the
+  raw factor whatever `struct`, so t = 1: ar1(col, struct = "diag") silently
+  became ar1(col), one variance instead of one per trait.
+- The name of a str() term once came from the raw text of the expression
+  ("gid_mmZwnamepente"); it now joins the names of the incidences.
