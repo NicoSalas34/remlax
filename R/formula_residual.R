@@ -233,7 +233,7 @@
       }
       # Metrique 2D en deux colonnes : mtrn(x, y), iexp(x, y)... L'unite est
       # alors la CELLULE (x, y) et les coordonnees en decoulent.
-      if (f %in% RX_METRIQUES_2D && length(posit) == 2L && is.null(co)) {
+      if (f %in% RX_METRIC_2D && length(posit) == 2L && is.null(co)) {
         xv <- eval(posit[[1]], envir = data, enclos = env)
         yv <- eval(posit[[2]], envir = data, enclos = env)
         cle <- paste(xv, yv, sep = "\r")
@@ -248,7 +248,7 @@
         next
       }
       un_fac <- c(un_fac, a1)
-      if (f %in% RX_METRIQUES_1D && is.null(co)) co <- NA          # deduit plus bas
+      if (f %in% RX_METRIC_1D && is.null(co)) co <- NA          # deduit plus bas
       next
     }
     stop("residual : facteur non reconnu '", fx, "'.\n  Attendu : units, ",

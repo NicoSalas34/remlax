@@ -156,7 +156,7 @@
         as.matrix(eval(opt$coord, envir = data, enclos = env)) else NULL
       # Metrique a DEUX arguments positionnels : mtrn(x, y) comme chez asreml.
       # Le niveau est alors la CELLULE (x, y), et les coordonnees en decoulent.
-      if (fn %in% RX_METRIQUES_2D && length(pos) == 2L && is.null(co)) {
+      if (fn %in% RX_METRIC_2D && length(pos) == 2L && is.null(co)) {
         xv <- eval(pos[[1]], envir = data, enclos = env)
         yv <- eval(pos[[2]], envir = data, enclos = env)
         cle <- paste(xv, yv, sep = "\r")
@@ -177,7 +177,7 @@
       z <- .rx_incidence(pos[[1]], data, env)
       # Metrique 1D sans `coord` : les NIVEAUX doivent etre numeriques, sinon la
       # distance n'a pas de sens et le modele serait silencieusement faux.
-      if (fn %in% RX_METRIQUES_1D && is.null(co)) {
+      if (fn %in% RX_METRIC_1D && is.null(co)) {
         co <- suppressWarnings(as.numeric(z$levels))
         if (any(!is.finite(co)))
           stop("terme '", txt, "' : les niveaux ne sont pas numeriques ; ",

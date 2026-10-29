@@ -1,14 +1,18 @@
-# Structure residuelle
-# @param struct "iid" | "diag" | "us"
-# @param trait  facteur de caractere (longueur n) ; NULL = un seul caractere
-# @param unit   identifiant d'unite : deux observations de la MEME unite sur
-#               des caracteres differents sont correlees sous `us`.
-# struct = "none" : AUCUNE residuelle (R = 0). V doit alors etre definie
-# positive par les seuls termes - typiquement un terme de plante dont les
-# incidences sont [I place sur le caractere t, W_t place sur le caractere t],
-# structure us sur 2q colonnes, qui porte a la fois la residuelle, les effets
-# environnementaux indirects (IEE) et leur covariance. Le moteur verifie V au
-# point de depart et le dit en clair si elle ne l'est pas.
+# ==============================================================================
+# residual.R - rx_residual(): the residual structure
+# ==============================================================================
+
+# Residual structure.
+#   struct   "iid", "diag", "us", "fa" between the traits of a unit, or "none"
+#   trait    trait factor of length n; NULL means a single trait
+#   unit     unit identifier: two observations of the same unit on different
+#            traits are correlated under "us"
+#   level    structure between units (ar1, ar1ar1, metric kernels, ...)
+#   sections a list of rx_residual() objects, one per section of a dsum()
+# struct = "none" means no residual at all (R = 0): V must then be positive
+# definite through the terms alone, typically a plant term whose incidences
+# carry the residual, the indirect environmental effects and their covariance.
+# The solver checks V at the starting point and says so when it is not.
 rx_residual <- function(struct = "iid", trait = NULL, unit = NULL, rank = 0L,
                         level = "id", order = 0L, coord = NULL, n_unit = NULL,
                         dims = NULL, opts = NULL, expr = NULL, sections = NULL,

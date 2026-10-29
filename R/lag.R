@@ -209,7 +209,7 @@ print.rx_lag <- function(x, ...) {
 # l'erreur-type de psi_21 de 8 a 87 % a psi_v = -2, la multiplie par 6,4 a
 # psi_v = -0,5, ou rend l'information singuliere. On avertit, on n'interdit
 # pas : sans IEE*, TB reste identifie avec Psi pleine (par le niveau genetique).
-.rx_avertir_tb_iee <- function(terms, lag) {
+.rx_warn_tb_iee <- function(terms, lag) {
   m <- lag$mask
   recip <- which(m & t(m) & row(m) != col(m), arr.ind = TRUE)
   if (!nrow(recip)) return(invisible(FALSE))
