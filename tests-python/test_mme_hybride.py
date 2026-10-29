@@ -29,7 +29,7 @@ def test_valeur_gradient_ai_identiques(nom):
     rng = np.random.default_rng(5)
     th0 = initial_theta(terms, res, y)
     for th in [th0, th0 + rng.normal(0, 0.3, len(th0))]:
-        a, b = Md.evaluer(th), Mh.evaluer(th)
+        a, b = Md.evaluate(th), Mh.evaluate(th)
         assert abs(a["f"] - b["f"]) <= 1e-12 * abs(a["f"])
         assert _rel(b["g"], a["g"]) <= 1e-9
         assert _rel(b["AI"], a["AI"]) <= 1e-9
@@ -40,8 +40,8 @@ def test_sorties_identiques(nom):
     fab, sep = CAS[nom]
     terms, res, y, X = fab()
     th = initial_theta(terms, res, y)
-    sa = MME(terms, res, y, X, inversion="dense", verbose=False).sorties(th, pev=True)
-    sb = MME(terms, res, y, X, inversion="hybride", verbose=False, separateur=sep).sorties(th, pev=True)
+    sa = MME(terms, res, y, X, inversion="dense", verbose=False).outputs(th, pev=True)
+    sb = MME(terms, res, y, X, inversion="hybride", verbose=False, separateur=sep).outputs(th, pev=True)
     assert _rel(sb["beta"], sa["beta"]) <= 1e-9
     for k in sa["blups"]:
         assert _rel(sb["blups"][k], sa["blups"][k]) <= 1e-9

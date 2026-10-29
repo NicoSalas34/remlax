@@ -83,7 +83,7 @@ def _resolve_auto(terms, res, y, kwargs):
     engine and optimiser chosen for the model."""
     if kwargs.get("moteur") == "auto" or kwargs.get("optimizer") == "auto":
         kwargs = dict(kwargs)
-        from .mme import hors_perimetre as _hp
+        from .mme import out_of_scope as _hp
         in_mme = _hp(terms, res, kwargs.get("lag")) is None
         if kwargs.get("moteur") == "auto":
             kwargs["moteur"] = "mme" if in_mme else "dense"
@@ -310,8 +310,8 @@ def _build_engine(terms, res, y, X, lag, moteur, inversion, memoire, optimizer, 
 def _mme_fallback(eng, terms, res, lag, verbose):
     """Outside the scope of the MME engine: dense engine, unless a term is
     given only by its precision Kinv, which the dense engine cannot use."""
-    from .mme import hors_perimetre
-    reason = hors_perimetre(terms, res, lag)
+    from .mme import out_of_scope
+    reason = out_of_scope(terms, res, lag)
     if not reason:
         return
     if any(tm.get("Kinv") is not None and tm.get("LK") is None for tm in terms):
@@ -655,7 +655,7 @@ def _ai_functions(obj, eng, terms, res, y, X):
         fga = make_fga(terms, res, y, X)
     if eng.moteur == "mme":
         M_mme = eng.M_mme
-        f_only = lambda th_: M_mme.evaluer(np.asarray(th_), complet=False)["f"]
+        f_only = lambda th_: M_mme.evaluate(np.asarray(th_), full=False)["f"]
     else:
         f_only = lambda th_: float(obj.fun_jac(th_)[0])
     return fga, f_only
@@ -783,8 +783,8 @@ def _result_core(obj, eng, theta, r, f_end, g_end, X, y, n, p, maxiter, floor, c
     # MME engine, of its full evaluations); compilation is the excess of the
     # first call over it.
     _t_eval = float(np.median(hist["t_eval"])) if hist["t_eval"] else float(obj.t_first)
-    if eng.moteur == "mme" and getattr(eng.M_mme, "_durees", None):
-        _t_eval = float(np.median(eng.M_mme._durees))
+    if eng.moteur == "mme" and getattr(eng.M_mme, "_durations", None):
+        _t_eval = float(np.median(eng.M_mme._durations))
     _t_compil = max(obj.t_first - _t_eval, 0.0)
     n_p = int(np.linalg.matrix_rank(X))
     cst = 0.5 * (len(y) - n_p) * np.log(2.0 * np.pi)
@@ -921,7 +921,7 @@ def _add_effects(out, eng, theta, terms, res, y, y_fit, X, n, blups, hessian, pe
     if moteur == "blocs":
         out["blocs"] = eng.plan_blocs.resume()
     if moteur == "mme":
-        so = eng.M_mme.sorties(theta, pev=(pev if blups else ()))
+        so = eng.M_mme.outputs(theta, pev=(pev if blups else ()))
         out["beta"], out["vbeta"], out["V_singuliere"] = so["beta"], so["vbeta"], False
         if blups:
             out["blups"] = so["blups"]

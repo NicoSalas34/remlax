@@ -330,3 +330,39 @@ package (`.Rbuildignore`).
 - cir gradient: clipping t = min(d/phi, 1) gave NaN gradients, n_iter = 0 and
   -2logL 6.4 from the optimum (asreml3 test B7, 2026-09-28).
 - sep reported nothing in rho before each factor was reported by position.
+
+### mme.py
+
+- Gaussian kernels are out of scope: simulated, logLik wrong by 3 to 7 % on
+  gau, igau and agau through K^-1.
+- DIAG_CHOL_MIN: a nearly singular Sigma gave a wrong gradient (fa on 5 traits,
+  bench 2026-10-22: 8450 against 148 for the dense engine).
+- Grid residual: the REML of the augmented model matches the observed data to
+  1e-13 on an ar1 x ar1 field with 15 % empty cells.
+- Deferred full blocks: on Krause, 178 million entries and 18 s of
+  preparation for nothing in the dense inversion.
+- LAPACK on CPU: XLA formed C by scatter and C^-1 by cho_solve against the
+  identity; 0.34 s per full evaluation on drops2 (m = 1428).
+- GPU block mode: assembling C on the host (2.8 GB at m = 18 860), sending it
+  and bringing C^-1 back cost 6.9 s per evaluation on Krause (A100) for about
+  2 s of computation. Unrolled block by block, the compiled function had 406
+  operations for a fa on 28 environments and compiled in about 30 s.
+- _inverse_from_factor: the former general LU took 2.6 to 5 s for 3 768
+  genotypes; np.triu on 3768 x 3768 cost 2.6 s.
+- Cache of the last evaluation: after AI, the finish then the outputs
+  re-evaluated the final point, two more factorisations (27 + 11 s on Krause
+  us(5) on CPU). Reusing the value-only factorisation saves about 10 s of
+  Cholesky per accepted AI iteration on Krause fa2 (CPU), out of about 38 s.
+- Compiled Sigma functions cached by structure: 0.7 s per fit saved in the
+  server on a two-term iid model.
+
+### Python safety net (remlax-validation/refacto/golden_py.py)
+
+- Engine values at fixed theta (dense, low-memory, blocks, the three MME
+  inversions), MME outputs and whole AI fits, compared to the bit.
+- The reference must be captured in the same session as the comparison: the
+  same commit captured under a heavy machine load and later under a light
+  one differed by up to 3e-13 on the dense AI matrix, the blocks gradient and
+  one AI fit, while repeated captures under the same conditions were
+  identical. Recapture the reference from a worktree of the reference commit
+  just before comparing.
