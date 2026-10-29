@@ -77,9 +77,9 @@
       if (length(lab) < 2L)
         stop("str() : au moins deux termes attendus, recu ", length(lab), ".")
       args <- as.list(e)[-(1:2)]
-      st <- if (!is.null(args$struct)) as.character(eval(args$struct)) else "us"
+      st <- if (!is.null(args$struct)) as.character(eval(args$struct, env)) else "us"
       K  <- if (!is.null(args$K)) eval(args$K, envir = data, enclos = env) else NULL
-      rk <- if (!is.null(args$rank)) as.integer(eval(args$rank)) else 0L
+      rk <- if (!is.null(args$rank)) as.integer(eval(args$rank, env)) else 0L
       # Nom lisible : on prend le nom de chaque incidence (colonne ou mm(name=)),
       # pas le texte brut de l'expression, qui donnait "gid_mmZwnamepente".
       nm <- if (!is.null(args$name)) as.character(args$name) else NA_character_
@@ -202,7 +202,7 @@
     # ---- termes simples ------------------------------------------------------
     if (fn %in% c("rr", "chol", "ante", "corh")) {
       args <- as.list(e)[-(1:2)]
-      rk <- if (!is.null(args$rank)) as.integer(eval(args$rank)) else 1L
+      rk <- if (!is.null(args$rank)) as.integer(eval(args$rank, env)) else 1L
       K  <- if (!is.null(args$K)) eval(args$K, envir = data, enclos = env) else NULL
       z <- .rx_incidence(e[[2]], data, env)
       if (is.null(trait))
@@ -224,11 +224,11 @@
     args <- if (is.name(e)) list() else as.list(e)[-(1:2)]
     struct <- switch(fn, iid = "iid", vm = "iid", mm = "iid",
                      diag = "diag", us = "us", fa = "fa")
-    if (!is.null(args$struct)) struct <- as.character(eval(args$struct))
+    if (!is.null(args$struct)) struct <- as.character(eval(args$struct, env))
     K <- if (!is.null(args$K)) eval(args$K, envir = data, enclos = env) else
          if (fn == "vm" && length(args) >= 1L && (is.null(names(args)) || !nzchar(names(args)[1])))
            eval(args[[1]], envir = data, enclos = env) else NULL
-    rank <- if (!is.null(args$rank)) as.integer(eval(args$rank)) else 0L
+    rank <- if (!is.null(args$rank)) as.integer(eval(args$rank, env)) else 0L
 
     if (fn == "mm") {                    # incidence PERSONNALISEE
       z <- .rx_incidence(e, data, env)

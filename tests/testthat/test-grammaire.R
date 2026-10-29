@@ -271,3 +271,19 @@ test_that("rx_export ecrit chaque champ d'un terme structure et le relit", {
   expect_true(all(c("res_secnames", "res_s0_rows", "res_s8_rows") %in% man2$name))
   expect_equal(readBin(file.path(dir2, "res_nsec.bin"), "integer", n = 1, size = 4), 9L)
 })
+
+test_that("rank, struct et order sont lus dans l'environnement de la formule", {
+  d <- data.frame(gid = factor(rep(1:6, each = 4)), trait = factor(rep(c("A", "B", "C", "D"), 6)),
+                  unite = factor(rep(1:6, each = 4)), pos = rep(1:4, 6))
+  rk <- 2L; s <- "diag"; o <- 2L
+  tl <- .rx_parse_random(~ fa(gid, rank = rk), d, trait = d$trait)
+  expect_equal(tl[[1]]$rank, 2L)
+  Zw <- matrix(1, nrow(d), 6, dimnames = list(NULL, levels(d$gid)))
+  tl <- .rx_parse_random(~ str(~ gid + mm(Zw), struct = s), d, trait = NULL)
+  expect_equal(tl[[1]]$struct, "diag")
+  r <- .rx_parse_residual(~ fa(trait, rank = rk):units, d, trait = "trait", unit = "unite")
+  expect_equal(r$rank, 2L)
+  d1 <- d[d$trait == "A", ]
+  r <- .rx_parse_residual(~ corb(gid, order = o), d1, trait = NULL, unit = NULL)
+  expect_equal(r$order, 2L)
+})

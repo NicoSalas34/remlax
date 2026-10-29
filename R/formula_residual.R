@@ -51,7 +51,8 @@
       formules <- attr(terms(stats::as.formula(call("~", gauche)),
                              keep.order = TRUE), "term.labels")
       bloc <- .rx_dsum_blocs(gauche)
-      lv <- if (!is.null(args$levels)) eval(args$levels, envir = data) else NULL
+      lv <- if (!is.null(args$levels))
+        eval(args$levels, envir = data, enclos = environment(residual) %||% parent.frame()) else NULL
       if (length(bloc) > 1L) {
         if (is.null(lv) || length(lv) != length(bloc))
           stop("dsum : ", length(bloc), " structures separees par '+' mais ",
@@ -200,7 +201,7 @@
       if (!is.null(nom_trait) && identical(a1, nom_trait)) {
         st <- switch(f, iid = , idv = , id = "iid", diag = , idh = "diag",
                      us = , corgh = "us", fa = "fa")
-        if (!is.null(args$rank)) rk <- as.integer(eval(args$rank))
+        if (!is.null(args$rank)) rk <- as.integer(eval(args$rank, env))
       } else if (a1 %in% c("units", "")) {
         next
       } else {
@@ -217,7 +218,7 @@
       posit <- as.list(e)[-1]
       nposit <- names(posit); if (is.null(nposit)) nposit <- rep("", length(posit))
       posit <- posit[nposit == ""]
-      if (!is.null(args$order)) ordre <- as.integer(eval(args$order))
+      if (!is.null(args$order)) ordre <- as.integer(eval(args$order, env))
       if (!is.null(args$coord)) co <- as.matrix(eval(args$coord, envir = data, enclos = env))
       # Options de la structure AVANT toute sortie de boucle. Elles etaient
       # lues plus bas, apres le `next` de la branche metrique 2D : une
