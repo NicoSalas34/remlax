@@ -50,9 +50,10 @@ import jax
 import jax.numpy as jnp
 import numpy as np
 
-from .model import (split_theta, term_n_params, res_sections, sec_n_params,
-                    support_groups, restrict_Z, assemble_V_groupes, prefold_fixed_K,
-                    orthonormal_X, section_matvec)
+from .layout import level_kind, split_theta, term_n_params, res_sections, sec_n_params
+from .incidence import support_groups, restrict_Z, prefold_fixed_K, orthonormal_X
+from .residual import section_matvec
+from .model import assemble_V_by_support
 from .structures import chol_sigma, n_params
 from .levels import level_chol
 
@@ -67,7 +68,7 @@ def _sigma_et_K(theta_k, term):
     n_sig = n_params(term["struct"], t, term["rank"])
     Ls = chol_sigma(theta_k[:n_sig], term["struct"], t, term["rank"])
     S = Ls @ Ls.T
-    kind = term.get("lvl") or ("fixed" if term.get("LK") is not None else "id")
+    kind = level_kind(term)
     if kind == "fixed":
         LK = jnp.asarray(term["LK"])
     else:
@@ -125,7 +126,7 @@ def make_ai(terms, res, y, X):
         return jnp.zeros((n, J.shape[1])).at[rows].set(J)
 
     def ai(theta, Zr):
-        V = assemble_V_groupes(theta, terms, groupes, Zr, res, n)
+        V = assemble_V_by_support(theta, terms, groupes, Zr, res, n)
         L = jnp.linalg.cholesky(V)
 
         def sol(b):
@@ -196,8 +197,9 @@ def make_fga(terms, res, y, X):
         for k in ks:
             if _gram_rentable(terms[k], rows):
                 G[k] = Zr[k] @ Zr[k].T
-    from .model import _section_V
-    from .model import term_factor, sec_n_params as _snp
+    from .residual import _section_V
+    from .layout import sec_n_params as _snp
+    from .model import term_factor
 
     # Un bloc qui couvre TOUTES les lignes dans l'ordre s'ajoute sans
     # dispersion : la dispersion dans un zeros(n, n) et sa transposee (un

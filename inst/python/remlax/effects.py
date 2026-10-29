@@ -9,7 +9,8 @@ from . import _x64  # noqa: F401
 import jax.numpy as jnp
 import numpy as np
 
-from .model import assemble_V, split_theta
+from .layout import level_kind, split_theta
+from .model import assemble_V
 from .structures import build_sigma, n_params
 from .levels import level_chol
 
@@ -99,7 +100,7 @@ def term_sigma_K(tm, th_k):
     rebuilt from theta, since it may depend on it (AR1 levels)."""
     ns = n_params(tm["struct"], tm["t"], tm["rank"])
     Ls = np.asarray(build_sigma(jnp.asarray(th_k[:ns]), tm["struct"], tm["t"], tm["rank"]))
-    kind_ = tm.get("lvl") or ("fixed" if tm.get("LK") is not None else "id")
+    kind_ = level_kind(tm)
     from_lvl = (jnp.asarray(tm["LK"]) if kind_ == "fixed" and tm["LK"] is not None
                 else level_chol(jnp.asarray(th_k[ns:]), kind_,
                                 tm["q"], dims=tm.get("dims"),

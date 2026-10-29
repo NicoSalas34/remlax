@@ -6,7 +6,7 @@ message.
 """
 import numpy as np
 
-from .model import res_sections
+from .layout import res_sections
 
 
 def validate(terms, res, y, X):

@@ -11,7 +11,7 @@ from . import _x64  # noqa: F401
 import numpy as np
 from scipy.optimize import minimize
 
-from .model import term_n_params, res_sections, sec_n_params
+from .layout import level_kind, term_n_params, res_sections, sec_n_params
 from .structures import n_params, theta0 as struct_theta0, n_loadings
 from .levels import n_level_params
 
@@ -152,10 +152,6 @@ def _theta0_components(struct, t, rank, var):
     return struct_theta0(struct, t, rank, var=float(np.mean(var)))
 
 
-def _level_kind(tm):
-    """Kind of the level structure of a term."""
-    return tm.get("lvl") or ("fixed" if tm.get("LK") is not None else "id")
-
 
 def initial_theta(terms, res, y, X=None):
     """Starting theta: the variance split equally between the terms and the
@@ -189,7 +185,7 @@ def initial_theta(terms, res, y, X=None):
         else:
             k = _exposure(tm, n)
             th.append(struct_theta0(tm["struct"], tm["t"], tm["rank"], var=vy / nt / k))
-        kind = _level_kind(tm)
+        kind = level_kind(tm)
         nl = n_level_params(kind, tm.get("lvl_order", 0), tm.get("lvl_parts"),
                             opts=tm.get("lvl_opts"))
         if nl:
@@ -321,7 +317,7 @@ def _range_positions(terms, res, n):
     out, k = [], 0
     for tm in terms:
         k += n_params(tm["struct"], tm["t"], tm["rank"])
-        kind = _level_kind(tm)
+        kind = level_kind(tm)
         nl = n_level_params(kind, tm.get("lvl_order", 0), tm.get("lvl_parts"),
                             opts=tm.get("lvl_opts"))
         if nl and kind in RANGE_KINDS:

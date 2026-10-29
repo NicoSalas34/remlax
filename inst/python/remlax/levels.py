@@ -1,61 +1,49 @@
-"""Structures de covariance ENTRE NIVEAUX — catalogue façon asreml.
+"""Covariance structures between levels, an asreml-style catalogue.
 
-Toutes rendent une matrice de CORRELATION C (diagonale unite). La variance vit
-dans Sigma (structures.py) : c'est la decomposition Sigma_h = D C D du manuel
-asreml (annexe C), ou D = diag(sigma_i). Un `ar1v` d'asreml est donc ici
-`struct="iid"` cote Sigma + `level="ar1"` cote niveaux ; un `ar1h`, `struct="diag"`
-+ `level="ar1"`.
+Every structure returns a correlation matrix C (unit diagonal); the variance
+lives in Sigma (structures.py). This is the decomposition Sigma_h = D C D of
+the asreml manual (appendix C), D = diag(sigma_i): asreml's `ar1v` is here
+struct = "iid" with level = "ar1", and `ar1h` is struct = "diag" with
+level = "ar1".
 
-TOUTES LES STRUCTURES STATIONNAIRES SONT TOEPLITZ. Plutot que d'implementer
-chaque recursion sur la matrice, on calcule la FONCTION D'AUTOCORRELATION
-rho_0..rho_{q-1} puis on deploie C[i,j] = rho_{|i-j|}. Un seul chemin de code,
-une seule chose a verifier par structure, et la definition tient en trois lignes.
+Stationary structures are Toeplitz: the autocorrelation function
+rho_0..rho_{q-1} is computed, then C[i,j] = rho_{|i-j|}. One code path, one
+thing to check per structure.
 
-CATALOGUE (definitions de l'annexe C du manuel ASReml-R 4.2)
+CATALOGUE (definitions of appendix C of the ASReml-R 4.2 manual)
 
-  id      C = I                                              0 parametre
-  fixed   C fournie (GRM, pedigree, noyau calcule)           0
-  cor     C_ij = theta  (i != j)          correlation uniforme    1
+  id      C = I                                              0 parameters
+  fixed   C given (GRM, pedigree, computed kernel)           0
+  cor     C_ij = theta (i != j), uniform correlation         1
   ar1     rho_k = phi^k                                      1
-  ar2     rho_1 = phi1/(1-phi2), puis Yule-Walker            2
-  ar3     idem a l'ordre 3                                   3
-  sar     AR(2) contraint : phi1 = phi, phi2 = -phi^2/4      1
-  ma1     rho_1 = -theta/(1+theta^2), 0 au-dela              1
-  ma2     rho_1, rho_2 donnes, 0 au-dela                     2
-  arma    rho_1 = (th-ph)(1-th*ph)/(1+th^2-2*th*ph),
-          rho_k = ph * rho_{k-1}                             2
-  corb    rho_k = phi_k pour k < b, 0 au-dela  (bande)       b
-  exp     C_ij = phi^|x_i-x_j|   (coordonnees, pas forcement
-          equidistantes ; en 2D, distance euclidienne)       1
+  ar2     rho_1 = phi1/(1-phi2), then Yule-Walker            2
+  ar3     the same at order 3                                3
+  sar     constrained AR(2): phi1 = phi, phi2 = -phi^2/4     1
+  ma1     rho_1 = -theta/(1+theta^2), 0 beyond               1
+  ma2     rho_1, rho_2 given, 0 beyond                       2
+  arma    ARMA(1,1), rho_k = ph * rho_{k-1}                  2
+  corb    rho_k = phi_k for k < b, 0 beyond (band)           b
+  exp     C_ij = phi^|x_i-x_j| (coordinates, not
+          necessarily equidistant)                           1
   gau     C_ij = phi^{(x_i-x_j)^2}                           1
-  lvr     C_ij = max(0, 1 - d_ij/phi)   "variance lineaire"  1
-          Tente tronquee. Definie positive en 1D SEULEMENT :
-          c'est l'autocorrelation d'un creneau, ce qui n'a pas
-          d'equivalent en 2D. phi est une PORTEE, pas une
-          correlation, d'ou exp(theta).
-          PAS D'EQUIVALENT 2D ICI. asreml a un `ilv`, mais sa
-          formule n'a pas pu etre retrouvee : aucune des neuf
-          familles essayees ne reproduit sa courbe de logLik
-          (cf. docs/note_remlax.md), et la tente euclidienne
-          n'est pas definie positive — elle rend des NaN. On
-          prefere ne pas la fournir plutot que d'en fournir une
-          fausse sous le nom d'asreml.
-  mtrn    Matern anisotrope (phi, nu, delta, alpha ; lambda
-          fixe a 1 ou 2)                             0 a 4 estimes
-  own     structure DEFINIE PAR L'UTILISATEUR : expression
-          arithmetique de d/dx/dy/lag et de p1..pk       k
+  lvr     C_ij = max(0, 1 - d_ij/phi), "linear variance":
+          a truncated tent, positive definite in 1D only;
+          phi is a range, hence exp(theta). No 2D version:
+          asreml's `ilv` formula could not be recovered and
+          the Euclidean tent is not positive definite.       1
+  mtrn    anisotropic Matern (phi, nu, delta, alpha;
+          lambda fixed at 1 or 2)                   0 to 4 estimated
+  own     user-defined: arithmetic expression of d/dx/dy/lag
+          and p1..pk                                         k
 
-lvr ET mtrn ONT ETE IDENTIFIES CONTRE ASREML, pas lus dans le manuel (leurs
-pages d'aide ne donnent pas les formules). Voir docs/note_remlax.md pour les
-courbes de logLik qui les fixent.
+lvr and mtrn were identified against asreml, not read in the manual, whose
+help pages do not give the formulas (dev/notes.md).
 
-STATIONNARITE GARANTIE PAR CONSTRUCTION pour ar2/ar3. Mettre |phi_i| < 1 ne
-suffit PAS : la region de stationnarite d'un AR(2) est un triangle, pas un carre,
-et un phi hors region donne une "correlation" qui n'est pas definie positive —
-l'ajustement echoue alors sans qu'on sache pourquoi. On parametre donc les
-CORRELATIONS PARTIELLES (chacune dans (-1,1) par tanh, sans contrainte), et on
-en deduit les phi par Levinson-Durbin. La bijection PACF <-> region stationnaire
-est exacte, et les phi rapportes restent ceux d'asreml.
+ar2/ar3 are stationary by construction. |phi_i| < 1 is not enough: the
+stationarity region of an AR(2) is a triangle. The partial correlations are
+parametrised instead (each in (-1, 1) through tanh), and the phi follow by
+Levinson-Durbin; the map PACF <-> stationary region is exact, and the reported
+phi are those of asreml.
 """
 from . import _x64  # noqa: F401
 import jax.numpy as jnp
@@ -63,79 +51,68 @@ import numpy as np
 
 from .bessel import matern as _matern
 
-# nom -> nombre de parametres (None = variable, cf. n_level_params)
+# name -> number of parameters (None: variable, see n_level_params)
 LEVEL_STRUCTURES = {
     "id": 0, "fixed": 0, "cor": 1, "ar1": 1, "ar2": 2, "ar3": 3,
     "sar": 1, "ma1": 1, "ma2": 2, "arma": 2, "corb": None,
-    # 1D irregulier
+    # irregular 1D
     "exp": 1, "gau": 1,
-    # 2D irregulier isotrope / anisotrope (annexe C, "power models")
+    # irregular 2D, isotropic or anisotropic (appendix C, "power models")
     "iexp": 1, "igau": 1, "ieuc": 1, "sph": 1, "cir": 1,
     "aexp": 2, "agau": 2,
-    # metriques a portee : le parametre est une DISTANCE, pas une correlation
+    # range metrics: the parameter is a distance, not a correlation
     "lvr": 1,
-    # nombre variable : cf. n_level_params
+    # variable number: see n_level_params
     "mtrn": None, "own": None,
-    # correlation generale (corg) : omega(omega-1)/2 parametres
+    # general correlation (corg): omega(omega-1)/2 parameters
     "corg": None,
 }
 
-# Ordre CANONIQUE des parametres de mtrn. Il fixe la place de chacun dans theta
-# et dans les sorties ; le changer invaliderait tout ajustement deja enregistre.
+# Canonical order of the mtrn parameters: their place in theta and in the
+# outputs. Changing it would invalidate every recorded fit.
 MTRN_PARAMS = ("phi", "nu", "delta", "alpha")
 MTRN_DEFAUT = {"phi": 1.0, "nu": 0.5, "delta": 1.0, "alpha": 0.0, "lambda": 2.0}
-# "sep" : produit separable de plusieurs facteurs (ar1 x ar1, exp x ar1, ...).
-# "ar1ar1" est conserve comme raccourci du cas le plus courant.
-# structures qui exigent des coordonnees
+# "sep": separable product of several factors (ar1 x ar1, exp x ar1, ...);
+# "ar1ar1" is kept as a shortcut for the most common case.
+# Structures that need coordinates:
 LEVEL_NEEDS_COORD = ("exp", "gau", "iexp", "igau", "ieuc", "sph", "cir",
                      "aexp", "agau", "mtrn", "lvr")
 
 
 def n_level_params(kind, order=0, parts=None, opts=None):
-    """Nombre de parametres.
+    """Number of parameters.
 
-    `parts` : liste de (kind, order) pour un produit separable, qui additionne
-    ses facteurs. `opts` : reglages de la structure (mtrn : quels parametres
-    sont estimes ; own : combien l'utilisateur en declare).
-    """
+    parts: list of (kind, dimension) of a separable product, which adds up its
+    factors. opts: settings of the structure (mtrn: which parameters are
+    estimated; own: how many the user declares). order: the band of corb, the
+    omega of corg."""
     if kind == "ar1ar1":
         return 2
     if kind == "sep":
-        # INCOHERENCE A NE PAS LAISSER PASSER EN SILENCE. `level_chol` lit le
-        # second element de `parts` comme la DIMENSION du facteur, alors que
-        # cette ligne le lisait comme son ORDRE. Pour `id` et `ar1` les deux
-        # coincident par accident — leur compte ne depend pas de l'ordre — mais
-        # pour `ar2`, `arma` ou une famille metrique le compte serait faux, et
-        # rien ne le signalerait : theta serait decoupe autrement des deux cotes.
-        # On lit donc la famille SEULE, ce qui est correct pour toute famille
-        # dont le compte ne depend pas de l'ordre, et on refuse les autres.
-        # DEUX FAMILLES DE REFUS, et le second manquait. `corb`, `corg`, `mtrn`
-        # et `own` ont un nombre de parametres qui depend de `order` ou de
-        # `opts`, que `parts` ne transporte pas : le compte tombait a zero et le
-        # facteur devenait une identite SANS AUCUN MESSAGE (mesure : un sep
-        # (corb, 4) x (ar1, 5) comptait 1 parametre au lieu de 5). Les familles
-        # metriques exigent des coordonnees, que `parts` ne porte pas non plus.
+        # `parts` carries (family, dimension), not the order or options, so
+        # families whose count depends on an order or options, and metric
+        # families that need coordinates, are refused: theta would be cut
+        # differently from level_chol, or a factor would become an identity
+        # silently (dev/notes.md).
         deps = ("ar2", "ar3", "ma2", "arma", "corb", "corg", "mtrn", "own") + LEVEL_NEEDS_COORD
-        mauvais = [k for k, _ in (parts or []) if k in deps]
-        if mauvais:
+        bad = [k for k, _ in (parts or []) if k in deps]
+        if bad:
             raise ValueError(
                 "produit separable : les familles %s ne sont pas admises dans "
                 "`parts`, qui ne porte que (famille, dimension) : leur nombre de "
                 "parametres depend d'un ordre ou d'options, ou elles exigent des "
                 "coordonnees. Les declarer ici decouperait theta differemment de "
                 "level_chol, ou donnerait une identite en silence. Utiliser "
-                "`expr` pour ces cas." % sorted(set(mauvais)))
+                "`expr` pour ces cas." % sorted(set(bad)))
         return sum(n_level_params(k) for k, _ in (parts or []))
     if kind == "corb":
         return int(order)
     if kind == "corg":
-        q = int(order)                      # ici `order` porte omega
+        q = int(order)                      # here `order` carries omega
         return q * (q - 1) // 2
     if kind == "mtrn":
-        # Comme asreml : un parametre ABSENT de l'appel est tenu fixe a sa
-        # valeur par defaut ; seuls les parametres declares sont estimes. C'est
-        # ce qui evite d'ajuster nu, delta et alpha par accident sur un
-        # dispositif qui ne les identifie pas.
+        # As in asreml, a parameter absent from the call is held at its
+        # default; only the declared parameters are estimated.
         o = opts or {}
         return int(sum(float(o.get("est_" + p, 1.0 if p == "phi" else 0.0)) > 0.5
                        for p in MTRN_PARAMS))
@@ -148,15 +125,12 @@ def n_level_params(kind, order=0, parts=None, opts=None):
 
 
 # ==============================================================================
-# Fonctions d'autocorrelation
+# Autocorrelation functions
 # ==============================================================================
 def _levinson_phi(pacf):
-    """Coefficients AR phi_1..phi_p depuis les correlations partielles.
-
-    Recursion de Levinson-Durbin. Elle envoie (-1,1)^p exactement sur la region
-    de stationnarite : tout jeu de pacf admissible donne un AR stationnaire, donc
-    une matrice de correlation definie positive.
-    """
+    """AR coefficients phi_1..phi_p from the partial correlations, by the
+    Levinson-Durbin recursion, which maps (-1, 1)^p exactly onto the
+    stationarity region."""
     p = len(pacf)
     phi = jnp.zeros(p)
     for k in range(p):
@@ -171,19 +145,16 @@ def _levinson_phi(pacf):
 
 
 def _acf_ar(phi, q):
-    """ACF d'un AR(p) : Yule-Walker pour rho_1..rho_p, puis recursion.
-
-    rho_k = sum_i phi_i rho_{|k-i|}. Pour k = 1..p c'est un systeme lineaire en
-    rho ; au-dela c'est une simple recursion.
-    """
+    """ACF of an AR(p): rho_k = sum_i phi_i rho_{|k-i|}, a linear system in
+    rho for k = 1..p (Yule-Walker), a recursion beyond."""
     p = len(phi)
     if p == 0:
         return jnp.concatenate([jnp.ones(1), jnp.zeros(q - 1)])
-    # systeme A rho = b avec rho = (rho_1..rho_p)
+    # system A rho = b with rho = (rho_1..rho_p)
     A = jnp.eye(p)
     b = jnp.zeros(p)
     for k in range(1, p + 1):
-        b = b.at[k - 1].add(phi[k - 1])          # terme i = k : phi_k * rho_0
+        b = b.at[k - 1].add(phi[k - 1])          # term i = k: phi_k * rho_0
         for i in range(1, p + 1):
             if i == k:
                 continue
@@ -200,15 +171,13 @@ def _acf_ar(phi, q):
 
 
 def _acf(theta, kind, q, order=0):
-    """rho_0..rho_{q-1} d'une structure stationnaire."""
+    """rho_0..rho_{q-1} of a stationary structure."""
     if kind == "id":
         return jnp.concatenate([jnp.ones(1), jnp.zeros(q - 1)])
     if kind == "cor":
-        # Correlation uniforme : C = (1-t) I + t J n'est definie positive que
-        # pour t > -1/(q-1) (verifie numeriquement : a q=10, t=-0.3 donne une
-        # valeur propre de -1.7). tanh seul autoriserait tout (-1,1) et
-        # l'ajustement echouerait sans dire pourquoi. On envoie donc (-1,1) sur
-        # (-1/(q-1), 1), ce qui couvre EXACTEMENT le domaine admissible.
+        # Uniform correlation: C = (1-t) I + t J is positive definite only for
+        # t > -1/(q-1). (-1, 1) is mapped onto (-1/(q-1), 1), exactly the
+        # admissible domain.
         lo = -1.0 / max(q - 1, 1)
         t = lo + (jnp.tanh(theta[0]) + 1.0) * 0.5 * (1.0 - lo)
         return jnp.concatenate([jnp.ones(1), jnp.full(q - 1, t)])
@@ -219,8 +188,8 @@ def _acf(theta, kind, q, order=0):
         p = 2 if kind == "ar2" else 3
         return _acf_ar(_levinson_phi(jnp.tanh(theta[:p])), q)
     if kind == "sar":
-        # AR(2) contraint : phi1 = phi, phi2 = -phi^2/4. Toujours stationnaire
-        # (racines reelles doubles), donc pas de reparametrisation necessaire.
+        # Constrained AR(2): phi1 = phi, phi2 = -phi^2/4, always stationary
+        # (double real roots).
         ph = jnp.tanh(theta[0])
         return _acf_ar(jnp.array([ph, -ph ** 2 / 4.0]), q)
     if kind == "ma1":
@@ -235,15 +204,12 @@ def _acf(theta, kind, q, order=0):
         return jnp.concatenate([jnp.ones(1), r1[None], r2[None],
                                 jnp.zeros(max(q - 3, 0))])[:q]
     if kind == "arma":
-        # ACF d'un ARMA(1,1) : rho_1 = (1+phi*th)(phi+th)/(1+2*phi*th+th^2),
-        # puis rho_k = phi * rho_{k-1}. C'est la forme STANDARD, valide sur tout
-        # le carre |phi|<1, |th|<1 (stationnaire et inversible).
-        # La formule imprimee a l'annexe C du manuel, (th-ph)(1-th*ph)/
-        # (1+th^2-2*th*ph), donne des suites NON definies positives sur une
-        # bonne part de ce carre (mesure : 204 tirages sur 300, dont
-        # rho_1 = -0.976 avec rho_2 = -0.944, impossible). Convention de signe
-        # de theta possiblement opposee ; le modele ajuste est le meme, seul le
-        # signe du parametre MA rapporte peut differer d'asreml.
+        # ACF of an ARMA(1,1): rho_1 = (1+phi*th)(phi+th)/(1+2*phi*th+th^2),
+        # then rho_k = phi * rho_{k-1}; the standard form, valid on the whole
+        # square |phi| < 1, |th| < 1. The formula printed in appendix C of the
+        # manual gives sequences that are not positive definite on much of
+        # that square (dev/notes.md); only the sign of the reported MA
+        # parameter may differ from asreml.
         th, ph = jnp.tanh(theta[0]), jnp.tanh(theta[1])
         r1 = (1.0 + ph * th) * (ph + th) / (1.0 + 2.0 * ph * th + th ** 2)
         acf = jnp.concatenate([jnp.ones(1), r1[None]])
@@ -258,7 +224,7 @@ def _acf(theta, kind, q, order=0):
 
 
 def _tril_off(t):
-    """Indices du triangle inferieur STRICT, ligne par ligne."""
+    """Indices of the strict lower triangle, row by row."""
     ii, jj = [], []
     for i in range(t):
         for j in range(i):
@@ -272,12 +238,12 @@ def _toeplitz(acf, q):
 
 
 # ==============================================================================
-# Matrice de correlation
+# Correlation matrix
 # ==============================================================================
 def _mtrn_valeurs(theta_lv, opts):
-    """(phi, nu, delta, alpha, lambda) de mtrn : les estimes viennent de theta,
-    les autres de opts. phi, nu et delta sont POSITIFS (exp) ; alpha est un
-    angle, donc libre."""
+    """(phi, nu, delta, alpha, lambda) of mtrn: the estimated ones from theta,
+    the others from opts. phi, nu and delta are positive (exp); alpha is an
+    angle, unconstrained."""
     o = opts or {}
     val, k = {}, 0
     for p in MTRN_PARAMS:
@@ -292,19 +258,15 @@ def _mtrn_valeurs(theta_lv, opts):
 
 
 def _distance_anisotrope(dx, dy, delta, alpha, lam):
-    """Metrique de Haskard et al. (2007), telle qu'ASReml l'emploie.
+    """Metric of Haskard et al. (2007), as ASReml uses it:
 
         u =  dx cos(alpha) + dy sin(alpha)
         v = -dx sin(alpha) + dy cos(alpha)
         h = ( |sqrt(delta) u|^lambda + |v/sqrt(delta)|^lambda )^(1/lambda)
 
-    delta AGIT EN RACINE, et en sens INVERSE sur les deux axes : la
-    transformation preserve les aires, donc delta ne se confond pas avec la
-    portee phi. Trois autres conventions plausibles (delta sur un seul axe, ou
-    non racine) ont ete essayees et ECARTEES : elles decalent la logLik de 0.5 a
-    4 points sur le meme ajustement (cf. docs/note_remlax.md). Verifie contre
-    asreml a 3e-10 sur (delta=2, alpha=0) et (delta=2, alpha=0.6).
-    """
+    delta acts as a square root, in opposite directions on the two axes: the
+    map preserves areas, so delta is not confounded with the range phi
+    (dev/notes.md)."""
     ca, sa = jnp.cos(alpha), jnp.sin(alpha)
     u = dx * ca + dy * sa
     v = -dx * sa + dy * ca
@@ -318,29 +280,23 @@ def _distance_anisotrope(dx, dy, delta, alpha, lam):
 
 
 def _own_corr(theta_lv, q, expr, coord=None, opts=None):
-    """Structure DEFINIE PAR L'UTILISATEUR : expression arithmetique.
+    """User-defined structure: an arithmetic expression.
 
-    POURQUOI PAS LA FONCTION R D'ASREML. own(obj, fun) d'asreml appelle une
-    fonction R a chaque evaluation. Ici R et JAX vivent dans deux conteneurs
-    distincts, et surtout il faudrait la DERIVEE : une fonction R opaque n'en a
-    pas. L'expression, elle, traverse la frontiere comme une chaine et se
-    differentie automatiquement.
+    asreml's own(obj, fun) calls an R function at each evaluation; here the
+    derivative is needed, which an opaque R function does not give. The
+    expression crosses the boundary as a string and is differentiated
+    automatically. It is written in R, so `^` is translated to `**` (in Python
+    `^` is the exclusive or).
 
-    Variables disponibles : d (distance euclidienne), dx, dy (distances par
-    axe), lag (|i-j|), I, J (identite, matrice de uns), p1..pk (parametres
-    BRUTS, non contraints : c'est a l'expression d'appliquer exp/tanh si elle
-    veut de la positivite ou une borne), et les fonctions usuelles + matern.
+    Variables: d (Euclidean distance), dx, dy (distances per axis), lag
+    (|i-j|), I, J (identity, matrix of ones), p1..pk (raw unconstrained
+    parameters: the expression applies exp or tanh itself), and the usual
+    functions plus matern.
 
-    NORMALISATION. Sauf opts["normalise"] = 0, on rend D^-1/2 C D^-1/2 : le
-    contrat de ce module est une matrice de CORRELATION, et l'echelle est deja
-    portee par Sigma. Sans cela la variance serait comptee deux fois.
-    """
+    Unless opts["normalise"] = 0, D^-1/2 C D^-1/2 is returned: this module
+    returns correlation matrices, the scale being carried by Sigma."""
     if not expr:
         raise ValueError("own : aucune expression fournie.")
-    # L'expression est ECRITE EN R, ou `^` est la puissance. En Python c'est le
-    # OU EXCLUSIF, qui sur des flottants ne leve meme pas une erreur lisible :
-    # "xor does not accept dtype float64". On traduit, plutot que d'exiger de
-    # l'utilisateur qu'il ecrive du Python dans une formule R.
     expr = expr.replace("^", "**")
     i = jnp.arange(q)
     lag = jnp.abs(i[:, None] - i[None, :]).astype(jnp.float64)
@@ -372,7 +328,7 @@ def _own_corr(theta_lv, q, expr, coord=None, opts=None):
 
 def level_corr(theta_lv, kind, q, order=0, coord=None, C_fixed=None, parts=None,
                dims=None, opts=None, expr=None):
-    """Matrice de correlation C (q x q) de la structure."""
+    """Correlation matrix C (q x q) of the structure."""
     if kind == "own":
         return _own_corr(theta_lv, q, expr, coord=coord, opts=opts)
     if kind == "id":
@@ -387,120 +343,108 @@ def level_corr(theta_lv, kind, q, order=0, coord=None, C_fixed=None, parts=None,
     if kind == "fixed":
         return jnp.asarray(C_fixed)
     if kind == "corg":
-        # Correlation GENERALE : toutes les correlations libres, diagonale unite.
-        # Parametrisation par un facteur de Cholesky a LIGNES NORMEES : c'est la
-        # seule facon d'obtenir a la fois une diagonale exactement unitaire et la
-        # positivite, sans contrainte a gerer. Parametrer directement les phi_ij
-        # produirait des matrices non definies positives des que omega depasse 3.
-        w = int(order) if order else q
-        ii, jj = _tril_off(w)
-        L = jnp.eye(w).at[ii, jj].set(theta_lv[:len(ii)])
-        L = L / jnp.sqrt(jnp.sum(L ** 2, axis=1, keepdims=True))
-        return L @ L.T
+        return _corg_corr(theta_lv, q, order)
     if kind in LEVEL_NEEDS_COORD:
-        x = jnp.asarray(coord)
-        if x.ndim == 1:
-            x = x[:, None]
-        dx = jnp.abs(x[:, None, 0] - x[None, :, 0])
-        dy = (jnp.abs(x[:, None, 1] - x[None, :, 1]) if x.shape[1] > 1
-              else jnp.zeros_like(dx))
-        d_eu = jnp.sqrt(dx ** 2 + dy ** 2)
-        # `ph` est calcule A LA DEMANDE. En tete de bloc, il lisait theta_lv[0]
-        # avant meme de savoir de quelle structure il s'agit : un mtrn dont TOUS
-        # les parametres sont fixes n'a aucun theta, et l'ajustement s'arretait
-        # sur "index is out of bounds for axis 0 with size 0" — alors que c'est
-        # precisement le cas le plus simple, celui d'une correlation imposee.
-        def _ph():
-            return jnp.clip(jnp.abs(jnp.tanh(theta_lv[0])), 1e-12, 1 - 1e-12)
-        if kind == "exp":                      # 1D : |x_i - x_j|
-            return _ph() ** d_eu
-        if kind == "gau":                      # 1D : (x_i - x_j)^2
-            return _ph() ** (d_eu ** 2)
-        if kind == "iexp":                     # 2D isotrope, metrique CITY-BLOCK
-            return _ph() ** (dx + dy)             # (et non euclidienne : cf. manuel)
-        if kind == "igau":
-            return _ph() ** (dx ** 2 + dy ** 2)
-        if kind == "ieuc":
-            return _ph() ** d_eu
-        if kind == "aexp":                     # anisotrope : un phi par axe
-            p2 = jnp.clip(jnp.abs(jnp.tanh(theta_lv[1])), 1e-12, 1 - 1e-12)
-            return (_ph() ** dx) * (p2 ** dy)
-        if kind == "agau":
-            p2 = jnp.clip(jnp.abs(jnp.tanh(theta_lv[1])), 1e-12, 1 - 1e-12)
-            return (_ph() ** (dx ** 2)) * (p2 ** (dy ** 2))
-        if kind == "lvr":
-            # "Variance lineaire" : tente tronquee, correlation qui decroit
-            # LINEAIREMENT jusqu'a s'annuler a la portee phi. Definie positive
-            # en une dimension seulement.
-            return jnp.clip(1.0 - dx / jnp.exp(theta_lv[0]), 0.0, None)
-        if kind in ("sph", "cir"):
-            # Modeles a PORTEE : la correlation s'annule exactement au-dela de
-            # phi. Le parametre est une distance, pas une correlation : il est
-            # donc pris en exp(theta) (positif, non borne).
-            #
-            # GRADIENT AU-DELA DE LA PORTEE. Une premiere ecriture ecretait
-            # t = min(d/phi, 1) puis appliquait la formule. Pour cir, la formule
-            # contient sqrt(1 - t^2) et arcsin(t), dont la derivee est INFINIE
-            # en t = 1 ; la regle de derivation la multiplie par la derivee de
-            # l'ecretage, qui vaut 0 : 0 x inf = NaN. Des qu'une paire depasse
-            # la portee (toujours, en pratique), le gradient entier etait NaN,
-            # L-BFGS-B s'arretait a l'iteration 0 et le solveur rendait le point
-            # de depart comme optimum, sans un mot (test asreml3 B7 du
-            # 2026-09-28 : n_iter = 0, -2logL a 6,4 de l'optimum). On ecrit donc
-            # la formule sur un t SUR (0 hors portee), puis on selectionne :
-            # jnp.where dans les deux sens, la seule ecriture dont le gradient
-            # est fini de chaque cote. sph (polynome) n'avait pas ce defaut ;
-            # il suit la meme ecriture pour n'avoir qu'une convention.
-            rg = jnp.exp(theta_lv[0])
-            dedans = d_eu < rg
-            t = jnp.where(dedans, d_eu / rg, 0.0)
-            if kind == "sph":
-                f = 1.0 - 1.5 * t + 0.5 * t ** 3
-            else:
-                f = 1.0 - (2.0 / jnp.pi) * (t * jnp.sqrt(1.0 - t ** 2) + jnp.arcsin(t))
-            return jnp.where(dedans, f, 0.0)
-        if kind == "mtrn":
-            # Matern ANISOTROPE complet (Haskard et al. 2007), tel qu'asreml
-            # l'implemente : portee phi, forme nu, rapport d'anisotropie delta,
-            # angle alpha, metrique lambda (1 = city-block, 2 = euclidienne).
-            # nu QUELCONQUE : K_nu vient de bessel.py (quadrature), pas d'une
-            # interpolation entre demi-entiers.
-            v = _mtrn_valeurs(theta_lv, opts)
-            sx = x[:, None, 0] - x[None, :, 0]
-            sy = (x[:, None, 1] - x[None, :, 1]) if x.shape[1] > 1 else jnp.zeros_like(sx)
-            h = _distance_anisotrope(sx, sy, v["delta"], v["alpha"], v["lambda"])
-            return _matern(h / v["phi"], v["nu"])
+        return _metric_corr(theta_lv, kind, coord, opts)
     if kind == "sep":
-        # Produit separable : C = C_1 (x) C_2 (x) ... ; l'ordre des niveaux est
-        # celui d'un kron, le PREMIER facteur variant le plus LENTEMENT.
-        # `parts` porte (famille, DIMENSION du facteur), exactement comme dans
-        # level_chol. Une version anterieure lisait le second element comme un
-        # ORDRE et passait q = None a chaque facteur : jnp.eye(None) levait une
-        # TypeError des le premier appel, donc une residuelle a structure `sep`
-        # (_section_V passe par level_corr) etait inatteignable. Trouve par le
-        # test test_levels_catalogue.py::test_sep_level_corr_egale_kron.
-        C, o = None, 0
-        for (k, qi) in (parts or []):
-            p = n_level_params(k)
-            C_i = level_corr(theta_lv[o:o + p], k, int(qi))
-            C = C_i if C is None else jnp.kron(C, C_i)
-            o += p
-        return C
+        return _sep_corr(theta_lv, parts)
     return _toeplitz(_acf(theta_lv, kind, q, order), q)
+
+
+def _corg_corr(theta_lv, q, order):
+    """General correlation: every correlation free, unit diagonal, through a
+    Cholesky factor with normalised rows, the parametrisation that gives both
+    an exact unit diagonal and positive definiteness without constraint."""
+    w = int(order) if order else q
+    ii, jj = _tril_off(w)
+    L = jnp.eye(w).at[ii, jj].set(theta_lv[:len(ii)])
+    L = L / jnp.sqrt(jnp.sum(L ** 2, axis=1, keepdims=True))
+    return L @ L.T
+
+
+def _sep_corr(theta_lv, parts):
+    """Separable product C = C_1 (x) C_2 (x) ...; the first factor varies the
+    slowest, as in a kron. parts carries (family, dimension of the factor), as
+    in level_chol."""
+    C, o = None, 0
+    for (k, qi) in (parts or []):
+        p = n_level_params(k)
+        C_i = level_corr(theta_lv[o:o + p], k, int(qi))
+        C = C_i if C is None else jnp.kron(C, C_i)
+        o += p
+    return C
+
+
+def _metric_corr(theta_lv, kind, coord, opts):
+    """Correlation of the families defined on coordinates (LEVEL_NEEDS_COORD).
+
+    phi = |tanh(theta)| clipped to (1e-12, 1 - 1e-12) is computed on demand: an
+    mtrn with every parameter fixed has no theta. iexp uses the city-block
+    metric, as in the manual.
+
+    Range models (sph, cir) vanish beyond the range phi = exp(theta). The
+    formula is written on a safe t (0 beyond the range) and then selected with
+    jnp.where on both sides: clipping t at 1 gave 0 x inf = NaN in the
+    gradient of cir (sqrt(1 - t^2) and arcsin(t) have infinite derivatives at
+    t = 1), and L-BFGS-B returned the start (dev/notes.md)."""
+    x = jnp.asarray(coord)
+    if x.ndim == 1:
+        x = x[:, None]
+    dx = jnp.abs(x[:, None, 0] - x[None, :, 0])
+    dy = (jnp.abs(x[:, None, 1] - x[None, :, 1]) if x.shape[1] > 1
+          else jnp.zeros_like(dx))
+    d_eu = jnp.sqrt(dx ** 2 + dy ** 2)
+
+    def _ph():
+        return jnp.clip(jnp.abs(jnp.tanh(theta_lv[0])), 1e-12, 1 - 1e-12)
+    if kind == "exp":                      # 1D: |x_i - x_j|
+        return _ph() ** d_eu
+    if kind == "gau":                      # 1D: (x_i - x_j)^2
+        return _ph() ** (d_eu ** 2)
+    if kind == "iexp":                     # 2D isotropic, city-block metric
+        return _ph() ** (dx + dy)
+    if kind == "igau":
+        return _ph() ** (dx ** 2 + dy ** 2)
+    if kind == "ieuc":
+        return _ph() ** d_eu
+    if kind == "aexp":                     # anisotropic: one phi per axis
+        p2 = jnp.clip(jnp.abs(jnp.tanh(theta_lv[1])), 1e-12, 1 - 1e-12)
+        return (_ph() ** dx) * (p2 ** dy)
+    if kind == "agau":
+        p2 = jnp.clip(jnp.abs(jnp.tanh(theta_lv[1])), 1e-12, 1 - 1e-12)
+        return (_ph() ** (dx ** 2)) * (p2 ** (dy ** 2))
+    if kind == "lvr":
+        # Linear variance: the correlation decreases linearly to zero at the
+        # range; positive definite in one dimension only.
+        return jnp.clip(1.0 - dx / jnp.exp(theta_lv[0]), 0.0, None)
+    if kind in ("sph", "cir"):
+        rg = jnp.exp(theta_lv[0])
+        inside = d_eu < rg
+        t = jnp.where(inside, d_eu / rg, 0.0)
+        if kind == "sph":
+            f = 1.0 - 1.5 * t + 0.5 * t ** 3
+        else:
+            f = 1.0 - (2.0 / jnp.pi) * (t * jnp.sqrt(1.0 - t ** 2) + jnp.arcsin(t))
+        return jnp.where(inside, f, 0.0)
+    if kind == "mtrn":
+        # Full anisotropic Matern (Haskard et al. 2007) as in asreml: range phi,
+        # shape nu (any value, K_nu from bessel.py), anisotropy ratio delta,
+        # angle alpha, metric lambda (1 city-block, 2 Euclidean).
+        v = _mtrn_valeurs(theta_lv, opts)
+        sx = x[:, None, 0] - x[None, :, 0]
+        sy = (x[:, None, 1] - x[None, :, 1]) if x.shape[1] > 1 else jnp.zeros_like(sx)
+        h = _distance_anisotrope(sx, sy, v["delta"], v["alpha"], v["lambda"])
+        return _matern(h / v["phi"], v["nu"])
 
 
 def level_chol(theta_lv, kind, q, dims=None, LK_fixed=None, order=0,
                coord=None, parts=None, jitter=1e-10, opts=None, expr=None):
-    """Facteur L tel que L L' = C. None signifie identite (aucun produit a faire).
+    """Factor L such that L L' = C; None means identity (no product to form).
 
-    Cas particuliers gardes en forme close :
-      - `id` -> None, pour eviter un produit par l'identite ;
-      - `fixed` -> le facteur deja calcule cote R (pas de refactorisation) ;
-      - `ar1` -> forme close, exacte jusqu'a |phi| proche de 1.
-    Les autres passent par une Cholesky numerique, avec un jitter proportionnel
-    a la taille : une correlation de bande (ma1, corb) peut etre singuliere aux
-    bords de son domaine.
-    """
+    id gives None; fixed, the factor computed on the R side; ar1, ar1ar1 and
+    sep, closed forms (a kron of factors for sep). The others go through a
+    numerical Cholesky with a jitter: a band correlation (ma1, corb) can be
+    singular at the edges of its domain."""
     if kind == "id":
         return None
     if kind == "fixed":
@@ -512,8 +456,6 @@ def level_chol(theta_lv, kind, q, dims=None, LK_fixed=None, order=0,
         return jnp.kron(ar1_chol(jnp.tanh(theta_lv[0]), nr),
                         ar1_chol(jnp.tanh(theta_lv[1]), nc))
     if kind == "sep":
-        # Produit separable de facteurs : L = L_1 (x) L_2, exact et moins cher
-        # qu'une Cholesky sur le produit.
         L, o = None, 0
         for (k, qi) in (parts or []):
             p = n_level_params(k)
@@ -528,12 +470,9 @@ def level_chol(theta_lv, kind, q, dims=None, LK_fixed=None, order=0,
 
 
 def ar1_chol(rho, n):
-    """L tel que L L' = correlation AR(1), en forme close.
+    """L such that L L' = AR(1) correlation, in closed form:
 
-        L[i,0] = rho^i ;  L[i,j] = rho^(i-j) sqrt(1-rho^2) pour 1 <= j <= i.
-
-    Exact, derivable, et sans matrice n x n a factoriser.
-    """
+        L[i,0] = rho^i;  L[i,j] = rho^(i-j) sqrt(1-rho^2) for 1 <= j <= i."""
     i = jnp.arange(n)
     d = i[:, None] - i[None, :]
     s = jnp.sqrt(jnp.clip(1.0 - rho ** 2, 1e-300, None))
@@ -542,28 +481,16 @@ def ar1_chol(rho, n):
 
 
 def level_params_report(theta_lv, kind, order=0, opts=None, q=None, parts=None):
-    """Parametres sur l'echelle d'asreml (phi, theta), pour les sorties.
+    """Parameters on the asreml scale (phi, theta) for the outputs: the value
+    actually used in C, never the intermediate theta.
 
-    REGLE : cette fonction rend la valeur EFFECTIVEMENT UTILISEE dans C, jamais
-    le theta intermediaire. Deux familles ne se contentent donc pas de tanh, et
-    l'oubli faisait rapporter un nombre absent du modele ajuste :
-
-      cor            la correlation uniforme n'est definie positive que sur
-                     (-1/(q-1), 1) ; _acf envoie tanh(theta) sur cet intervalle.
-                     Rapporter tanh(theta) donnait une valeur hors du modele
-                     des que q etait petit (a q = 3, tanh = -0,9 devient -0,45).
-                     `q` est donc REQUIS ici ; sans lui on refuse plutot que de
-                     rapporter la mauvaise echelle.
-      familles       exp, gau, iexp, igau, ieuc, aexp, agau elevent |tanh(theta)|
-      metriques      a une distance : le SIGNE de theta n'est pas identifie
-                     (theta et -theta donnent le meme C). On rapporte donc la
-                     valeur absolue, et le champ `signe_non_identifie` le dit.
+      cor        reported on (-1/(q-1), 1), as in _acf; q is required.
+      metric     exp, gau, iexp, igau, ieuc, aexp, agau raise |tanh(theta)| to
+      families   a distance: the sign of theta is not identified, so the
+                 absolute value is reported and signe_non_identifie says so.
+      sep        each factor, named <family>_<position>_<parameter>, since two
+                 factors of the same family are the norm.
     """
-    # PRODUIT SEPARABLE : rapporter CHAQUE facteur, sous un nom qui dit sa
-    # position. Sans cela un champ id (x) ar1 (x) ar1 ne rapportait rien du tout
-    # — `rho` revenait vide — et les correlations n'etaient lisibles qu'en
-    # decodant theta a la main. Le nom porte l'indice du facteur parce que deux
-    # facteurs de la meme famille sont la norme ici, pas l'exception.
     if kind == "sep":
         out, o = {}, 0
         for idx, (k, qi) in enumerate(parts or [], start=1):

@@ -17,19 +17,16 @@ import jax
 import jax.numpy as jnp
 import numpy as np
 
-from .model import res_sections, sec_n_params, split_theta
+from .layout import level_kind, res_sections, sec_n_params, split_theta
 from .structures import build_sigma, n_params
 from .levels import n_level_params, MTRN_PARAMS
 
-
-def _level_kind(tm):
-    return tm.get("lvl") or ("fixed" if tm.get("LK") is not None else "id")
 
 
 def n_level(tm):
     """Number of parameters of the structure between levels of a term or
     section."""
-    return n_level_params(_level_kind(tm), tm.get("lvl_order", 0), tm.get("lvl_parts"),
+    return n_level_params(level_kind(tm), tm.get("lvl_order", 0), tm.get("lvl_parts"),
                           opts=tm.get("lvl_opts"))
 
 
@@ -56,7 +53,7 @@ def component_names(terms, res, lag=None):
     names = []
     for tm in terms:
         names += _matrix_names("%s" % tm["name"], tm["t"])
-        names += _level_names(tm["name"], _level_kind(tm), n_level(tm))
+        names += _level_names(tm["name"], level_kind(tm), n_level(tm))
     secs = res_sections(res, 0)
     for sec in secs:
         pre = sec.get("name", "residuelle") if len(secs) > 1 else "residuelle"
@@ -81,7 +78,7 @@ def _level_natural(th_lvl, tm):
     """Level parameters on their natural scale, in JAX (differentiable): a
     vpredict expression such as "V3" names the correlation, not the internal
     theta that produces it."""
-    kind = _level_kind(tm)
+    kind = level_kind(tm)
     nl = n_level(tm)
     if nl == 0:
         return []
@@ -158,7 +155,7 @@ def varcomp_table(theta, H, terms, res, floor=-12.0, ceil=12.0, fixed_idx=None, 
       B  depends on a parameter at a bound, or on a nearly flat direction;
       P  variance (diagonal of a Sigma, or a single-trait term);
       U  covariance or level parameter (correlation, range...);
-      N  entry not identified separately (alias, model.alias_entrees): only
+      N  entry not identified separately (alias, model.aliased_entries): only
          its sum with the entries of the same pattern is. Those sums are
          appended at the end of the table, named "a+b", with their standard
          error.

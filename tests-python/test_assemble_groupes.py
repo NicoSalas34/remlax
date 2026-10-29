@@ -17,7 +17,7 @@ import jax.numpy as jnp
 
 sys.path.insert(0, "inst/python")
 from remlax import _x64  # noqa: F401  (active la double precision)
-from remlax.model import (assemble_V, assemble_V_groupes, dense_Z, restrict_Z,
+from remlax.model import (assemble_V, assemble_V_by_support, dense_Z, restrict_Z,
                           support_groups, n_theta, term_support)
 
 
@@ -79,7 +79,7 @@ def main():
 
     # ---------------------------------------------------------------- 1. valeur
     V0 = np.asarray(assemble_V(th, terms, Zs, res, n))
-    V1 = np.asarray(assemble_V_groupes(th, terms, groupes, Zr, res, n))
+    V1 = np.asarray(assemble_V_by_support(th, terms, groupes, Zr, res, n))
     ech = max(abs(V0).max(), 1e-300)
     err = abs(V0 - V1).max() / ech
     print("\n1. V identique      : ecart relatif max %.3e" % err)
@@ -90,7 +90,7 @@ def main():
         return assemble_V(t_, terms, Zs, res, n).sum()
 
     def f1(t_):
-        return assemble_V_groupes(t_, terms, groupes, Zr, res, n).sum()
+        return assemble_V_by_support(t_, terms, groupes, Zr, res, n).sum()
 
     # SOUS COMPILATION : une identite peut tenir en interprete et casser une
     # fois fusionnee par XLA, qui reordonne les sommations.
@@ -122,7 +122,7 @@ def main():
 import sys, numpy as np, jax, jax.numpy as jnp
 sys.path.insert(0, "inst/python"); sys.path.insert(0, "tests-python")
 from remlax import _x64
-from remlax.model import (assemble_V, assemble_V_groupes, dense_Z,
+from remlax.model import (assemble_V, assemble_V_by_support, dense_Z,
                           restrict_Z, support_groups, n_theta)
 from test_assemble_groupes import dispositif
 terms, res, y, X, n = dispositif()
@@ -135,7 +135,7 @@ else:
     for rows, ks in gr:
         for k in ks:
             Zr[k] = restrict_Z(terms[k], rows, n)
-    f = lambda th: assemble_V_groupes(th, terms, gr, Zr, res, n).sum()
+    f = lambda th: assemble_V_by_support(th, terms, gr, Zr, res, n).sum()
 th = jnp.asarray(np.random.default_rng(7).standard_normal(n_theta(terms, res)) * 0.3)
 jax.block_until_ready(jax.jit(jax.grad(f))(th))
 m = 0

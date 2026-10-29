@@ -49,8 +49,9 @@ import jax.numpy as jnp
 import numpy as np
 import scipy.sparse as sp
 
-from .model import (orthonormal_X, split_theta, term_n_params, res_sections,
-                    sec_n_params, _section_V)
+from .layout import level_kind, split_theta, term_n_params, res_sections, sec_n_params
+from .incidence import orthonormal_X
+from .residual import _section_V
 from .structures import build_sigma, n_params
 from .levels import level_chol
 from .selinv import FacteurCreux
@@ -213,7 +214,7 @@ class _NiveauxCreux:
 
 
 def _facteurs_creux(tm):
-    lvl = tm.get("lvl") or ("fixed" if tm.get("LK") is not None else "id")
+    lvl = level_kind(tm)
     if lvl == "ar1":
         return [("ar1", int(tm["q"]))]
     if lvl == "ar1ar1":
@@ -340,7 +341,7 @@ class MME:
                      paires=pa, Z=sp.csc_matrix(
                          (tm["zx"], (self._ligne(tm["zi"]), tm["zj"])), shape=(n, t * q)),
                      sig=sig_f, sig_jac=sig_j)
-            lvl = tm.get("lvl") or ("fixed" if tm.get("LK") is not None else "id")
+            lvl = level_kind(tm)
             fac = _facteurs_creux(tm)
             if tm.get("Kinv") is not None:
                 # precision fournie (pedigree) : quel que soit le niveau declare

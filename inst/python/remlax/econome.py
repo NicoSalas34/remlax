@@ -46,9 +46,10 @@ import numpy as np
 import jax
 import jax.numpy as jnp
 
-from .model import (split_theta, res_sections, sec_n_params, support_groups,
-                    restrict_Z, prefold_fixed_K, orthonormal_X, term_factor,
-                    _section_V, _section_S, section_matvec)
+from .layout import split_theta, res_sections, sec_n_params
+from .incidence import support_groups, restrict_Z, prefold_fixed_K, orthonormal_X
+from .residual import _section_V, _section_S, section_matvec
+from .model import term_factor
 from .core import _reml_fwd
 from .ai import _sigma_et_K
 

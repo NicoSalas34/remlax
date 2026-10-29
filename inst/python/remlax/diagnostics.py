@@ -121,7 +121,7 @@ def diagnostic(H, g, theta, floor, ceil, tol_bound=1e-7, fixed_idx=None, f_obj=N
     their total defines the free subspace.
 
     The n_plat_attendu smallest eigenvalues in modulus are the expected flat
-    directions of entries not identified separately (alias_entrees): they are
+    directions of entries not identified separately (aliased_entries): they are
     set aside when counting negative and null eigenvalues."""
     fixed, free, out = _free_subspace(theta, floor, ceil, tol_bound, fixed_idx)
     if free.sum() == 0:

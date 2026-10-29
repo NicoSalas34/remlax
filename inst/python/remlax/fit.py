@@ -17,9 +17,8 @@ import jax.numpy as jnp
 import numpy as np
 from scipy.optimize import minimize
 
-from .model import (make_objective, assemble_V, split_theta, n_theta,
-                    term_n_params, res_sections, sec_n_params,
-                    alias_entrees)
+from .layout import level_kind, split_theta, n_theta, term_n_params, res_sections, sec_n_params
+from .model import make_objective, assemble_V, aliased_entries
 from .structures import build_sigma, n_params, sigma_loadings
 from .levels import level_params_report
 from .lag import (prepare_lag, lag_n_params, ystar as lag_ystar, lag_terms,
@@ -806,11 +805,11 @@ def _result_core(obj, eng, theta, r, f_end, g_end, X, y, n, p, maxiter, floor, c
 
 
 def _add_identification(out, terms, n, p, verbose):
-    """Entries not identified separately (equal patterns in V, alias_entrees):
+    """Entries not identified separately (equal patterns in V, aliased_entries):
     each group leaves expected flat directions in the Hessian, and the number
     of identified parameters (df of a LRT, AIC) accounts for them. Returns the
     number of expected flat directions."""
-    alias = alias_entrees(terms, n)
+    alias = aliased_entries(terms, n)
     n_plat = int(sum(len(g["entrees"]) - 1 for g in alias))
     _chrono("alias")
     out["alias"] = [dict(terme=g["terme"], entrees=[[int(i), int(j)] for i, j in g["entrees"]])
@@ -874,7 +873,7 @@ def _add_sigmas(out, theta, terms, res, n):
         ns = n_params(tm["struct"], tm["t"], tm["rank"])
         out["sigmas"][tm["name"]] = np.asarray(build_sigma(
             jnp.asarray(th_terms[k][:ns]), tm["struct"], tm["t"], tm["rank"]))
-        kind_ = tm.get("lvl") or ("fixed" if tm.get("LK") is not None else "id")
+        kind_ = level_kind(tm)
         r_ = level_params_report(np.asarray(th_terms[k][ns:]), kind_,
                                  tm.get("lvl_order", 0), opts=tm.get("lvl_opts"),
                                  q=tm.get("q"), parts=tm.get("lvl_parts"))

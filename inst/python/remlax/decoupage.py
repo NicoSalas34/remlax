@@ -29,12 +29,12 @@ import numpy as np
 import scipy.sparse as sp
 from scipy.sparse.csgraph import connected_components
 
-from .model import res_sections
+from .layout import level_kind, res_sections
 from .structures import chol_sigma, theta0 as struct_theta0
 
 
 def _k_identite(tm):
-    lvl = tm.get("lvl") or ("fixed" if tm.get("LK") is not None else "id")
+    lvl = level_kind(tm)
     return lvl in ("id", "", None) and tm.get("LK") is None and tm.get("Kinv") is None
 
 

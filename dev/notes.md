@@ -267,3 +267,66 @@ package (`.Rbuildignore`).
   block design, 21 % apart, while the first-order part agreed to 2e-16.
 - Contracting Theta against P_i instead of dPhi gave A1 and A2 of order n^3
   instead of O(1), and negative df.
+
+### model.py, incidence.py, residual.py
+
+- One product for all terms: the chain V = R; V = V + B_k B_k' creates a new
+  n x n matrix at each step and XLA does not reuse the buffers, one buffer per
+  term. On the full multivariate model of Salas et al. (2026), 65 terms at
+  n = 16211, that is 65 x 1.96 = 127 GB; the job failed asking for 134 GiB on
+  an 80 GB A100. With [B_1 ... B_K][B_1 ... B_K]' the concatenated matrix is
+  16211 x 42186 (5.1 GB against 2.0 for V); on a 41-term model the peak went
+  from 126.1 to 16.2 MB, same value and gradient. A custom derivative rule
+  for the assembly was tried and was useless: the peak is in the forward pass.
+- term_support: on the 5-trait model (n = 8987), an IEE term carries
+  q = 1920 columns for about 1800 useful rows, 131.6 MB of which 80 % zeros;
+  the ten IEE terms made 1316 MB, 82 % of the factor memory. Restricted:
+  1598 MB of factors against about 400 MB.
+- orthonormal_X: on the wheat IGE model, -2logL was wrong by 4e-7 inside and
+  by 1.4e-4 on a sub-model without the QR.
+- prefold_fixed_K: 28 s of compilation for n = 3000, q = 1500; 633 s at
+  n = 8000 on MIG, and a failed compilation of the ige model at n = 8037. The
+  former dense einsum cost n x t x q^2 operations outside BLAS, 66 s for
+  n = 1000, q = 8000, done twice (likelihood and AI).
+- Incidences as arguments: passing them as arguments gained nothing in memory
+  (buffer 4580.3 MB against 4548.7, 160.8 MB more arguments); the warning
+  "2.90 GB of constants were captured" came from the full-height factors of
+  the reference form compiled beside it for the identity test. Captured, a
+  dense 8037 x 8037 incidence (ar1 x ar1 field, 516 MB) made the compilation
+  fail.
+- Residual us: on the IGE model the us coupling between traits of a unit is
+  worth 2228 LRT points for 22 parameters.
+- Scaling by n: on a one-factor model, without effective scaling L-BFGS-B
+  stopped at -2logL = 425.15 with |grad| = 74.6, against 414.3095 at the
+  optimum.
+- aliased_entries: the plant term [I, W] of VP+ has q(q-1)/2 flat directions
+  as soon as W is symmetric (theorie_v2.md, T1b, IGE project); the genetic
+  term [Z, WZ] has none once replication makes W Z Z' non-symmetric.
+- level_kind defaults to "fixed" when K is given without "lvl": falling back
+  to "id" is the failure that made two GPU runs labelled "kinship" exact
+  duplicates of the runs without.
+
+### levels.py
+
+- sep and parts: level_chol reads the second element of parts as the
+  dimension of the factor, n_level_params read it as the order; for id and ar1
+  both agree by accident. A sep (corb, 4) x (ar1, 5) counted 1 parameter
+  instead of 5. level_corr also passed q = None to each factor, so a residual
+  with a sep structure was unreachable (found by
+  test_levels_catalogue.py::test_sep_level_corr_egale_kron).
+- cor: at q = 10, t = -0.3 gives an eigenvalue of -1.7. Reporting tanh(theta)
+  gave a value outside the model for small q (at q = 3, tanh = -0.9 becomes
+  -0.45).
+- arma: the formula of appendix C, (th-ph)(1-th*ph)/(1+th^2-2*th*ph), gave
+  non positive definite sequences on 204 draws out of 300 (rho_1 = -0.976 with
+  rho_2 = -0.944).
+- mtrn metric: three other conventions (delta on one axis, or not as a square
+  root) shift logLik by 0.5 to 4 points; the chosen one matches asreml to
+  3e-10 on (delta = 2, alpha = 0) and (delta = 2, alpha = 0.6). See
+  docs/note_remlax.md of the IGE project for the logLik curves that fixed lvr
+  and mtrn; nine families were tried for ilv without success.
+- mtrn with every parameter fixed stopped on "index is out of bounds for axis
+  0 with size 0" when phi was read before the kind was known.
+- cir gradient: clipping t = min(d/phi, 1) gave NaN gradients, n_iter = 0 and
+  -2logL 6.4 from the optimum (asreml3 test B7, 2026-09-28).
+- sep reported nothing in rho before each factor was reported by position.

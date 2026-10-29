@@ -9,7 +9,9 @@ from . import _x64  # noqa: F401
 import jax.numpy as jnp
 import numpy as np
 
-from .model import assemble_V, dense_Z, split_theta
+from .layout import split_theta
+from .incidence import dense_Z
+from .model import assemble_V
 from .effects import term_sigma_K
 
 

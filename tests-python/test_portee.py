@@ -16,6 +16,7 @@ import jax.numpy as jnp
 import outils_dispositifs as od
 from remlax import levels as Lv
 from remlax import fit as F
+from remlax import start as St
 
 RNG = np.random.default_rng(2026)
 N = 60
@@ -80,12 +81,12 @@ def test_gradient_fini_au_dela_de_la_portee(kind):
 # 2. balayage des portees : candidats et choix du meilleur
 # ------------------------------------------------------------------------------
 def test_candidats_portee_sont_des_quantiles_de_distances():
-    c = F._candidats_portee(COORD)
+    c = St._range_candidates(COORD)
     assert c.ndim == 1 and 5 <= c.size <= 9
     d = D[np.triu_indices(N, 1)]
     assert np.exp(c).min() >= d.min() - 1e-12 and np.exp(c).max() <= d.max() + 1e-12
-    assert F._candidats_portee(None).size == 0
-    assert F._candidats_portee(np.zeros((3, 2))).size == 0          # positions confondues
+    assert St._range_candidates(None).size == 0
+    assert St._range_candidates(np.zeros((3, 2))).size == 0          # positions confondues
 
 
 def test_balayage_choisit_le_meilleur_candidat_et_respecte_les_fixes():
@@ -94,15 +95,15 @@ def test_balayage_choisit_le_meilleur_candidat_et_respecte_les_fixes():
     res = od.residuelle("iid", np.zeros(N, np.int64), np.arange(N), 1, lvl="cir", coord=COORD)
     from remlax.model import make_objective
     _, fun_jac, _, _ = make_objective([], res, y, X)
-    th0 = F.initial_theta([], res, y)
-    assert F._positions_portee([], res, N) == [(1, COORD)] or \
-        F._positions_portee([], res, N)[0][0] == 1
-    th, n_eval = F._range_sweep(fun_jac, th0, [], res, N)
+    th0 = St.initial_theta([], res, y)
+    assert St._range_positions([], res, N) == [(1, COORD)] or \
+        St._range_positions([], res, N)[0][0] == 1
+    th, n_eval = St._range_sweep(fun_jac, th0, [], res, N)
     assert n_eval >= 6
     v0 = float(fun_jac(th0)[0]); v1 = float(fun_jac(th)[0])
     assert v1 <= v0 + 1e-10
     # le parametre de portee fixe n'est pas touche
-    th_f, _ = F._range_sweep(fun_jac, th0, [], res, N, fixed_idx=[1])
+    th_f, _ = St._range_sweep(fun_jac, th0, [], res, N, fixed_idx=[1])
     assert th_f[1] == th0[1]
 
 

@@ -46,7 +46,9 @@ import numpy as np
 import jax
 import jax.numpy as jnp
 
-from .model import split_theta, res_sections, orthonormal_X, _section_S, sec_n_params
+from .layout import level_kind, split_theta, res_sections, sec_n_params
+from .incidence import orthonormal_X
+from .residual import _section_S
 from .structures import chol_sigma, n_params
 from .levels import level_chol
 from .decoupage import Decoupage, largeur_facteur
@@ -59,7 +61,7 @@ OCTETS_LOT = 2 * 2 ** 30          # memoire visee par lot de blocs (scan)
 
 def _genre(tm):
     """"id" (K = I), "fixed" (K fournie) ou le nom d'une structure parametree."""
-    lvl = tm.get("lvl") or ("fixed" if tm.get("LK") is not None else "id")
+    lvl = level_kind(tm)
     if tm.get("Kinv") is not None and tm.get("LK") is None:
         return "kinv"
     return "id" if lvl in ("", None) else lvl

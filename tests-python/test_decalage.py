@@ -247,13 +247,13 @@ def test_alias_vp_plus_q_moins_1_sur_2_directions_plates():
     """Terme de plante [I, W] : Cov(res_t, IEE_u) et Cov(res_u, IEE_t) ont le
     meme motif quand W est symetrique (theorie_v2.md T1b) ; pas quand W ne
     l'est pas ; et le terme genetique [Z, WZ] n'en a pas (replication)."""
-    from remlax.model import alias_entrees
+    from remlax.model import aliased_entries
     for q, attendu in ((2, 1), (3, 3)):
         W, tr, un, y, X, term, res = jeu(nr=5, nc=4, q=q, ng=6, seed=3)
         N = W.shape[0]
         g = np.asarray(term["zj"][:N]) % 6
         gen, plante = _vp_plus(W, tr, un, g, 6, q, N)
-        al = alias_entrees([gen, plante], N * q)
+        al = aliased_entries([gen, plante], N * q)
         assert [a["terme"] for a in al] == ["plante"] * attendu
         assert all(len(a["entrees"]) == 2 for a in al)
         if q == 2:
@@ -261,7 +261,7 @@ def test_alias_vp_plus_q_moins_1_sur_2_directions_plates():
         Wa = W.copy()
         Wa[0, 1] = 2.0                                          # W non symetrique
         gen, plante = _vp_plus(Wa, tr, un, g, 6, q, N)
-        assert alias_entrees([gen, plante], N * q) == []
+        assert aliased_entries([gen, plante], N * q) == []
 
 
 def test_vp_plus_directions_plates_exclues_du_verdict_et_sommes_identifiees():

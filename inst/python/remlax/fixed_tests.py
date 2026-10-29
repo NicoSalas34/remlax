@@ -13,7 +13,9 @@ import jax.numpy as jnp
 import numpy as np
 
 from .components import n_level
-from .model import assemble_V, dense_Z, res_sections
+from .layout import res_sections
+from .incidence import dense_Z
+from .model import assemble_V
 
 
 def _column_groups(termes_fixes, p):

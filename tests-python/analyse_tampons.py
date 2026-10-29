@@ -18,7 +18,7 @@ import jax.numpy as jnp
 sys.path.insert(0, "inst/python")
 sys.path.insert(0, "tests-python")
 from remlax import _x64  # noqa: F401
-from remlax.model import (assemble_V, assemble_V_groupes, dense_Z, restrict_Z,
+from remlax.model import (assemble_V, assemble_V_by_support, dense_Z, restrict_Z,
                           support_groups, n_theta, reml_from_V)
 from test_assemble_groupes import dispositif
 
@@ -63,7 +63,7 @@ def main():
         return reml_from_V(V, yj, Xj)
 
     def obj_group(t_):
-        V = assemble_V_groupes(t_, terms, groupes, Zr, res, n)
+        V = assemble_V_by_support(t_, terms, groupes, Zr, res, n)
         return reml_from_V(V, yj, Xj)
 
     t0 = analyse("assemblage plein, valeur seule", obj_plein, th)

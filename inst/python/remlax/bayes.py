@@ -56,7 +56,8 @@ import jax
 import jax.numpy as jnp
 import numpy as np
 
-from .model import make_neg2, term_n_params, res_sections, sec_n_params
+from .layout import level_kind, term_n_params, res_sections, sec_n_params
+from .model import make_neg2
 from .structures import n_params, n_loadings, build_sigma
 from .levels import n_level_params
 from .components import components_from_theta, component_names
@@ -201,7 +202,7 @@ def _blocs(terms, res, p):
         ns = n_params(tm["struct"], tm["t"], tm["rank"])
         tot = term_n_params(tm)
         blocs += sigma(o, tm["struct"], tm["t"], tm["rank"], tm["name"])
-        kind = tm.get("lvl") or ("fixed" if tm.get("LK") is not None else "id")
+        kind = level_kind(tm)
         blocs += niveaux(o + ns, kind, tm.get("lvl_parts"), tm["name"], tot - ns)
         o += tot
     for sec in res_sections(res, 0):
