@@ -1,39 +1,39 @@
-"""Coeur du calcul : V -> -2logL, avec gradient analytique par rapport a V.
+"""Kernel of the computation: V -> -2logL, with a closed-form gradient in V.
 
-Extrait tel quel du code d'analyse du modele multi-especes de Salas et al. (2026),
-ou ce noyau a ete ecrit, mesure et valide. Seules les fonctions specifiques a ce
-projet (assemblage d'un V a blocs genetiques, covariance residuelle par plante)
-ont ete laissees de cote : elles ne concernent pas un solveur generique.
+The kernel comes unchanged from the analysis code of the multispecies model of
+Salas et al. (2026), where it was written and validated. Functions specific to
+that project (assembly of a V with genetic blocks, residual covariance per
+plant) were left out, because a generic solver does not need them.
 
-POURQUOI UN `custom_vjp`. Le gradient de -2logL par rapport a V est connu
-analytiquement,
+The module defines a `custom_vjp` because the gradient of -2logL with respect
+to V is known in closed form,
 
     d(-2logL)/dV = P - (Py)(Py)',      P = V^-1 - V^-1 X (X'V^-1 X)^-1 X'V^-1
 
-donc la passe arriere n'a besoin ni de la bande de la Cholesky ni des
-resolutions triangulaires memorisees par la differentiation automatique : on
-passe d'une dizaine de matrices n x n conservees a trois. C'est ce qui rend le
-solveur utilisable a n de l'ordre de 16 000 sur une tranche de GPU de 10 Go.
+The backward pass therefore needs neither the Cholesky band nor the triangular
+solves that automatic differentiation would store. About ten n x n matrices
+kept alive drop to three, which lets the solver run at n near 16 000 on a
+10 GB GPU slice.
 
-Le reste du paquet ne voit qu'une fonction differentiable de V : toute
-construction de V — structure de covariance, noyau de voisinage parametre —
-recoit donc son gradient sans code supplementaire.
+The rest of the package sees only a differentiable function of V. Any
+construction of V (covariance structure, parametrised neighbourhood kernel)
+thus gets its gradient with no extra code.
 
-GRADIENT PAR RAPPORT A y. La passe arriere rend aussi
+The backward pass also returns the gradient with respect to y,
 
     d(-2logL)/dy = 2 P y = 2 r
 
-qui ne coute rien (r est deja calcule par la passe avant). Il etait inutile tant
-que y etait une donnee ; il devient necessaire des que la reponse analysee est
-une TRANSFORMEE parametree des donnees, y* = (I - M(Psi)) y, comme dans le
-modele structurel a decalage spatial (lag.py) : la derivee de -2logL par rapport
-a Psi passe par y*, et sans cette composante la differentiation automatique
-l'aurait vue nulle — un gradient faux, sans erreur.
+which costs nothing because the forward pass already computes r. It is needed
+when the analysed response is a parametrised transform of the data,
+y* = (I - M(Psi)) y, as in the structural spatial-lag model (lag.py). The
+derivative of -2logL with respect to Psi then goes through y*. Without this
+component automatic differentiation would see it as zero and return a wrong
+gradient with no error.
 
-ML. `ml_from_V` est la meme fonction sans le terme log|X'V^-1 X| (et avec la
-constante N log 2pi) : -2logL_ML profilee en beta. Son gradient par rapport a V
-est V^-1 - r r' au lieu de P - r r'. Elle ne sert qu'au critere `ml` du modele
-structurel.
+`ml_from_V` is the same function without the term log|X'V^-1 X| and with the
+constant N log 2pi. It is -2logL_ML profiled over beta. Its gradient in V is
+V^-1 - r r' instead of P - r r'. Only the `ml` criterion of the structural
+model uses it.
 """
 
 import numpy as np
@@ -44,7 +44,7 @@ from functools import partial
 LOG2PI = float(np.log(2.0 * np.pi))
 
 # ==============================================================================
-# Coeur : V -> -2logL, avec gradient analytique par rapport a V
+# Kernel: V -> -2logL, with a closed-form gradient in V
 # ==============================================================================
 @partial(jax.custom_vjp, nondiff_argnums=())
 def reml_from_V(V, y, X):
@@ -68,7 +68,7 @@ def _reml_fwd(V, y, X, ml=False):
     r = Viy - ViX @ beta                     # = P y
     yPy = y @ r
     if ml:
-        # -2logL_ML profilee : ni log|X'V^-1X| ni retrait de p dans la constante.
+        # Profiled -2logL_ML: no log|X'V^-1X| and no p removed from the constant.
         val = N * LOG2PI + logdetV + yPy
     else:
         val = (N - p) * LOG2PI + logdetV + logdetA + yPy
@@ -81,26 +81,23 @@ def _fwd(V, y, X):
 
 
 def _bwd(saved, g):
-    return _bwd_commun(saved, g, ml=False)
+    return _bwd_shared(saved, g, ml=False)
 
 
-def _bwd_commun(saved, g, ml=False):
-    """P - (Py)(Py)', ecrit pour minimiser le nombre de matrices N x N VIVANTES
-    simultanement. Sur une A100 entiere (80 Go) la formulation naive passe sans
-    qu'on y pense ; sur un huitieme de carte (10 Go) chaque matrice N x N pese
-    2,1 Go et l'ordre des operations decide si le calcul tient ou non.
+def _bwd_shared(saved, g, ml=False):
+    """P - (Py)(Py)', written to minimise the number of N x N matrices alive
+    at the same time. On a 10 GB GPU slice each N x N matrix weighs about
+    2 GB, and the order of operations decides whether the computation fits.
 
-    Version precedente :
-        Vinv = solve(L', solve(L, I))        <- I, le resultat intermediaire ET
-                                                 Vinv vivants en meme temps
-        W    = Vinv - Z'Z - r r'             <- Z'Z et r r' materialises en plus
-    soit jusqu'a sept matrices N x N.
+    A naive version forms Vinv = solve(L', solve(L, I)) and then
+    W = Vinv - Z'Z - r r'. It keeps I, the intermediate result and Vinv alive
+    together, and materialises Z'Z and r r' as well, up to seven N x N
+    matrices.
 
-    Ici :
-      - une seule resolution triangulaire (Linv), puis Linv' Linv : l'identite
-        et Linv meurent tot, et L n'est plus necessaire ensuite ;
-      - les retraits sont sequentiels, donc XLA peut reutiliser le tampon de W
-        au lieu de materialiser Z'Z et r r' a cote.
+    This version does a single triangular solve (Linv) and then forms
+    Linv' Linv. The identity and Linv die early, and L is no longer needed.
+    The subtractions are sequential, so XLA can reuse the buffer of W instead
+    of materialising Z'Z and r r' beside it.
     """
     (L, ViX, La, r), X = saved
     N = L.shape[0]
@@ -111,9 +108,10 @@ def _bwd_commun(saved, g, ml=False):
     del Linv
     if not ml:
         W = W - Z.T @ Z                 # = P
-    W = W - jnp.outer(r, r)             # = P - (Py)(Py)'   (ML : V^-1 - r r')
-    # Cotangente de y : 2 P y = 2 r (cf. en-tete). Rendue meme quand y
-    # n'est pas differentie : un vecteur de taille N, deja calcule.
+    W = W - jnp.outer(r, r)             # = P - (Py)(Py)'   (ML: V^-1 - r r')
+    # Cotangent of y: 2 P y = 2 r (see the module docstring). It is returned
+    # even when y is not differentiated, since it is a vector of size N
+    # already computed.
     return (g * W, 2.0 * g * r, None)
 
 
@@ -121,7 +119,7 @@ reml_from_V.defvjp(_fwd, _bwd)
 
 
 # ==============================================================================
-# Variante ML (critere `ml` du modele structurel)
+# ML variant (`ml` criterion of the structural model)
 # ==============================================================================
 @partial(jax.custom_vjp, nondiff_argnums=())
 def ml_from_V(V, y, X):
@@ -134,8 +132,7 @@ def _fwd_ml(V, y, X):
 
 
 def _bwd_ml(saved, g):
-    return _bwd_commun(saved, g, ml=True)
+    return _bwd_shared(saved, g, ml=True)
 
 
 ml_from_V.defvjp(_fwd_ml, _bwd_ml)
-

@@ -1,10 +1,9 @@
-"""Double precision OBLIGATOIRE, activee avant toute creation de tableau JAX.
+"""Turn on double precision before any JAX array is created.
 
-JAX est en float32 par defaut. Sur une vraisemblance REML c'est disqualifiant :
-mesure sur ce paquet, un aller-retour Sigma -> theta -> Sigma perdait 2.6e-07 en
-float32 contre ~1e-16 en float64, et le log-determinant d'une matrice mal
-conditionnee derive bien plus vite encore. Ce module est importe en premier par
-__init__.py : importer un sous-module de remlax suffit donc a l'activer.
+JAX uses float32 by default, which is too coarse for a REML likelihood. The
+log-determinant of an ill-conditioned matrix drifts quickly in float32
+(dev/notes.md). __init__.py imports this module first, so importing any
+submodule of remlax turns double precision on.
 """
 import jax
 jax.config.update("jax_enable_x64", True)

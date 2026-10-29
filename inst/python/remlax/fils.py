@@ -1,38 +1,37 @@
-"""Bornage des fils de calcul aux coeurs alloues.
+"""Bound the compute threads to the allocated cores.
 
-JAX ne lit pas OMP_NUM_THREADS : son groupe de fils CPU prend la taille du
-masque d'affinite du processus, comme OpenBLAS quand OPENBLAS_NUM_THREADS
-manque. Un utilisateur qui pose OMP_NUM_THREADS = 4 sur une station de 32
-coeurs obtenait donc 32 fils. Quand l'ordonnanceur confine deja le job a ses
-coeurs (SLURM avec task/affinity, verifie sur genotoul et meso le
-2026-10-27), le masque est deja a la bonne taille et ce module ne fait rien.
+JAX does not read OMP_NUM_THREADS. Its CPU thread pool takes the size of the
+affinity mask of the process, as OpenBLAS does when OPENBLAS_NUM_THREADS is
+unset. A user who sets OMP_NUM_THREADS = 4 on a 32-core workstation would
+therefore get 32 threads. When the scheduler already confines the job to its
+cores (SLURM with task/affinity), the mask already has the right size and
+this module does nothing.
 
-ATTENTION, CE MODULE NE PROTEGE PAS D'UN NOEUD SURCHARGE. Sur meso, des jobs
-voisins non confines debordent sur les coeurs alloues (charge 300 pour 192
-coeurs) : le meme ajustement y a varie d'un facteur 1 a 40 entre deux
-passages, avec 8 coeurs d'affinite et 34 a 43 fils (essai A/B du
-2026-10-27, srun --cpu-bind=cores sans effet). Seul un noeud reserve
-(--exclusive) donne des temps fiables la-bas.
+This module does not protect against an overloaded node. Unconfined jobs on
+the same node can spill onto the allocated cores and make timings unstable.
+Only a reserved node (--exclusive) then gives reliable times (dev/notes.md).
 
-borner_fils() restreint donc l'affinite du processus au nombre de coeurs
-demande, avant l'import de NumPy et de JAX. Le nombre vient, dans l'ordre, de
-REMLAX_THREADS, SLURM_CPUS_PER_TASK, OMP_NUM_THREADS. Sans aucune de ces
-variables, rien ne change. REMLAX_THREADS=tous desactive le bornage.
+borner_fils() restricts the affinity of the process to the requested number
+of cores, before NumPy and JAX are imported. The number comes from
+REMLAX_THREADS, then SLURM_CPUS_PER_TASK, then OMP_NUM_THREADS. Without any of
+these variables, nothing changes. REMLAX_THREADS=tous turns the bounding off.
 
-Les coeurs retenus sont les plus libres du masque, mesures sur 0,1 s dans
-/proc/stat, et pris dans un meme noeud NUMA quand il en a assez.
+The cores kept are the most idle ones of the mask, measured over 0.1 s in
+/proc/stat. They are taken from a single NUMA node when one has enough.
 
-Ce module n'importe que la bibliotheque standard : il doit pouvoir tourner
-avant tout import lourd.
+This module imports only the standard library, because it must run before any
+heavy import.
 """
 import os
 import sys
 import time
 
+# Shared state. cli.py imports it and reads the "message" key.
 _ETAT = {"fait": False, "message": None}
 
 
-def _nombre_voulu():
+def _requested_count():
+    """(number of cores, name of the variable that gave it), or (None, None)."""
     v = os.environ.get("REMLAX_THREADS", "").strip().lower()
     if v in ("tous", "all", "0"):
         return None, None
@@ -47,29 +46,29 @@ def _nombre_voulu():
     return None, None
 
 
-def _temps_cpu():
-    """{cpu: (inactif, total)} lu dans /proc/stat."""
+def _cpu_times():
+    """{cpu: (idle, total)} read from /proc/stat."""
     out = {}
     with open("/proc/stat") as f:
-        for ligne in f:
-            if not ligne.startswith("cpu") or ligne.startswith("cpu "):
+        for line in f:
+            if not line.startswith("cpu") or line.startswith("cpu "):
                 continue
-            ch = ligne.split()
-            v = [int(x) for x in ch[1:]]
-            out[int(ch[0][3:])] = (v[3] + (v[4] if len(v) > 4 else 0), sum(v))
+            fields = line.split()
+            v = [int(x) for x in fields[1:]]
+            out[int(fields[0][3:])] = (v[3] + (v[4] if len(v) > 4 else 0), sum(v))
     return out
 
 
-def _libres(masque, delai=0.1):
-    """Fraction inactive de chaque coeur du masque sur `delai` secondes."""
+def _idle_fractions(mask, delay=0.1):
+    """Idle fraction of each core of the mask over `delay` seconds."""
     try:
-        a = _temps_cpu()
-        time.sleep(delai)
-        b = _temps_cpu()
+        a = _cpu_times()
+        time.sleep(delay)
+        b = _cpu_times()
     except (OSError, ValueError):
-        return {c: 0.0 for c in masque}
+        return {c: 0.0 for c in mask}
     out = {}
-    for c in masque:
+    for c in mask:
         if c in a and c in b and b[c][1] > a[c][1]:
             out[c] = (b[c][0] - a[c][0]) / (b[c][1] - a[c][1])
         else:
@@ -77,68 +76,69 @@ def _libres(masque, delai=0.1):
     return out
 
 
-def _noeuds_numa():
-    """[ensemble de coeurs] par noeud NUMA, vide si l'information manque."""
-    racine = "/sys/devices/system/node"
+def _numa_nodes():
+    """[set of cores] per NUMA node, empty if the information is missing."""
+    root = "/sys/devices/system/node"
     out = []
     try:
-        for nom in sorted(os.listdir(racine)):
-            if not (nom.startswith("node") and nom[4:].isdigit()):
+        for name in sorted(os.listdir(root)):
+            if not (name.startswith("node") and name[4:].isdigit()):
                 continue
-            with open(os.path.join(racine, nom, "cpulist")) as f:
-                txt = f.read().strip()
-            coeurs = set()
-            for morceau in txt.split(","):
-                if "-" in morceau:
-                    d, f_ = morceau.split("-")
-                    coeurs.update(range(int(d), int(f_) + 1))
-                elif morceau:
-                    coeurs.add(int(morceau))
-            out.append(coeurs)
+            with open(os.path.join(root, name, "cpulist")) as f:
+                text = f.read().strip()
+            cores = set()
+            for piece in text.split(","):
+                if "-" in piece:
+                    first, last = piece.split("-")
+                    cores.update(range(int(first), int(last) + 1))
+                elif piece:
+                    cores.add(int(piece))
+            out.append(cores)
     except OSError:
         return []
     return out
 
 
-def choisir_coeurs(masque, n, libres, noeuds):
-    """Les n coeurs les plus libres du masque, dans un seul noeud NUMA si l'un
-    d'eux en offre n (le plus libre en somme), sinon dans tout le masque."""
-    tri = lambda cs: sorted(cs, key=lambda c: (-libres.get(c, 0.0), c))
-    candidats = []
-    for nd in noeuds:
-        cs = tri(nd & masque)
+def choisir_coeurs(mask, n, idle, nodes):
+    """The n most idle cores of the mask. They come from a single NUMA node if
+    one offers n of them (the most idle in sum), otherwise from the whole mask."""
+    by_idleness = lambda cs: sorted(cs, key=lambda c: (-idle.get(c, 0.0), c))
+    candidates = []
+    for node in nodes:
+        cs = by_idleness(node & mask)
         if len(cs) >= n:
-            candidats.append((sum(libres.get(c, 0.0) for c in cs[:n]), cs[:n]))
-    if candidats:
-        return sorted(max(candidats, key=lambda x: x[0])[1])
-    return sorted(tri(masque)[:n])
+            candidates.append((sum(idle.get(c, 0.0) for c in cs[:n]), cs[:n]))
+    if candidates:
+        return sorted(max(candidates, key=lambda x: x[0])[1])
+    return sorted(by_idleness(mask)[:n])
 
 
 def borner_fils(verbose=True):
-    """Restreint l'affinite du processus a n coeurs si le masque en offre plus.
-    A appeler avant l'import de NumPy et de JAX. Rend le message emis (ou None)."""
+    """Restrict the affinity of the process to n cores if the mask offers more.
+    Call it before NumPy and JAX are imported. Returns the message issued, or
+    None."""
     if _ETAT["fait"]:
         return _ETAT["message"]
     _ETAT["fait"] = True
-    n, source = _nombre_voulu()
+    n, source = _requested_count()
     if n is None or not hasattr(os, "sched_getaffinity"):
         return None
     for var in ("OMP_NUM_THREADS", "OPENBLAS_NUM_THREADS", "MKL_NUM_THREADS"):
         os.environ.setdefault(var, str(n))
     try:
-        masque = set(os.sched_getaffinity(0))
+        mask = set(os.sched_getaffinity(0))
     except OSError:
         return None
-    if len(masque) <= n:
+    if len(mask) <= n:
         return None
-    coeurs = choisir_coeurs(masque, n, _libres(masque), _noeuds_numa())
+    cores = choisir_coeurs(mask, n, _idle_fractions(mask), _numa_nodes())
     try:
-        os.sched_setaffinity(0, coeurs)
+        os.sched_setaffinity(0, cores)
     except OSError as e:
-        msg = "[remlax] bornage des fils impossible (%s) : %d coeurs visibles pour %d demandes" % (e, len(masque), n)
+        msg = "[remlax] bornage des fils impossible (%s) : %d coeurs visibles pour %d demandes" % (e, len(mask), n)
     else:
         msg = "[remlax] fils bornes a %d coeurs (%s) sur les %d visibles : %s" % (
-            n, source, len(masque), ",".join(map(str, coeurs)))
+            n, source, len(mask), ",".join(map(str, cores)))
     _ETAT["message"] = msg
     if verbose:
         print(msg, file=sys.stderr, flush=True)

@@ -1,24 +1,26 @@
-"""Structures de covariance : theta (libre, non contraint) -> Sigma (t x t).
+"""Covariance structures: theta (free, unconstrained) -> Sigma (t x t).
 
-CONVENTION UNIQUE, PARTAGEE AVEC LE COTE R (R/remlax.R). Toute divergence
-ici casse silencieusement la correspondance des parametres : les fonctions de
-ce fichier sont donc la reference, et R doit les reproduire a l'identique.
+The convention is shared with the R side (R/remlax.R). Any divergence here
+silently breaks the mapping of parameters. The functions of this file are the
+reference, and R must reproduce them exactly.
 
-Toutes les parametrisations sont NON CONTRAINTES : l'optimiseur travaille sur
-R^p sans bornes, et la positivite de Sigma est garantie par construction (on
-parametre un facteur de Cholesky, jamais Sigma directement). C'est ce qui
-permet d'utiliser L-BFGS-B sans contrainte et de ne jamais rendre un Sigma
-non defini positif, meme loin de l'optimum.
+Every parametrisation is unconstrained. The optimiser works on R^p with no
+bounds. Sigma is positive by construction, because the code parametrises a
+Cholesky factor and never Sigma itself. L-BFGS-B can therefore run without
+constraints, and Sigma stays positive definite even far from the optimum.
 
-  iid     Sigma = exp(2*theta) * I_t                        1 parametre
-  diag    Sigma = diag(exp(2*theta_j))                      t parametres
-  us      Sigma = L L',  L triangulaire inferieure          t(t+1)/2
-          diagonale de L = exp(theta) (positive), hors-diagonale libre
+  iid     Sigma = exp(2*theta) * I_t                        1 parameter
+  diag    Sigma = diag(exp(2*theta_j))                      t parameters
+  us      Sigma = L L',  L lower triangular                 t(t+1)/2
+          diagonal of L = exp(theta) (positive), off-diagonal free
   fa(r)   Sigma = Lambda Lambda' + diag(exp(2*psi))         nload(t,r) + t
-          Lambda trapezoidale inferieure (identifiabilite : sans la
-          contrainte triangulaire, Lambda n'est definie qu'a une rotation pres)
+          Lambda lower trapezoidal (identifiability: without the triangular
+          constraint, Lambda is defined only up to a rotation)
+
+The other structures (rr, chol, ante, corh) are described where chol_sigma
+builds them.
 """
-# active float64, y compris en import direct
+# turns on float64, including on a direct import
 from . import _x64     # noqa: F401
 import jax
 import jax.numpy as jnp
@@ -29,23 +31,22 @@ STRUCTURES = ("iid", "diag", "us", "fa", "rr", "chol", "ante", "corh")
 
 
 def sigma_loadings(theta, struct, t, rank):
-    """Lambda et les variances SPECIFIQUES d'une structure a facteurs.
+    """Lambda and the specific variances of a factor structure.
 
-    POURQUOI CETTE FONCTION EXISTE. `build_sigma` rend un FACTEUR, et
-    l'interface rend Sigma assemblee. Ni l'un ni l'autre ne donne Lambda
-    separement, or Sigma = Lambda Lambda' + diag(psi) n'a PAS de decomposition
-    unique : sans la contrainte trapezoidale, Lambda n'est definie qu'a une
-    rotation pres. Lambda ne se retrouve donc pas depuis Sigma, elle doit etre
-    lue dans theta -- ce que fait cette fonction.
+    `chol_sigma` returns a factor, and the interface returns the assembled
+    Sigma. Neither gives Lambda separately. Sigma = Lambda Lambda' + diag(psi)
+    has no unique decomposition: without the trapezoidal constraint, Lambda is
+    defined only up to a rotation. Lambda therefore cannot be recovered from
+    Sigma. It is read from theta.
 
-    CONVENTION DE psi, a ne pas confondre. La parametrisation interne porte
-    psi = exp(theta), et Sigma = Lambda Lambda' + diag(psi^2). La sortie rend
-    psi^2, la VARIANCE specifique, qui est la convention des tableaux de
-    loadings d'asreml : la diagonale de Sigma y vaut somme(V_k^2) + psi.
+    The internal parametrisation holds psi = exp(theta), and
+    Sigma = Lambda Lambda' + diag(psi^2). The output returns psi^2, the
+    specific variance. This is the convention of the asreml loadings tables,
+    where the diagonal of Sigma equals sum(V_k^2) + psi.
 
-    Rend None pour toute structure sans facteurs, plutot que de lever : un
-    appelant qui boucle sur des termes heterogenes ne doit pas avoir a savoir
-    d'avance lesquels en ont.
+    Returns None for any structure without factors instead of raising. A
+    caller looping over heterogeneous terms then need not know in advance
+    which ones have factors.
     """
     if struct not in ("fa", "rr"):
         return None
@@ -57,21 +58,21 @@ def sigma_loadings(theta, struct, t, rank):
     for i in range(t):
         for j in range(min(i + 1, r)):
             lam[i, j] = th[k]; k += 1
-    # `rr` est un rang reduit pur : Sigma = Gamma Gamma', aucune variance
-    # specifique. Rendre des zeros serait un mensonge lisible comme une mesure.
+    # `rr` is a pure reduced rank: Sigma = Gamma Gamma', with no specific
+    # variance. Zeros would wrongly read as a measurement.
     psi = np.exp(th[nl:nl + t]) ** 2 if struct == "fa" else None
     return {"Lambda": lam, "psi": psi, "rank": r, "struct": struct}
 
 
 def n_loadings(t, r):
-    """Nombre de loadings d'une matrice t x r triangulaire inferieure."""
+    """Number of loadings of a lower triangular t x r matrix."""
     return int(np.sum(np.minimum(np.arange(1, t + 1), r)))
 
 
 def n_params(struct, t, rank=0):
-    """Nombre de parametres libres d'une structure.
+    """Number of free parameters of a structure.
 
-    Les decomptes suivent l'annexe C du manuel ASReml-R :
+    The counts follow Appendix C of the ASReml-R manual:
       diag = idh    omega
       us = corgh    omega(omega+1)/2
       fa(k)         k*omega + omega
@@ -90,11 +91,11 @@ def n_params(struct, t, rank=0):
     if struct == "fa":
         return n_loadings(t, rank) + t
     if struct == "rr":
-        # Le manuel annonce k*omega. On contraint Gamma a etre TRAPEZOIDALE
-        # INFERIEURE, comme pour fa : sans cette contrainte Gamma n'est definie
-        # qu'a une rotation pres, la vraisemblance a une crete plate de
-        # dimension k(k-1)/2, et le Hessien est singulier d'autant. Le modele
-        # ajuste est le meme ; le decompte de parametres, lui, est le bon.
+        # The manual states k*omega. Gamma is constrained to be lower
+        # trapezoidal, as for fa. Without this constraint Gamma is defined only
+        # up to a rotation, the likelihood has a flat ridge of dimension
+        # k(k-1)/2, and the Hessian is singular by as much. The fitted model is
+        # the same, and this parameter count is the correct one.
         return n_loadings(t, rank)
     if struct in ("chol", "ante"):
         k = int(rank)
@@ -105,7 +106,7 @@ def n_params(struct, t, rank=0):
 
 
 def _band_idx(t, k):
-    """Indices (i, j) de la bande inferieure stricte 1 <= i-j <= k, ligne par ligne."""
+    """Indices (i, j) of the strict lower band 1 <= i-j <= k, row by row."""
     ii, jj = [], []
     for i in range(t):
         for j in range(max(0, i - k), i):
@@ -114,10 +115,10 @@ def _band_idx(t, k):
 
 
 def _tril_indices(t):
-    """Indices (i, j) du triangle inferieur, EN ORDRE LIGNE PAR LIGNE.
+    """Indices (i, j) of the lower triangle, in row-by-row order.
 
-    L'ordre importe : c'est lui qui associe chaque theta a une case de L. Il est
-    fixe ici, ligne par ligne (i croissant, puis j <= i), et R fait pareil.
+    The order maps each theta to a cell of L. It is fixed here row by row
+    (increasing i, then j <= i), and R uses the same order.
     """
     ii, jj = [], []
     for i in range(t):
@@ -127,11 +128,11 @@ def _tril_indices(t):
 
 
 def chol_sigma(theta, struct, t, rank=0):
-    """Facteur L tel que Sigma = L L' (t x t ou t x k).
+    """Factor L such that Sigma = L L' (t x t or t x k).
 
-    On rend le FACTEUR et non Sigma : l'assemblage de V s'en sert directement
-    (V += (Z (L (x) L_K)) (.)'), ce qui evite de former Sigma puis de le
-    refactoriser, et garantit la positivite meme quand une variance part a zero.
+    The assembly of V uses the factor directly (V += (Z (L (x) L_K)) (.)').
+    This avoids forming Sigma and factorising it again. It also keeps V
+    positive even when a variance goes to zero.
     """
     if struct == "iid":
         return jnp.exp(theta[0]) * jnp.eye(t)
@@ -140,7 +141,7 @@ def chol_sigma(theta, struct, t, rank=0):
     if struct == "us":
         ii, jj = _tril_indices(t)
         L = jnp.zeros((t, t)).at[ii, jj].set(theta[: len(ii)])
-        d = jnp.exp(jnp.diagonal(L))          # diagonale positive
+        d = jnp.exp(jnp.diagonal(L))          # positive diagonal
         return L.at[jnp.arange(t), jnp.arange(t)].set(d)
     if struct == "fa":
         nl = n_loadings(t, rank)
@@ -151,13 +152,13 @@ def chol_sigma(theta, struct, t, rank=0):
                 rows.append(i); cols.append(j)
         lam = lam.at[jnp.array(rows), jnp.array(cols)].set(theta[:nl])
         psi = jnp.exp(theta[nl:nl + t])
-        # [Lambda | diag(psi)] est un facteur de Lambda Lambda' + diag(psi^2)
+        # [Lambda | diag(psi)] is a factor of Lambda Lambda' + diag(psi^2)
         return jnp.concatenate([lam, jnp.diag(psi)], axis=1)
     if struct == "rr":
-        # Rang reduit : Sigma = Gamma Gamma', SINGULIERE par construction (rang
-        # `rank`). Le facteur est Gamma lui-meme. C'est licite ici parce que V
-        # est assemblee en B B' : une composante de rang deficient ne rend pas V
-        # singuliere tant qu'un autre terme ou la residuelle la complete.
+        # Reduced rank: Sigma = Gamma Gamma', singular by construction (rank
+        # `rank`). The factor is Gamma itself. This is allowed because V is
+        # assembled as B B'. A rank-deficient component leaves V nonsingular as
+        # long as another term or the residual completes it.
         lam = jnp.zeros((t, rank))
         rows, cols = [], []
         for i in range(t):
@@ -165,8 +166,8 @@ def chol_sigma(theta, struct, t, rank=0):
                 rows.append(i); cols.append(j)
         return lam.at[jnp.array(rows), jnp.array(cols)].set(theta[:len(rows)])
     if struct == "chol":
-        # Sigma = L D L', L unitriangulaire inferieure a bande `rank`.
-        # Facteur : L D^(1/2).
+        # Sigma = L D L', with L unit lower triangular of band `rank`.
+        # Factor: L D^(1/2).
         k = int(rank)
         ii, jj = _band_idx(t, k)
         L = jnp.eye(t)
@@ -175,12 +176,12 @@ def chol_sigma(theta, struct, t, rank=0):
         d = jnp.exp(theta[len(ii):len(ii) + t])
         return L * d[None, :]
     if struct == "ante":
-        # Antedependance : Sigma^-1 = U D U', U unitriangulaire SUPERIEURE a
-        # bande `rank`. Donc Sigma = (U')^-1 D^-1 U^-1, et un facteur est
-        # (U')^-1 D^(-1/2). (U')^-1 se calcule par substitution triangulaire,
-        # jamais par une inversion generale.
+        # Antedependence: Sigma^-1 = U D U', with U unit upper triangular of
+        # band `rank`. Hence Sigma = (U')^-1 D^-1 U^-1, and a factor is
+        # (U')^-1 D^(-1/2). (U')^-1 is computed by triangular substitution,
+        # never by a general inversion.
         k = int(rank)
-        ii, jj = _band_idx(t, k)          # bande de U' (inferieure)
+        ii, jj = _band_idx(t, k)          # band of U' (lower)
         Ut = jnp.eye(t)
         if len(ii):
             Ut = Ut.at[ii, jj].set(theta[:len(ii)])
@@ -188,8 +189,8 @@ def chol_sigma(theta, struct, t, rank=0):
         A = jax.scipy.linalg.solve_triangular(Ut, jnp.eye(t), lower=True)
         return A / d[None, :]
     if struct == "corh":
-        # Variances heterogenes + correlation UNIFORME. La borne de positivite
-        # est theta > -1/(t-1), la meme que pour `cor` entre niveaux.
+        # Heterogeneous variances and a uniform correlation. The positivity
+        # bound is r > -1/(t-1), the same as for `cor` between levels.
         sd = jnp.exp(theta[:t])
         lo = -1.0 / max(t - 1, 1)
         r = lo + (jnp.tanh(theta[t]) + 1.0) * 0.5 * (1.0 - lo)
@@ -206,7 +207,7 @@ def build_sigma(theta, struct, t, rank=0):
 
 
 def theta0(struct, t, rank=0, var=1.0):
-    """Point de depart raisonnable : Sigma ~ var * I."""
+    """Reasonable starting point: Sigma ~ var * I."""
     s = 0.5 * np.log(max(var, 1e-8))
     if struct == "iid":
         return np.array([s])
@@ -215,14 +216,14 @@ def theta0(struct, t, rank=0, var=1.0):
     if struct == "us":
         ii, jj = _tril_indices(t)
         th = np.zeros(len(ii))
-        th[ii == jj] = s                     # diagonale en log, hors-diag a 0
+        th[ii == jj] = s                     # log diagonal, off-diagonal at 0
         return th
     if struct == "fa":
         nl = n_loadings(t, rank)
         return np.concatenate([np.full(nl, 0.1 * np.exp(s)), np.full(t, s)])
     if struct == "rr":
-        # Loadings tous egaux donneraient un Gamma de rang 1 : on echelonne pour
-        # partir d'un point de rang plein.
+        # Equal loadings would give a Gamma of rank 1. They are staggered so
+        # that the start has full rank.
         nl = n_loadings(t, rank)
         return np.linspace(0.6, 0.3, nl) * np.sqrt(max(var, 1e-8))
     if struct in ("chol", "ante"):

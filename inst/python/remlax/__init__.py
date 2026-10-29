@@ -1,10 +1,10 @@
-"""remlax — solveur REML generique, independant du modele IGE.
+"""remlax: a generic REML solver, independent of the IGE model.
 
-Le paquet ne connait que des MATRICES D'INCIDENCE et des STRUCTURES DE
-COVARIANCE. Aucune notion de blé, de luzerne, de voisinage ou de trait n'y
-figure : ce qui est specifique au modele est construit cote R et serialise.
+The package only knows incidence matrices and covariance structures. It holds
+no notion of wheat, alfalfa, neighbourhood or trait. Everything specific to a
+model is built on the R side and serialised.
 """
-from . import _x64  # noqa: F401  (active float64 AVANT tout le reste)
+from . import _x64  # noqa: F401  (turns on float64 BEFORE anything else)
 from .structures import STRUCTURES, n_params, build_sigma, chol_sigma
 from .bundle import Bundle
 from .model import assemble_V, neg2_reml, make_objective

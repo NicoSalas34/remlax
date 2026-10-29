@@ -1,13 +1,17 @@
-"""Lecture d'un dispositif serialise par R (R/remlax.R).
+"""Reads a design serialised by R (R/remlax.R).
 
-FORMAT (repertoire) : manifest.json + <nom>.bin (binaire brut) / <nom>.txt.
-C'est la convention deja utilisee par export_06f_design.R, reprise telle quelle :
-binaire brut plutot que .npz pour n'exiger AUCUNE dependance Python cote R, et
-column-major parce que c'est l'ordre natif de R.
+The bundle is a directory holding manifest.json and one file per array:
+<name>.bin (raw binary) or <name>.txt (strings). Raw binary avoids any Python
+dependency on the R side. Arrays are column-major, the native order of R.
 
-POURQUOI DES FICHIERS ET PAS reticulate : R et JAX vivent dans deux conteneurs
-distincts sur ce cluster. Le fichier est aussi ce qui rend la parite verifiable,
-puisque les deux backends lisent alors STRICTEMENT la meme entree.
+R and Python exchange files because they can run in two separate containers.
+Files also make parity checkable, since every backend then reads exactly the
+same input.
+
+Bundle.get reads one array. The other methods assemble the arrays into the
+dicts used by the engine: terms() for the random terms, residual() for the
+residual structure, lag() for the spatial lag, fixed_groups() for the fixed
+terms.
 """
 import json
 import os
@@ -15,7 +19,7 @@ import numpy as np
 
 
 class Bundle:
-    """Dispositif : y, X, termes aleatoires, structure residuelle."""
+    """Design: y, X, random terms, residual structure."""
 
     def __init__(self, path):
         self.path = path
@@ -28,9 +32,12 @@ class Bundle:
         self.meta = {} if isinstance(man, list) else man.get("meta", {})
 
     def has(self, name):
+        """True if the bundle holds the array `name`."""
         return name in self.man
 
     def get(self, name):
+        """The array `name`: a list of strings, or a float64 or int32 array
+        reshaped in column-major order."""
         m = self.man[name]
         if m["dtype"] == "str":
             with open(os.path.join(self.path, name + ".txt")) as f:
@@ -40,7 +47,7 @@ class Bundle:
         shp = tuple(int(v) for v in m["shape"])
         return a.reshape(shp, order="F") if len(shp) > 1 else a
 
-    # ---------------------------------------------------------------- accesseurs
+    # ---------------------------------------------------------------- accessors
     @property
     def y(self):
         return self.get("y").astype(np.float64)
@@ -54,23 +61,23 @@ class Bundle:
         return int(self.y.shape[0])
 
     def fixed_groups(self):
-        """[(nom du terme, indices de colonnes)] ou None si non fourni."""
+        """[(term name, column indices)], or None if not supplied."""
         if not self.has("X_assign"):
             return None
         asg = self.get("X_assign").astype(int)
-        noms = self.get("X_termes")
-        out, vus = [], sorted(set(asg.tolist()))
-        for k, a in enumerate(vus):
+        names = self.get("X_termes")
+        out, codes = [], sorted(set(asg.tolist()))
+        for k, a in enumerate(codes):
             cols = [j for j in range(len(asg)) if asg[j] == a]
-            out.append((noms[k] if k < len(noms) else "terme %d" % a, cols))
+            out.append((names[k] if k < len(names) else "terme %d" % a, cols))
         return out
 
     def terms(self):
-        """Liste des termes aleatoires, dans l'ordre declare cote R.
+        """List of the random terms, in the order declared on the R side.
 
-        Chaque terme : name, struct, t (nb de colonnes de Sigma), rank, q (nb de
-        niveaux), Z (n x t*q, COO), L_K (facteur de Cholesky de la parente, ou
-        None pour l'identite).
+        Each term holds name, struct, t (number of columns of Sigma), rank,
+        q (number of levels), Z (n x t*q, COO in zi, zj, zx) and LK (Cholesky
+        factor of the relationship matrix, or None for the identity).
         """
         out = []
         for nm in self.get("term_names"):
@@ -80,13 +87,13 @@ class Bundle:
                 t=int(self.get("term_%s_t" % nm)[0]),
                 rank=int(self.get("term_%s_rank" % nm)[0]),
                 q=int(self.get("term_%s_q" % nm)[0]),
-                zi=self.get("term_%s_zi" % nm).astype(np.int64),   # ligne (0-based)
-                zj=self.get("term_%s_zj" % nm).astype(np.int64),   # colonne (0-based)
-                zx=self.get("term_%s_zx" % nm).astype(np.float64), # valeur
+                zi=self.get("term_%s_zi" % nm).astype(np.int64),   # row (0-based)
+                zj=self.get("term_%s_zj" % nm).astype(np.int64),   # column (0-based)
+                zx=self.get("term_%s_zx" % nm).astype(np.float64), # value
             )
             d["LK"] = (self.get("term_%s_LK" % nm).astype(np.float64)
                        if self.has("term_%s_LK" % nm) else None)
-            # Precision creuse (pedigree) : seul le moteur MME s'en sert.
+            # Sparse precision (pedigree). Only the MME engine uses it.
             if self.has("term_%s_Kinv_i" % nm):
                 import scipy.sparse as _sp
                 q_ = int(self.get("term_%s_q" % nm)[0])
@@ -97,23 +104,23 @@ class Bundle:
                 d["Kinv_logdet"] = float(self.get("term_%s_Kinv_logdet" % nm)[0])
             else:
                 d["Kinv"], d["Kinv_logdet"] = None, None
-            # Structure ENTRE NIVEAUX : "id" (defaut), "fixed" (K fournie),
-            # "ar1", "ar1ar1". Les anciens paquets n'ont pas la cle : on deduit
-            # alors "fixed" si une K est presente, "id" sinon.
+            # Structure between levels: "id" (default), "fixed" (K supplied),
+            # "ar1", "ar1ar1", ... Older bundles lack the key. The reader then
+            # infers "fixed" if a K is present and "id" otherwise.
             d["lvl"] = (self.get("term_%s_lvl" % nm)[0] if self.has("term_%s_lvl" % nm)
                         else ("fixed" if d["LK"] is not None else "id"))
             d["dims"] = (tuple(int(v) for v in self.get("term_%s_dims" % nm))
                          if self.has("term_%s_dims" % nm) else None)
             d["lvl_order"] = (int(self.get("term_%s_lvlorder" % nm)[0])
                               if self.has("term_%s_lvlorder" % nm) else 0)
-            # Coordonnees des niveaux, pour exp()/gau() : q x 1 (1D) ou q x 2 (2D).
+            # Coordinates of the levels, for exp()/gau(): q x 1 (1D) or q x 2 (2D).
             d["coord"] = (self.get("term_%s_coord" % nm).astype(np.float64)
                           if self.has("term_%s_coord" % nm) else None)
             d["lvl_opts"] = self._opts("term_%s" % nm)
-            # PRODUIT SEPARABLE : liste (famille, dimension), serialisee en deux
-            # vecteurs paralleles. C'est ce qui permet id (x) ar1 (x) ar1, soit un
-            # champ spatial replique par bloc a correlations PARTAGEES — que
-            # `ar1ar1`, limite a deux facteurs, ne peut pas exprimer.
+            # Separable product: a list of (family, dimension), serialised as
+            # two parallel vectors. It allows id (x) ar1 (x) ar1, a spatial
+            # field replicated by block with shared correlations. `ar1ar1` is
+            # limited to two factors and cannot express it.
             if self.has("term_%s_lvlpartk" % nm):
                 pk = list(self.get("term_%s_lvlpartk" % nm))
                 pq = [int(v) for v in self.get("term_%s_lvlpartq" % nm)]
@@ -124,11 +131,11 @@ class Bundle:
         return out
 
     def _opts(self, pre):
-        """Reglages nommes d'une structure de niveaux (mtrn, own, ...).
+        """Named settings of a level structure (mtrn, own, ...).
 
-        Serialises en deux tableaux paralleles, cles et valeurs : c'est le seul
-        format qui traverse la frontiere R/Python sans dependance JSON cote R,
-        et il reste extensible sans toucher au lecteur.
+        They are serialised as two parallel arrays, keys and values. This
+        format crosses the R/Python boundary without a JSON dependency on the
+        R side, and it can grow without changes to the reader.
         """
         if not self.has(pre + "_lvloptk"):
             return None
@@ -136,8 +143,8 @@ class Bundle:
         v = self.get(pre + "_lvloptv")
         return {str(a): float(b) for a, b in zip(k, v)}
 
-    def _struct_res(self, pre):
-        """Champs communs a une section residuelle (ou a la residuelle entiere)."""
+    def _residual_fields(self, pre):
+        """Fields shared by a residual section and by the whole residual."""
         g = lambda s: pre + s                                     # noqa: E731
         r = dict(struct=self.get(g("_struct"))[0],
                  t=int(self.get(g("_t"))[0]),
@@ -153,52 +160,51 @@ class Bundle:
         return r
 
     def residual(self):
-        """Structure residuelle : struct, t, rank, index de trait, index d'unite.
+        """Residual structure: struct, t, rank, trait index, unit index.
 
-        Avec `res_nsec` > 1 la residuelle est une SOMME DIRECTE de sections
-        (le dsum d'asreml) : chacune porte sa propre structure, ses propres
-        parametres et la liste des lignes qu'elle couvre.
+        With `res_nsec` > 1 the residual is a direct sum of sections (the dsum
+        of asreml). Each section carries its own structure, its own parameters
+        and the list of rows it covers.
         """
-        r = self._struct_res("res")
+        r = self._residual_fields("res")
         r["trait"] = (self.get("res_trait").astype(np.int64)
                       if self.has("res_trait") else np.zeros(self.n, np.int64))
         r["unit"] = (self.get("res_unit").astype(np.int64)
                      if self.has("res_unit") else np.arange(self.n, dtype=np.int64))
-        # n_unit exporte par R pour une grille (cellules sans observation
-        # comprises) ; sinon le plus grand code + 1.
+        # n_unit is exported by R for a grid (cells without observation
+        # included). Otherwise it is the largest code + 1.
         r["n_unit"] = (int(self.get("res_nunit")[0]) if self.has("res_nunit")
                        else int(r["unit"].max()) + 1)
         n_sec = int(self.get("res_nsec")[0]) if self.has("res_nsec") else 0
         if n_sec > 1:
-            secs, noms = [], (self.get("res_secnames")
-                              if self.has("res_secnames") else None)
+            secs, names = [], (self.get("res_secnames")
+                               if self.has("res_secnames") else None)
             for k in range(n_sec):
                 pre = "res_s%d" % k
-                s = self._struct_res(pre)
+                s = self._residual_fields(pre)
                 s["rows"] = self.get(pre + "_rows").astype(np.int64)
                 s["trait"] = self.get(pre + "_trait").astype(np.int64)
                 s["unit"] = self.get(pre + "_unit").astype(np.int64)
                 s["n_unit"] = (int(self.get(pre + "_nunit")[0]) if self.has(pre + "_nunit")
                                else int(s["unit"].max()) + 1)
-                s["name"] = noms[k] if noms is not None and k < len(noms) else "section%d" % (k + 1)
+                s["name"] = names[k] if names is not None and k < len(names) else "section%d" % (k + 1)
                 secs.append(s)
-            vues = np.concatenate([s["rows"] for s in secs])
-            if len(np.unique(vues)) != len(vues) or len(vues) != self.n:
+            cited = np.concatenate([s["rows"] for s in secs])
+            if len(np.unique(cited)) != len(cited) or len(cited) != self.n:
                 raise ValueError(
                     "dsum : les sections ne partitionnent pas les %d observations "
                     "(%d lignes citees, %d distinctes). Une ligne oubliee sortirait "
                     "de V avec une variance nulle, une ligne doublee la compterait "
-                    "deux fois." % (self.n, len(vues), len(np.unique(vues))))
+                    "deux fois." % (self.n, len(cited), len(np.unique(cited))))
             r["sections"] = secs
         return r
 
     def lag(self):
-        """Decalage spatial (rx_lag cote R), ou None.
+        """Spatial lag (rx_lag on the R side), or None.
 
-        W voyage en triplets COO 0-based, une matrice commune ou une par
-        caractere receveur ; mask, value et init sont des matrices q x q
-        (receveur en ligne, emetteur en colonne), ecrites en column-major comme
-        tout le reste.
+        W travels as 0-based COO triplets, either one shared matrix or one per
+        receiving trait. mask, value and init are q x q matrices (receiver in
+        rows, emitter in columns), written column-major like everything else.
         """
         if not self.has("lag_q"):
             return None

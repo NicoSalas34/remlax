@@ -1,20 +1,26 @@
-"""Choix du peripherique : GPU si disponible, CPU sinon, sans jamais echouer.
+"""Device choice, compilation cache and BLAS thread control.
 
-Le meme code tourne des deux cotes ; ce que change le peripherique, c'est la
-vitesse et l'ordre des reductions (donc les derniers bits), pas le modele.
+pick_device chooses the GPU when one is available and the CPU otherwise, and
+never fails. The same code runs on both. The device changes the speed and the
+order of reductions, and therefore the last bits, but leaves the model
+unchanged.
+
+The module also holds the start-up helpers used by cli.py
+(activer_cache_compilation, sans_greffons_gpu) and the BlasNumpyUnFil context
+used by fit.py.
 """
 from . import _x64  # noqa: F401
 import jax
 
 
 def pick_device(prefer="auto"):
-    """prefer : 'auto' | 'gpu' | 'cpu'. Rend (device, nom_plateforme).
+    """prefer: 'auto' | 'gpu' | 'cpu'. Returns (device, platform_name).
 
-    ATTENTION, PIEGE CORRIGE LE 01/09/2026 : jax.devices() SANS ARGUMENT ne rend
-    que les peripheriques de la plateforme par defaut. Des qu'un GPU est visible,
-    elle ne liste plus aucun CPU — donc filtrer sa sortie sur platform == "cpu"
-    rendait une liste vide, et `--backend=cpu` retombait silencieusement sur le
-    GPU. Il faut demander explicitement jax.devices("cpu"), qui existe toujours.
+    jax.devices() without an argument lists only the devices of the default
+    platform. As soon as a GPU is visible it lists no CPU. Filtering its output
+    on platform == "cpu" then gave an empty list, and `--backend=cpu` silently
+    fell back to the GPU. The code therefore asks for jax.devices("cpu")
+    explicitly, which always exists.
     """
     gpus = []
     for plat in ("gpu", "cuda", "rocm", "tpu"):
@@ -40,14 +46,14 @@ def pick_device(prefer="auto"):
 
 
 def device_report():
-    """Tous les peripheriques, CPU compris (cf. le piege dans pick_device)."""
-    out, vus = [], set()
+    """All devices, CPU included (see the note in pick_device)."""
+    out, seen = [], set()
     for plat in ("cpu", "gpu", "cuda", "rocm", "tpu"):
         try:
             for d in jax.devices(plat):
-                if str(d) in vus:
+                if str(d) in seen:
                     continue
-                vus.add(str(d))
+                seen.add(str(d))
                 out.append({"platform": d.platform, "kind": d.device_kind})
         except RuntimeError:
             pass
@@ -55,23 +61,22 @@ def device_report():
 
 
 def activer_cache_compilation():
-    """Cache PERSISTANT des programmes compiles par XLA.
+    """Turn on the persistent cache of programs compiled by XLA.
 
-    Un ajustement recompile ses fonctions a chaque lancement du solveur. Avec ce
-    cache, un second ajustement de meme forme (repetition d'un banc, grille,
-    permutation, reprise) relit le programme sur disque. MESURE sur CPU
-    (jax 0.11.1), une fonction a 30 Cholesky 300 x 300 et son gradient : premier
-    appel 2,35 s sans cache, 0,42 s au second lancement.
+    A fit recompiles its functions each time the solver is launched. With this
+    cache, a second fit of the same shape (repeated benchmark, grid,
+    permutation, restart) reads the program back from disk (dev/notes.md).
 
-    Dossier : $REMLAX_JAX_CACHE, sinon <cache remlax>/jax (meme cascade que le
-    noyau C de selinv : $REMLAX_CACHE, ~/.cache/remlax, $TMPDIR/remlax_cache).
-    REMLAX_JAX_CACHE=0 le desactive. Rend le dossier retenu, ou None.
+    Folder: $REMLAX_JAX_CACHE, otherwise <remlax cache>/jax. The cascade is the
+    same as for the C kernel of selinv: $REMLAX_CACHE, ~/.cache/remlax,
+    $TMPDIR/remlax_cache. REMLAX_JAX_CACHE=0 turns the cache off. Returns the
+    folder used, or None.
     """
     import os
-    choix = os.environ.get("REMLAX_JAX_CACHE")
-    if choix is not None and choix.strip().lower() in ("", "0", "false", "non"):
+    choice = os.environ.get("REMLAX_JAX_CACHE")
+    if choice is not None and choice.strip().lower() in ("", "0", "false", "non"):
         return None
-    cands = [choix] if choix else [
+    cands = [choice] if choice else [
         os.path.join(c, "jax") for c in (
             os.environ.get("REMLAX_CACHE"),
             os.path.join(os.path.expanduser("~"), ".cache", "remlax"),
@@ -85,8 +90,8 @@ def activer_cache_compilation():
             continue
         try:
             jax.config.update("jax_compilation_cache_dir", d)
-            # tout programme est garde : les petits se compilent vite, mais un
-            # ajustement en compile des dizaines
+            # Every program is kept. Small ones compile fast, but a fit
+            # compiles dozens of them.
             jax.config.update("jax_persistent_cache_min_compile_time_secs", 0.0)
             jax.config.update("jax_persistent_cache_min_entry_size_bytes", 0)
         except Exception:
@@ -96,15 +101,15 @@ def activer_cache_compilation():
 
 
 def sans_greffons_gpu():
-    """Calcul sur CPU seul : JAX ne charge pas le greffon CUDA.
+    """CPU-only computation: JAX does not load the CUDA plugin.
 
-    JAX decouvre et initialise ses greffons (jax_plugins) avant de regarder la
-    plateforme demandee, et celui de CUDA charge onze bibliotheques NVIDIA
-    meme sous JAX_PLATFORMS=cpu : MESURE dans ige_reml.sif, 1,65 s sur les
-    2,0 s de l'initialisation du backend, a chaque lancement du solveur.
-    Marquer les greffons comme deja enregistres evite ce chargement.
-    L'indicateur est interne a JAX : s'il disparait, rien ne change, sinon
-    le temps perdu. A appeler avant toute operation JAX ; sans effet ensuite.
+    JAX discovers and initialises its plugins (jax_plugins) before it looks at
+    the requested platform. The CUDA plugin loads eleven NVIDIA libraries even
+    under JAX_PLATFORMS=cpu, which takes most of the backend start-up time at
+    each launch of the solver (dev/notes.md). Marking the plugins as already
+    registered avoids this loading. The flag is internal to JAX. If it
+    disappears, nothing changes except the time lost. Call this before any JAX
+    operation. It has no effect afterwards.
     """
     import os
     os.environ["JAX_PLATFORMS"] = "cpu"
@@ -121,39 +126,39 @@ def sans_greffons_gpu():
 
 
 class BlasNumpyUnFil:
-    """Contexte : l'OpenBLAS de NumPy a un fil, celui de SciPy inchange.
+    """Context: the OpenBLAS of NumPy runs on one thread, SciPy's is unchanged.
 
-    Les roues de NumPy et de SciPy embarquent CHACUNE leur OpenBLAS, avec son
-    propre groupe de fils en attente active. Les produits de NumPy et le LAPACK
-    de SciPy (dpotrf, dpotri du moteur MME) se disputent alors deux fois plus
-    de fils que de coeurs. MESURE sur un noeud genotoul (8 coeurs alloues, AMD
-    EPYC 7513), evaluation MME complete : 1,46 s telle quelle contre 0,25 s
-    NumPy a un fil a m = 1428 ; 0,77 contre 0,72 s a m = 3772. Les produits
-    NumPy du moteur sont minces ; le gros calcul passe par LAPACK.
+    The NumPy and SciPy wheels each ship their own OpenBLAS, each with its own
+    pool of busy-waiting threads. The NumPy products and the SciPy LAPACK
+    (dpotrf, dpotri of the MME engine) then compete for twice as many threads
+    as there are cores. The NumPy products of the engine are thin, and the
+    heavy computation goes through LAPACK, so one NumPy thread costs little
+    and removes the contention (dev/notes.md).
 
-    Sans effet si les deux paquets partagent la meme bibliotheque, ou si le
-    symbole est introuvable. REMLAX_BLAS_NUMPY=garder le desactive.
+    No effect if both packages share the same library, or if the symbol cannot
+    be found. REMLAX_BLAS_NUMPY=garder turns it off.
     """
 
     _lib = None
-    _cherche = False
+    _searched = False
 
     @classmethod
-    def _trouver(cls):
-        if cls._cherche:
+    def _find(cls):
+        if cls._searched:
             return cls._lib
-        cls._cherche = True
+        cls._searched = True
         import os
         if os.environ.get("REMLAX_BLAS_NUMPY", "").strip().lower() == "garder":
             return None
         try:
             import ctypes
+            # Both imports load their OpenBLAS, so /proc/self/maps lists them.
             import numpy  # noqa: F401
             import scipy.linalg  # noqa: F401
             libs = []
             with open("/proc/self/maps") as f:
-                for ligne in f:
-                    p = ligne.split()[-1] if ligne.strip() else ""
+                for line in f:
+                    p = line.split()[-1] if line.strip() else ""
                     if "openblas" in p and p.endswith(".so") or ".so." in p and "openblas" in p:
                         if p not in libs:
                             libs.append(p)
@@ -162,34 +167,34 @@ class BlasNumpyUnFil:
             if not np_lib or not sp_lib or np_lib[0] == sp_lib[0]:
                 return None
             L = ctypes.CDLL(np_lib[0])
-            for nom_set, nom_get in (("scipy_openblas_set_num_threads64_", "scipy_openblas_get_num_threads64_"),
-                                     ("openblas_set_num_threads64_", "openblas_get_num_threads64_"),
-                                     ("openblas_set_num_threads", "openblas_get_num_threads")):
-                if hasattr(L, nom_set) and hasattr(L, nom_get):
-                    cls._lib = (getattr(L, nom_set), getattr(L, nom_get))
+            for set_name, get_name in (("scipy_openblas_set_num_threads64_", "scipy_openblas_get_num_threads64_"),
+                                       ("openblas_set_num_threads64_", "openblas_get_num_threads64_"),
+                                       ("openblas_set_num_threads", "openblas_get_num_threads")):
+                if hasattr(L, set_name) and hasattr(L, get_name):
+                    cls._lib = (getattr(L, set_name), getattr(L, get_name))
                     break
         except Exception:
             cls._lib = None
         return cls._lib
 
     def __enter__(self):
-        self._avant = None
-        f = self._trouver()
+        self._before = None
+        f = self._find()
         if f is not None:
             try:
                 import ctypes
-                self._avant = int(f[1]())
+                self._before = int(f[1]())
                 f[0](ctypes.c_int(1))
             except Exception:
-                self._avant = None
+                self._before = None
         return self
 
     def __exit__(self, *exc):
-        f = self._trouver()
-        if f is not None and self._avant:
+        f = self._find()
+        if f is not None and self._before:
             try:
                 import ctypes
-                f[0](ctypes.c_int(self._avant))
+                f[0](ctypes.c_int(self._before))
             except Exception:
                 pass
         return False

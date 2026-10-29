@@ -1,47 +1,47 @@
-"""Chronometrage par etapes d'un ajustement.
+"""Timing of a fit by stages.
 
-Chaque etape pose une marque ; le resultat rend, dans l'ordre, la duree ecoulee
-depuis la marque precedente. L'interface R transmet l'instant ou elle lance le
-solveur (variable RX_T_LANCEMENT, secondes depuis l'epoque) : la premiere etape
-mesure alors le demarrage de l'interpreteur, invisible depuis Python seul.
+Each stage sets a mark. The result gives, in order, the time elapsed since the
+previous mark. The R interface passes the instant at which it launches the
+solver (variable RX_T_LANCEMENT, seconds since the epoch). The first stage then
+measures the start-up of the interpreter, which Python alone cannot see.
 
-Le module ne depend de rien et s'importe en premier dans cli.py, avant JAX.
+The module has no dependency. cli.py imports it first, before JAX.
 """
 import os
 import time
 
-_marques = []
+_marks = []
 
 
 def raz(t0=None):
-    """Repart de zero ; t0 (secondes depuis l'epoque) date l'origine."""
-    del _marques[:]
+    """Start again from zero. t0 (seconds since the epoch) dates the origin."""
+    del _marks[:]
     if t0 is None:
         try:
             t0 = float(os.environ.get("RX_T_LANCEMENT", ""))
         except ValueError:
             t0 = None
     if t0 is not None:
-        _marques.append(("origine", t0))
+        _marks.append(("origine", t0))
 
 
-def marque(nom):
-    """Pose une marque ; rend l'instant."""
+def marque(name):
+    """Set a mark and return its instant."""
     t = time.time()
-    _marques.append((nom, t))
+    _marks.append((name, t))
     return t
 
 
-def poser(nom, t):
-    """Marque datee a un instant deja releve (t, secondes depuis l'epoque)."""
-    _marques.append((nom, float(t)))
+def poser(name, t):
+    """Set a mark dated at an instant already read (t, seconds since the epoch)."""
+    _marks.append((name, float(t)))
 
 
 def etapes():
-    """[(nom, secondes depuis la marque precedente)], marques consecutives de
-    meme nom cumulees."""
+    """[(name, seconds since the previous mark)]. Consecutive marks with the
+    same name are summed."""
     out = []
-    for (n0, t0), (n1, t1) in zip(_marques, _marques[1:]):
+    for (n0, t0), (n1, t1) in zip(_marks, _marks[1:]):
         d = t1 - t0
         if out and out[-1][0] == n1:
             out[-1] = (n1, out[-1][1] + d)
@@ -51,6 +51,7 @@ def etapes():
 
 
 def dict_etapes():
+    """The stages as a dict {name: seconds}, rounded to the microsecond."""
     out = {}
     for n, d in etapes():
         out[n] = round(out.get(n, 0.0) + float(d), 6)

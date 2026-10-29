@@ -1,37 +1,36 @@
-"""Point d'entree du scan GWAS, POSE A COTE de `cli.py`.
+"""Entry point of the genome-wide scan, beside `cli.py`.
 
-Ce module n'importe `cli.py` ni ne le modifie. Il reutilise `Bundle`,
-`fit_reml` et `scan`, et rien d'autre.
+This module neither imports nor modifies `cli.py`. It reuses `Bundle`,
+`fit_reml` and `scan`, and nothing else.
 
-    python -m remlax.scan_cli <paquet> --tests "dir,ind,dir+ind+sim,ind|dir+sim"
+    python -m remlax.scan_cli <bundle> --tests "dir,ind,dir+ind+sim,ind|dir+sim"
 
-POURQUOI UN SECOND POINT D'ENTREE PLUTOT QU'UNE OPTION DE `remlax`. Le scan a
-besoin de `Vi` et `Py`, qui sont des matrices n x n vivant dans le PROCESSUS de
-l'ajustement : elles ne traversent pas le fichier de resultats vers R (2,1 Go a
-n = 16 000). Le scan doit donc s'executer la ou l'ajustement s'execute. Comme
-on ne touche pas a `cli.py`, c'est un second executable qui refait le chemin
-paquet -> ajustement -> inference, avec le scan a la place des tests de Wald.
+The scan has its own entry point because it needs `Vi` and `Py`. These n x n
+matrices live in the process of the fit and do not travel to R through the
+result file (2 GB at n = 16 000). The scan must therefore run where the fit
+runs. Since `cli.py` stays untouched, a second executable repeats the path
+bundle -> fit -> inference, with the scan in place of the Wald tests.
 
-POURQUOI IL NE REOPTIMISE PAS. `--theta-in --maxiter 0` relit le theta deja
-estime et se contente de l'EVALUER : V est reassemblee, Vi et Py sont calcules,
-et l'optimiseur est court-circuite. Le scan ne paie donc pas une seconde
-estimation des composantes de variance — c'est la meme, celle de l'ajustement
-que l'utilisateur a deja lance et valide.
+`--theta-in --maxiter 0` reads the theta already estimated and only evaluates
+it. V is assembled again, Vi and Py are computed, and the optimiser is
+skipped. The scan therefore does not pay for a second estimation of the
+variance components. It uses the components of the fit that the user has
+already run and checked.
 
-FORMAT DES ENTREES DU SCAN. Le paquet ecrit par `rx_export` n'est pas touche :
-les tableaux propres au scan vivent a cote, decrits par `scan_manifest.json`,
-et sont relus ici par un lecteur local de six lignes. Aucun risque de corrompre
-`manifest.json`.
+The bundle written by `rx_export` is left untouched. The arrays specific to
+the scan live beside it, described by `scan_manifest.json`, and a small local
+reader reads them back. `manifest.json` cannot be corrupted this way.
 
     scan_manifest.json   {"arrays": [{"name":..., "dtype":"f8"|"i4"|"str", "shape":[...]}],
                           "meta": {"q_dir":..., "q_ind":..., "p":...}}
-    scan_dir_zi/zj/zx    incidence du genotype porte par la plante, en COO
-    scan_ind_zi/zj/zx    incidence des genotypes voisins, ponderee, en COO
-    scan_Mdir            doses genotypiques (q_dir x p), CENTREES pour `sim`
-    scan_Mind            doses des genotypes voisins (q_ind x p)
-    scan_snp             noms des SNP (facultatif)
-    scan_chr, scan_pos   carte (facultatif)
-    scan_garder          masque 0/1 des SNP a traiter (facultatif)
+    scan_dir_zi/zj/zx    incidence of the genotype carried by the plant, COO
+    scan_ind_zi/zj/zx    weighted incidence of the neighbour genotypes, COO
+    scan_Mdir            genotype doses (q_dir x p), CENTRED for `sim`
+    scan_Mind            doses of the neighbour genotypes (q_ind x p)
+    scan_M               doses shared by both families (replaces the two above)
+    scan_snp             SNP names (optional)
+    scan_chr, scan_pos   map (optional)
+    scan_garder          0/1 mask of the SNPs to process (optional)
 """
 import argparse
 import json
@@ -42,22 +41,24 @@ import time
 import numpy as np
 
 
-def _lire(paquet, man, nom):
-    m = man[nom]
+def _read_array(bundle_dir, man, name):
+    """One array of the scan manifest, in the format of Bundle.get."""
+    m = man[name]
     if m["dtype"] == "str":
-        with open(os.path.join(paquet, nom + ".txt")) as f:
+        with open(os.path.join(bundle_dir, name + ".txt")) as f:
             return [l.rstrip("\n") for l in f]
     dt = {"f8": np.float64, "i4": np.int32}[m["dtype"]]
-    a = np.fromfile(os.path.join(paquet, nom + ".bin"), dtype=dt)
+    a = np.fromfile(os.path.join(bundle_dir, name + ".bin"), dtype=dt)
     shp = tuple(int(v) for v in m["shape"])
     return a.reshape(shp, order="F") if len(shp) > 1 else a
 
 
-def _coo(paquet, man, pre, n, q):
+def _coo(bundle_dir, man, pre, n, q):
+    """Dense (n x q) incidence from the COO triplets <pre>_zi, _zj, _zx."""
     from scipy.sparse import coo_matrix
-    i = _lire(paquet, man, pre + "_zi").astype(np.int64)
-    j = _lire(paquet, man, pre + "_zj").astype(np.int64)
-    x = _lire(paquet, man, pre + "_zx").astype(np.float64)
+    i = _read_array(bundle_dir, man, pre + "_zi").astype(np.int64)
+    j = _read_array(bundle_dir, man, pre + "_zj").astype(np.int64)
+    x = _read_array(bundle_dir, man, pre + "_zx").astype(np.float64)
     return coo_matrix((x, (i, j)), shape=(n, q)).toarray()
 
 
@@ -94,7 +95,7 @@ def main(argv=None):
         print("[scan] backend retenu : %s (%s)" % (plat, dev), flush=True)
 
     tests = [t.strip() for t in a.tests.split(",") if t.strip()]
-    besoin = familles_requises(tests)
+    needed = familles_requises(tests)
 
     b = Bundle(a.bundle)
     terms, res, y, X = b.terms(), b.residual(), b.y, b.X
@@ -105,31 +106,31 @@ def main(argv=None):
     man = {d["name"]: d for d in sm["arrays"]}
     meta = sm.get("meta", {})
 
-    # `scan_M` present = LES MEMES SNP des deux cotes (cas intra-espece) : la
-    # matrice n'est ecrite qu'une fois, et un seul tableau est passe a `scan`.
-    # Cela evite de dupliquer 292 Mo au format du projet, et cela leve toute
-    # ambiguite sur l'alignement des colonnes pour les tests conjoints.
-    M_partage = _lire(a.bundle, man, "scan_M") if "scan_M" in man else None
+    # A `scan_M` array means the same SNPs on both sides (intra-species case).
+    # The matrix is written once, and a single array is passed to `scan`. This
+    # avoids duplicating a large matrix and removes any ambiguity about the
+    # alignment of columns in joint tests.
+    M_shared = _read_array(a.bundle, man, "scan_M") if "scan_M" in man else None
     incid, M = {}, {}
-    for fam, pre, cq, cm in (("dir", "scan_dir", "q_dir", "scan_Mdir"),
-                             ("ind", "scan_ind", "q_ind", "scan_Mind")):
+    for family, pre, cq, cm in (("dir", "scan_dir", "q_dir", "scan_Mdir"),
+                                ("ind", "scan_ind", "q_ind", "scan_Mind")):
         if pre + "_zi" not in man:
             continue
-        incid[fam] = _coo(a.bundle, man, pre, n, int(meta[cq]))
-        if M_partage is None:
-            M[fam] = _lire(a.bundle, man, cm)
-    if M_partage is not None:
-        M = M_partage
-    manquantes = [f for f in besoin if f in ("dir", "ind") and f not in incid]
-    if "sim" in besoin:
-        manquantes += [f for f in ("dir", "ind") if f not in incid]
-    if manquantes:
+        incid[family] = _coo(a.bundle, man, pre, n, int(meta[cq]))
+        if M_shared is None:
+            M[family] = _read_array(a.bundle, man, cm)
+    if M_shared is not None:
+        M = M_shared
+    missing = [f for f in needed if f in ("dir", "ind") and f not in incid]
+    if "sim" in needed:
+        missing += [f for f in ("dir", "ind") if f not in incid]
+    if missing:
         raise SystemExit(
             "[scan] tests %s demandes mais incidence(s) absente(s) du paquet : %s. "
             "Cote R, `incidences=` doit nommer les termes du modele qui les "
-            "portent." % (tests, sorted(set(manquantes))))
+            "portent." % (tests, sorted(set(missing))))
 
-    # --- ajustement (ou simple evaluation du theta fourni) -----------------
+    # ---- fit (or plain evaluation of the supplied theta) ------------------
     th0 = None
     if a.theta_in:
         th0 = np.fromfile(os.path.join(a.bundle, "in_theta.bin"), dtype=np.float64)
@@ -146,13 +147,13 @@ def main(argv=None):
         print("[scan] modele nul : -2logL = %.6f en %.1f s"
               % (fit["neg2_reml"], t_fit), flush=True)
 
-    # --- projection puis scan ----------------------------------------------
+    # ---- projection, then scan --------------------------------------------
     t0 = time.time()
     proj = projeter(fit, X, incid)
     t_proj = time.time() - t0
     t0 = time.time()
     r = scan(proj, M, tests=tests, bloc=a.bloc, verbose=not a.quiet,
-             garder=(_lire(a.bundle, man, "scan_garder").astype(bool)
+             garder=(_read_array(a.bundle, man, "scan_garder").astype(bool)
                      if "scan_garder" in man else None))
     t_scan = time.time() - t0
     if not a.quiet:
@@ -162,27 +163,27 @@ def main(argv=None):
             print("        lambda(%s) = %.3f"
                   % (t, lambda_gc(r["chi2_" + t], int(r["ddl_" + t][0]))), flush=True)
 
-    # --- table de sortie ----------------------------------------------------
+    # ---- output table ------------------------------------------------------
     p = int(meta["p"])
     cols = {}
-    cols["snp"] = (_lire(a.bundle, man, "scan_snp") if "scan_snp" in man
+    cols["snp"] = (_read_array(a.bundle, man, "scan_snp") if "scan_snp" in man
                    else ["snp%d" % (i + 1) for i in range(p)])
     if "scan_chr" in man:
-        cols["chr"] = _lire(a.bundle, man, "scan_chr")
+        cols["chr"] = _read_array(a.bundle, man, "scan_chr")
     if "scan_pos" in man:
-        cols["pos"] = _lire(a.bundle, man, "scan_pos")
+        cols["pos"] = _read_array(a.bundle, man, "scan_pos")
     for k, v in r.items():
         cols[k] = v
-    noms = list(cols)
-    chemin = os.path.join(a.bundle, a.sortie)
-    with open(chemin, "w") as f:
-        f.write(",".join(noms) + "\n")
+    names = list(cols)
+    out_path = os.path.join(a.bundle, a.sortie)
+    with open(out_path, "w") as f:
+        f.write(",".join(names) + "\n")
         for i in range(p):
             f.write(",".join(
                 ("" if isinstance(cols[k][i], float) and not np.isfinite(cols[k][i])
                  else ("%s" % cols[k][i] if isinstance(cols[k][i], str)
                        else "%.10g" % cols[k][i]))
-                for k in noms) + "\n")
+                for k in names) + "\n")
     with open(os.path.join(a.bundle, "scan_meta.json"), "w") as f:
         json.dump(dict(tests=tests, n=n, p=p, secondes_fit=t_fit,
                        secondes_projection=t_proj, secondes_scan=t_scan,
@@ -191,7 +192,7 @@ def main(argv=None):
                                                int(r["ddl_" + t][0]))
                                   for t in tests}), f, indent=1)
     if not a.quiet:
-        print("[scan] ecrit : %s" % chemin, flush=True)
+        print("[scan] ecrit : %s" % out_path, flush=True)
     return 0
 
 
