@@ -1,69 +1,171 @@
 # remlax
 
-An R package for REML estimation of linear mixed models with an asreml-like
-formula interface. The likelihood is computed by a Python solver shipped with
-the package, either on the marginal covariance `V` with JAX (CPU or GPU) or on
-Henderson's mixed model equations with a dense or sparse inversion, so the same
-model runs on any of these routes without being rewritten.
+remlax fits linear mixed models by restricted maximum likelihood (REML) from
+R, with a formula interface close to ASReml-R. The computations run in a
+Python solver shipped with the package. The same model can be fitted on the
+marginal covariance `V` or on Henderson's mixed model equations, on CPU or on
+GPU, without being rewritten.
 
-## What it is
+## What remlax fits
 
-remlax maximises the **restricted likelihood** of
+remlax maximises the restricted likelihood of
 
 ```
 y = X b + sum_k Z_k u_k + e,    u_k ~ N(0, Sigma_k (x) K_k),    e ~ N(0, R)
 ```
 
-A **term** is a set of `t` incidence matrices (n x q) sharing the same `q`
-levels, a covariance structure `Sigma` over those `t` columns, and a
-relationship matrix `K` between levels. That single object covers a simple
-random factor (`t = 1, K = I`), a genomic effect (`t = 1, K = GRM`), a
-multi-trait `us`/`fa` model (`t` = number of traits), and models where every
-column has its **own** weighted incidence, such as indirect genetic effects.
+A random term groups `t` incidence matrices (`n x q`) that share the same `q`
+levels, a covariance structure `Sigma` between those `t` columns, and a
+relationship matrix `K` between the levels. This form covers the usual models.
 
-Three engines compute the restricted likelihood of the same model:
+| model | `t` | `Sigma` | `K` |
+|---|---|---|---|
+| random factor (blocks, genotypes) | 1 | one variance | identity |
+| genomic BLUP | 1 | one variance | genomic relationship (`rx_grm()`) |
+| multi-trait or multi-environment, G x E | number of traits or environments | `us`, `fa(k)`, `diag`, ... | identity or relationship |
+| direct and indirect genetic effects | 2 or more, one weighted incidence per column | `us` | identity or relationship |
+| spatial field | 1 | one variance | `ar1(row, col)` or a metric kernel; 2D P-splines through `spl2d()` |
 
-| engine | call | works on | cost follows | devices |
+The residual `R` takes its own structure: one variance, one variance per
+group, a separable `ar1 x ar1` field, or a `us` between traits of the same
+unit. The covariance catalogue follows ASReml-R (see "Structure catalogue"
+below).
+
+Two interfaces build the model. `rx_reml()` reads formulas, for instance a
+genomic G x E model in long format:
+
+```r
+rx_reml(y ~ env, random = ~ fa(gid, rank = 2, K = K) + iid(bloc),
+        residual = ~ diag(env):units, data = d, trait = "env")
+```
+
+`rx_model()` and `rx_term()` take the matrices directly, for designs that no
+formula describes, such as one weighted incidence per neighbour class.
+
+## How the solver works
+
+R builds and checks the design, writes it to a temporary directory as raw
+binary files with a JSON manifest, and calls the solver of the installed
+package. The solver therefore always has the version of the R interface. R
+never imports Python. A Python process starts at the first fit and stays open
+for the session, which saves the start of Python and the import of JAX (about
+1.5 s) on every later fit.
+
+### Engines
+
+An engine computes the restricted likelihood, its gradient and the average
+information matrix. All engines compute the same likelihood. They differ in
+the matrix they factorise.
+
+| engine | call | factorises | cost grows with | devices |
 |---|---|---|---|---|
 | dense | `rx_fit()` (default) | `V`, `n x n`, differentiated by JAX | `n` | CPU, GPU |
 | mixed model equations | `rx_fit(engine = "mme")`, `rx_fit_mme()` | `C = W'R^-1W + diag(0, G^-1)`, `m x m` | `m` and the fill-in of `C` | CPU, GPU (dense inversion) |
-| sparse RTMB | `rx_fit_sparse()` | the mixed model equations through TMB | the fill-in of `C` | CPU |
+| blocks | `rx_fit(engine = "blocks")` | `V = A + U U'`, `A` block diagonal | the largest block | CPU, GPU |
+| sparse RTMB | `rx_fit_sparse()` | `C` through TMB | the fill-in of `C` | CPU |
 
-The dense engine covers every structure. The mixed model equations engine
-inverts `C` densely (LAPACK, or JAX on the GPU) or computes only the entries
-of `C^-1` it needs, by a supernodal selected inversion of the sparse Cholesky
-factor; a model outside its scope (residual `"none"`, `rr`, a spatial lag,
-Gaussian metric kernels) falls back to the dense engine with a message.
+The dense engine covers every structure. It forms `V`, so it suits models with
+at most a few tens of thousands of observations, many variance parameters, or
+structures without a sparse inverse. Its low memory mode (`memory = "low"`)
+keeps fewer `n x n` matrices alive and lets larger models fit on a GPU.
 
-Two optimisers maximise the likelihood. `optimizer = "lbfgsb"` (default) runs
-L-BFGS-B on an unconstrained parametrisation: every `Sigma` is parametrised by
-its Cholesky factor, so positive definiteness holds by construction.
+The mixed model equations engine suits large `n` with fewer levels, and
+sparse `C` (pedigree, separable fields). It inverts `C` densely, or computes
+only the entries of `C^-1` it needs by a supernodal selected inversion of the
+sparse Cholesky factor. It finds independent blocks of `C` and orders them by
+nested dissection when `pymetis` is installed. A model outside its scope
+(residual `"none"`, `rr`, a spatial lag, Gaussian metric kernels) is fitted by
+the dense engine, with a message.
+
+The blocks engine finds by itself the terms that link otherwise independent
+groups of observations, for instance genetic terms across tanks. It processes
+the blocks in batches.
+
+### Optimisers
+
+`optimizer = "lbfgsb"` (default) runs L-BFGS-B on an unconstrained
+parametrisation. Every `Sigma` is parametrised by its Cholesky factor, so it
+stays positive definite by construction.
+
 `optimizer = "ai"` runs average information REML with steps on the variance
-scale, as in ASReml, with an active set on the positive semidefinite cone and
-Levenberg-Marquardt damping when the step cannot be shortened usefully. The
-face of the cone follows the rotations of the eigenvectors of a rank-deficient
-`us`, so an optimum on the boundary is reached by AI itself. It hands over to
-L-BFGS-B when it stalls or finds no admissible step. Both end with the
-same regularised Newton polishing and report the same diagnostics.
+scale, as ASReml does. It usually needs far fewer evaluations than L-BFGS-B.
+An active set keeps each `us` block on the positive semidefinite cone. When an
+eigenvalue reaches zero, the step stays on the face of the cone and can still
+rotate the eigenvectors, so an optimum of reduced rank is reached by AI
+itself. A step that cannot be shortened usefully is damped in the manner of
+Levenberg and Marquardt. When AI stalls or finds no admissible step, L-BFGS-B
+resumes from the point reached.
 
-A Bayesian route samples the posterior of the variance parameters, from the
-posterior mode and without a REML fit by default:
-`rx_fit(model, bayes = rx_bayes(prior = rx_prior()))`. Fixed and
-random effects are integrated out analytically, and many short chains of
-Hamiltonian Monte Carlo, adapted by the ChEES criterion (BlackJAX), advance
-together on CPU or GPU. It needs the optional Python package blackjax.
+Both optimisers end with the same regularised Newton polishing. Every fit
+reports the largest gradient, the Newton decrement, the number of negative
+eigenvalues of the Hessian, the null directions and the parameters at a
+bound. `optim_msg` says why the optimiser stopped. `n_restarts` adds perturbed
+restarts against secondary optima.
+
+### CPU or GPU
+
+`backend = "auto"` takes the GPU when JAX sees one. CPU and GPU compute the
+same likelihood, to machine precision. A GPU pays a fixed cost of about 7 s
+per fit (compilation and transfers), so it is slower than 8 CPU cores on small
+models. On the benchmark of remlax-validation, an A100 was 5 to 30 times
+faster than 8 CPU cores on multi-trait `us` and `fa` models and on sparse
+multi-environment trials.
+
+### Choosing automatically
+
+`rx_fit(model, engine = "auto", optimizer = "auto")` takes the mixed model
+equations engine with average information REML when the model is in its
+scope, and otherwise the dense engine with L-BFGS-B, in low memory mode above
+n = 5000. On genetic models with a relationship matrix (genomic BLUP, G x E in
+`fa` or `us`), this combination was the fastest on the benchmarks against kmmr
+and ASReml-R, on CPU and on GPU. When the number of levels is much larger than
+`n` (many genotypes predicted from few observations), the dense engine is
+faster. The automatic choice does not yet detect this case.
+
+## What a fit returns
+
+- Variance components with their standard errors, and functions of them with
+  delta-method standard errors (`vpredict = c(h2 = "V1/(V1+V2+V3)")`).
+- BLUPs of every term and, on request, their prediction error variances.
+- Fixed effects with their covariance, conditional Wald tests (type III) and
+  Kenward-Roger degrees of freedom.
+- Predictions in the manner of `predict.asreml` (`rx_predict()`).
+- For 2D P-splines, the spatial output of SpATS: maps, spatial trend,
+  effective dimensions and generalised heritability (`plot()`,
+  `rx_spatial_trend()`, `rx_dimensions()`, `rx_heritability()`).
+- The time spent in each stage of the fit (`chrono`).
+- The log-likelihood with the constant of lme4 (`logLik`) and with that of
+  ASReml-R (`logLik_asreml`).
+
+## Beyond REML
+
+- Bayesian route. `rx_fit(model, bayes = rx_bayes(prior = rx_prior()))`
+  samples the posterior of the variance parameters. Fixed and random effects
+  are integrated out analytically. Many short Hamiltonian Monte Carlo chains,
+  adapted by the ChEES criterion (BlackJAX), run together on CPU or GPU. It
+  needs the optional Python package blackjax.
+- Genome-wide scans. `rx_scan()` tests every SNP at the variance components of
+  a fitted model, for direct effects, indirect effects (doses of the
+  neighbours) and their joint or conditional tests. `rx_scan_loco()` uses one
+  null model per chromosome, and `rx_scan_exact()` refits the top SNPs with
+  re-estimated variance components.
+- Neighbourhood designs. `rx_neighbourhood()` builds weighted incidences of
+  the neighbours of each plant, by species, distance kernel and dilution.
+  `rx_exposure()` computes the exposure that puts indirect variances on the
+  phenotypic scale.
+- Structural models. `rx_lag()` adds a spatial lag of the response,
+  `y = M y + ...`, as in the VP+, TB and TB+ models.
 
 ## What it is not
 
-- **The dense engine is limited by `n`.** It forms `V` explicitly (n x n):
-  at n = 16 000 that is 2.1 GB in float64. Large `n` with
-  few levels, or a sparse `C` (pedigree, separable fields), belongs to
-  `engine = "mme"`.
-- **Not a generalised linear mixed model package.** Non-Gaussian responses
-  would need an IRLS/Laplace layer above the solver.
-- **Not a drop-in replacement for asreml.** The objective is the same and the
-  estimates agree, but the algorithm, the reported iteration counts, the
-  log-likelihood constant, and the default Wald test type all differ. Those
+- The dense engine is limited by `n`. It forms `V` explicitly: at n = 16 000,
+  `V` takes 2.1 GB in double precision. Large `n` with few levels, or a sparse
+  `C`, belongs to `engine = "mme"`.
+- remlax does not fit generalised linear mixed models. Non-Gaussian responses
+  would need an IRLS or Laplace layer above the solver.
+- remlax is not a drop-in replacement for asreml. The objective is the same and
+  the estimates agree. The algorithm, the iteration counts, the
+  log-likelihood constant and the default Wald test type differ. These
   differences are documented in `vignette("structures", package = "remlax")`
   and in the other vignettes.
 
@@ -155,16 +257,6 @@ Ajustement REML (cpu) : logLik -388.088838 | 3 parametres | 240 obs | 1.6 s
     h2            0.60735   SE  0.05871   [V1/(V1+V2+V3)]
 ```
 
-## Choosing an engine
-
-`rx_fit(model, engine = "auto", optimizer = "auto")` takes the mixed model
-equations engine with average information REML whenever the model is in its
-scope, and the dense engine with L-BFGS-B otherwise. On genetic models with a
-relationship matrix (genomic BLUP, G x E in `fa` or `us`), it is the fastest
-combination on the benchmarks against kmmr and ASReml-R, on CPU and on GPU.
-`rx_fit()$chrono` gives the seconds spent in each stage of a fit, from the
-export by R to the reading back of the result.
-
 ## Structure catalogue
 
 Covariance structures for `Sigma` (over the `t` columns of a term). `w` is the
@@ -208,17 +300,17 @@ Full definitions, positivity constraints and internal parametrisations:
 
 ## Known limitations
 
-- **The dense engine forms `V`.** See "What it is not" above.
-- **A Python process stays open during the R session.** The first fit starts
+- The dense engine forms `V`. See "What it is not" above.
+- A Python process stays open during the R session. The first fit starts
   it; later fits reuse it, which avoids the start of Python and the import of
   JAX (about 1.5 s per fit). It stops with the R session or with
   `rx_server_stop()`; `options(remlax.server = FALSE)` runs every fit in a
   fresh subprocess instead.
-- **The log stays informative through polishing.** L-BFGS-B prints one line
+- The log stays informative through polishing. L-BFGS-B prints one line
   per iteration (step adapted to the measured evaluation cost) and the Newton
   polishing prints one line per step. A log with no new line for a long time
   means the current evaluation is long, not that the fit has stalled.
-- **CPU fits are bitwise reproducible on one machine; GPU fits are not.** On
+- CPU fits are bitwise reproducible on one machine; GPU fits are not. On
   CPU, four independent runs of the same fit on the cluster returned exactly
   the same log-likelihood. That equality holds for the same binary on the same
   machine: across jax versions or CPU models the last bit can move (one ulp
@@ -231,41 +323,41 @@ Full definitions, positivity constraints and internal parametrisations:
   tolerance, never with equality. The number of BLAS threads also moves the
   CPU log-likelihood in its sixth decimal, so bitwise comparison across
   machines requires the same thread count.
-- **Restarts are off by default** (`n_restarts = 0`). The Newton decrement
+- Restarts are off by default (`n_restarts = 0`). The Newton decrement
   cannot detect a local optimum: it measures the ascent available locally,
   so it is zero at the top of a secondary hill. Turn restarts on for any fit
   you intend to publish.
-- **Range kernels (`sph`, `cir`, `lvr`) are multimodal in the range.** The
+- Range kernels (`sph`, `cir`, `lvr`) are multimodal in the range. The
   automatic start sweeps the deciles of the pairwise distances and descends
   briefly from the best three before the fit; a supplied `theta_init` is
   respected. On irregular 1D positions `lvr` can still need `n_restarts`
   (`vignette("structures")`).
-- **No `ilv`.** asreml has one; its formula could not be recovered, and the
+- No `ilv`. asreml has one; its formula could not be recovered, and the
   natural candidate (a Euclidean tent) is not positive definite in two
   dimensions. An absent structure is preferred to a wrong one carrying an
   asreml name.
-- **Kenward-Roger omits the second-order term.** It vanishes when `V` is
+- Kenward-Roger omits the second-order term. It vanishes when `V` is
   linear in the variance parameters, which is true of every structure here
-  **except** the between-level correlation parameters (an AR1 `phi`, a range).
+  except the between-level correlation parameters (an AR1 `phi`, a range).
   pbkrtest and SAS make the same choice. The `second_ordre_omis` field says
   whether the model contains parameters for which the omission is not exact.
-- **`rx_predict()` covers fixed effects and single-trait random terms.** A
+- `rx_predict()` covers fixed effects and single-trait random terms. A
   `classify` on a multi-trait term is warned about and dropped from the random
   part.
-- **Wald tests are conditional (type III).** asreml's default is sequential
+- Wald tests are conditional (type III). asreml's default is sequential
   (type I). The two agree on the last term of the model.
-- **The log-likelihood constant differs from asreml.** remlax includes
+- The log-likelihood constant differs from asreml. remlax includes
   `(n-p)/2 log(2 pi)` (like lme4); asreml omits it. Use `fit$logLik_asreml`
   when comparing.
-- **The sign of a metric correlation is not identified.** `exp`, `gau`,
+- The sign of a metric correlation is not identified. `exp`, `gau`,
   `iexp`, `igau`, `ieuc`, `aexp` and `agau` raise `abs(tanh(theta))` to a
   distance, so `theta` and `-theta` give the same model. The reported `phi` is
   always positive and the report carries `signe_non_identifie`; there is no
   sign to interpret.
-- **Neighbourhood kernel ranges are not estimated.** Chaining a kernel
+- Neighbourhood kernel ranges are not estimated by REML. Chaining a kernel
   parameter through `Z` into `V` would require rebuilding the incidence at
-  every iteration.
-- **No non-Gaussian responses.**
+  every iteration. They can be profiled by refitting over a grid.
+- No non-Gaussian responses.
 
 ## Validation
 
@@ -307,7 +399,7 @@ builds the PDF; see `manual/README.md`).
 ## Development
 
 `tests/testthat/` holds the tests of the R interface; they skip when no
-Python with jax is found. `tests-python/` holds the 207 tests of the solver
+Python with jax is found. `tests-python/` holds the tests of the solver
 (`python -m pytest -c tests-python/pytest.ini tests-python` from the root,
 with `inst/python` on the path). Neither the solver tests nor the CI
 configuration are part of the built package (`.Rbuildignore`).
@@ -329,6 +421,6 @@ GNU General Public License, version 3 or later. See `LICENSE`.
 The choice follows the company remlax keeps: lme4, sommer, breedR and TMB are
 all GPL, and the sparse engine calls RTMB, so a permissive licence would have
 required keeping that engine at arm's length. It also matches the point of the
-project - a free alternative to a licensed solver stays free, and cannot be
+project. A free alternative to a licensed solver stays free, and cannot be
 taken into a closed product. The corresponding cost is real and worth stating:
 a permissively licensed package cannot depend on remlax.
