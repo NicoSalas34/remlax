@@ -1,84 +1,95 @@
-"""Modele structurel a decalage spatial (spatial lag) : y = M y + X b + Z u + e.
+"""Structural spatial lag model: y = M y + X b + Z u + e.
 
-MODELE
-    Reponse longue y (n lignes ; chaque ligne porte un caractere t et une unite i).
+Model
+    The response y is in long format (n rows). Each row carries a trait t and
+    a unit i.
 
         y = M y + X b + sum_k Z_k u_k + e,     M[(t,i),(u,j)] = Psi[t,u] * W_t[i,j]
 
-    Psi (q x q) : effet du caractere EMETTEUR u (colonne) d'une voisine j sur le
-    caractere RECEVEUR t (ligne) de la plante i ; W_t (N x N, diagonale nulle) :
-    poids de voisinage, communs a tous les caracteres ou propres a chaque
-    caractere receveur. Avec A = I - M inversible, y* = A y suit le modele
-    ordinaire du paquet (moyenne X b, covariance V(theta)) : tout ce que remlax
-    sait faire sur V s'applique donc sans changement a y*.
+    Psi (q x q) holds the effect of the emitting trait u (column) of a
+    neighbour j on the receiving trait t (row) of plant i. W_t (N x N, zero
+    diagonal) holds the neighbourhood weights. They are either shared by all
+    traits or specific to each receiving trait. With A = I - M invertible,
+    y* = A y follows the ordinary model of the package (mean X b, covariance
+    V(theta)). Everything remlax does on V therefore applies unchanged to y*.
 
-CRITERES (-2logL, convention du paquet ; voir aussi vignettes/structural.Rmd)
+Criteria (-2logL in the package convention; see also vignettes/structural.Rmd)
     jacobian   -2 REML(y*) - 2 log|det A|
-               Changement de variable y -> y*. Le terme de Harville (le
-               log|X'X| des contrastes) est pris sur X, la matrice des effets
-               fixes de y*, donc constant en Psi.
+               Change of variable y -> y*. The Harville term (the log|X'X| of
+               the contrasts) is taken on X, the fixed-effect matrix of y*. It
+               is therefore constant in Psi.
     reml_y     jacobian - log|X_y'X_y| + log|X'X|,    X_y = A^-1 X
-               (DEFAUT) La REML EXACTE de y. La moyenne de y est X_y b et non
-               X b ; or X_y depend de Psi des que les sommes de lignes de W
-               varient (plantes de bordure). Les contrastes de y sont orthogonaux
-               a X_y, et le terme de Harville de y, log|X_y'X_y|, n'est donc pas
-               constant en Psi. Ce n'est pas un terme en O(1/N) : a psi_v = +0,6
-               sur un caractere, X_y ~ X / (1 - psi_v) a l'interieur, soit un
-               decalage d'environ log(1/0,4) = 0,9 en logLik
-               (moteur igepath_reml, moteur_v2.md section 2). Sans lui, le
-               critere depend de l'echelle de b dans la parametrisation de y*.
-    ml         -2 ML(y*) - 2 log|det A|, vraisemblance profilee en b. Exacte
-               pour y (le terme de Harville n'existe pas en ML).
-    Les trois coincident a une constante pres quand Psi = 0, et jacobian et
-    reml_y coincident exactement quand W a des sommes de lignes constantes.
+               (default) The exact REML of y. The mean of y is X_y b. X_y
+               depends on Psi as soon as the row sums of W vary (border
+               plants). The contrasts of y are orthogonal to X_y, so the
+               Harville term of y, log|X_y'X_y|, varies with Psi. This term
+               does not vanish as N grows. Take psi_v = Psi s, the effect on
+               the whole-neighbourhood scale (see Parametrisation). At
+               psi_v = +0.6 on one trait, X_y ~ X / (1 - psi_v) in the
+               interior, a shift of about log(1/0.4) = 0.9 in logLik
+               (dev/notes.md). Without the term, the criterion depends on
+               the scale of b in the parametrisation of y*.
+    ml         -2 ML(y*) - 2 log|det A|, likelihood profiled over b. It is
+               exact for y, since ML has no Harville term.
+    The criteria coincide up to a constant when Psi = 0. jacobian and reml_y
+    coincide exactly when W has constant row sums.
 
-log|det A|, TROIS CHEMINS, choisis une fois sur la structure (jamais sur theta)
-    nilpotent  le motif des entrees non nulles possibles de Psi (libres ou
-               fixees non nulles) est un graphe SANS CYCLE : M^q = 0, donc
-               det A = 1 exactement et A^-1 = sum_{m<q} M^m. Pas de boucle de
-               retroaction, pas de question d'equilibre.
-    rapide     une seule W, symetrique, et chaque couple (caractere, unite)
-               observe exactement une fois. W = U diag(lambda) U' (une fois),
-               et log|det A| = sum_k log det(I_q - lambda_k Psi) : q x q par
-               valeur propre. C'est la formule du moteur igepath_reml.
-    general    tout le reste (W par caractere, W non symetrique, plan
-               incomplet) : factorisation LU dense de A (n x n), du meme ordre
-               que la Cholesky de V deja payee a chaque evaluation.
+log|det A| paths, chosen once from the structure and never from theta
+    nilpotent  The pattern of possibly nonzero entries of Psi (free entries,
+               and fixed entries with a nonzero value) is an acyclic graph.
+               Then M^q = 0, so det A = 1 exactly and A^-1 = sum_{m<q} M^m.
+               There is no feedback loop and no equilibrium question.
+    rapide     A single symmetric W, and each (trait, unit) pair observed
+               exactly once. W = U diag(lambda) U' is computed once, and
+               log|det A| = sum_k log det(I_q - lambda_k Psi). Each eigenvalue
+               costs one q x q determinant.
+    general    Everything else (one W per trait, nonsymmetric W, incomplete
+               design). A dense LU factorisation of A (n x n) is used. Its
+               cost is of the same order as the Cholesky factorisation of V
+               already paid at each evaluation.
+    The path names are returned to R as strings and keep their French
+    spelling (rapide means fast).
 
-REGION ADMISSIBLE. La region retenue est celle que l'on atteint depuis Psi = 0
-sans traverser de singularite le long du rayon t Psi :
+Admissible region. The region kept is the set of points reachable from
+Psi = 0 without crossing a singularity along the ray t Psi:
 
-    det(I - t M) > 0 pour tout t dans (0, 1]
-    <=> toute valeur propre REELLE de M est < 1.
+    det(I - t M) > 0 for all t in (0, 1]
+    <=> every real eigenvalue of M is below 1.
 
-Ce n'est PAS "tous les det(I_q - lambda_k Psi) > 0" : avec Psi = diag(c, c),
-chaque det_k vaut (1 - lambda_k c)^2 >= 0, et un point ou DEUX facteurs ont
-change de signe passerait ce test alors qu'on n'y arrive qu'en traversant
-det A = 0 (trouve par le test de penalite, Psi = diag(0,96 ; 0,96) sur une
-grille reine). Les valeurs propres de M valent lambda_k mu_i (mu_i celles de
-Psi) sur le chemin rapide, donc la condition porte sur les seules valeurs
-propres de Psi, q x q, et sur les deux valeurs propres extremes de W : elle
-est verifiee EXACTEMENT a chaque evaluation. Sur le chemin general, seule la
-condition necessaire det A > 0 est verifiee a chaque evaluation (le spectre
-de M, n x n non symetrique, couterait dix Cholesky) ; la condition exacte est
-verifiee au point final et rapportee (`admissible`). Un rayon spectral > 1
-avec toutes les valeurs propres reelles < 1 reste admis : A est inversible et
-le modele simultane est defini, meme si l'equilibre n'est plus la limite de
-l'iteration y <- M y + ... ; le rayon spectral est rapporte.
+Requiring every det(I_q - lambda_k Psi) > 0 is a weaker test. With
+Psi = diag(c, c), each det_k equals (1 - lambda_k c)^2 >= 0. A point where two
+factors have changed sign passes that test, yet it is reached only by crossing
+det A = 0 (dev/notes.md). On the fast path the eigenvalues of M are lambda_k mu_i, with mu_i
+the eigenvalues of Psi. The condition then involves only the eigenvalues of
+Psi (q x q) and the two extreme eigenvalues of W. It is checked exactly at
+each evaluation. On the general path the spectrum of M (n x n, nonsymmetric)
+would cost about ten Cholesky factorisations. Only the necessary condition
+det A > 0 is therefore checked at each evaluation. The exact condition is
+checked at the final point and reported (`admissible`). A spectral radius
+above 1 with all real eigenvalues below 1 is still admitted. A is then
+invertible and the simultaneous model is defined, even though the equilibrium
+is no longer the limit of the iteration y <- M y + .... The spectral radius
+is reported.
 
-Hors de la region, l'objectif vaut une PENALITE finie, de gradient nul :
-L-BFGS-B la voit comme une montee brutale et rebrousse chemin dans sa
-recherche lineaire. Une valeur infinie ou NaN arreterait l'optimiseur, et le
-gradient d'un log de nombre negatif empoisonnerait le reste par NaN (d'ou la
-double garde `where` : on calcule sur une matrice SURE et on choisit ensuite).
+Outside the region the objective equals a finite penalty (PENALITE) with zero
+gradient. L-BFGS-B sees it as a steep rise and backtracks in its line search.
+An infinite or NaN value would stop the optimiser. The gradient of the log of
+a negative number would also spread NaN to the rest of the gradient. The code
+therefore uses a double `where` guard: it computes on a safe matrix and
+selects the result afterwards.
 
-PARAMETRISATION. theta_lag = Psi * s pour les entrees libres, avec s la somme
-moyenne des |lignes| de W. Psi est ainsi a l'echelle "voisinage entier" (le
-psi_v du moteur igepath_reml) dans l'optimiseur : une unite de theta y vaut
-l'effet de toutes les voisines, ce qui met Psi a la meme echelle que les
-log-ecarts-types et evite qu'un W a petits poids (1/d^2) ne rende le gradient en
-Psi des ordres de grandeur plus grand que les autres. Les sorties sont en
-unites de W (Psi = theta_lag / s).
+Parametrisation. For free entries, theta_lag = Psi * s, with s the mean row
+sum of |W|. Inside the optimiser Psi is thus on the whole-neighbourhood scale:
+one unit of theta is the effect of all neighbours together. This puts Psi on
+the same scale as the log standard deviations. It also prevents a W with small
+weights (1/d^2) from making the gradient in Psi orders of magnitude larger
+than the others. Outputs are in units of W (Psi = theta_lag / s).
+
+Organisation. prepare_lag computes the constants once per fit. psi_from_theta,
+theta_from_psi and ystar map between theta, Psi and the response. lag_terms
+returns the Psi-dependent terms of the criterion inside the differentiated
+objective. lag_report and lag_component_names build the outputs at the final
+point.
 """
 from . import _x64  # noqa: F401
 
@@ -89,35 +100,35 @@ import scipy.sparse as sp
 
 CRITERES = ("reml_y", "jacobian", "ml")
 
-# Valeur de -2logL hors de la region admissible. Finie (cf. en-tete) et tres
-# au-dessus de toute valeur atteignable sur un jeu de taille realiste.
+# Value of -2logL outside the admissible region. It is finite (see the module
+# docstring) and far above any value reachable on a data set of realistic size.
 PENALITE = 1e12
 
 
 def lag_n_params(lag):
-    """Nombre d'entrees LIBRES de Psi (0 sans decalage)."""
+    """Number of free entries of Psi (0 without a lag)."""
     if lag is None:
         return 0
     return int(np.asarray(lag["mask"], dtype=bool).sum())
 
 
 def _nilpotent(B):
-    """Le motif booleen B (q x q) est-il nilpotent (graphe sans cycle) ?"""
+    """Whether the boolean pattern B (q x q) is nilpotent, that is an acyclic graph."""
     q = B.shape[0]
     P = B.astype(np.int64)
     Bi = B.astype(np.int64)
     for _ in range(q):
         P = (P @ Bi > 0).astype(np.int64)
-    # P vaut B^(q+1) en motif ; B nilpotent <=> B^q = 0 <=> B^(q+1) = 0 aussi,
-    # et un cycle laisse B^m non nul pour tout m.
+    # P is the pattern of B^(q+1). B is nilpotent iff B^q = 0, iff B^(q+1) = 0.
+    # A cycle leaves B^m nonzero for every m.
     return not P.any()
 
 
 def prepare_lag(lag, y, X):
-    """Precalculs CONSTANTS du decalage, hors de la fonction derivee.
+    """Constant precomputations of the lag, kept outside the differentiated function.
 
-    Idempotente : un dictionnaire deja prepare est rendu tel quel (les
-    redemarrages de fit_reml ne refont pas la decomposition spectrale).
+    The function is idempotent. A dictionary already prepared is returned as
+    is, so the restarts of fit_reml do not redo the eigendecomposition.
     """
     if lag is None or lag.get("_prepare"):
         return lag
@@ -126,16 +137,16 @@ def prepare_lag(lag, y, X):
     n, p = X.shape
     q, N = int(lag["q"]), int(lag["N"])
     tr = np.asarray(lag["trait"], dtype=np.int64)
-    un = np.asarray(lag["unit"], dtype=np.int64)
-    if tr.shape != (n,) or un.shape != (n,):
+    unit = np.asarray(lag["unit"], dtype=np.int64)
+    if tr.shape != (n,) or unit.shape != (n,):
         raise ValueError("lag : `trait` et `unit` doivent avoir %d elements (un par ligne de y)." % n)
-    if tr.min() < 0 or tr.max() >= q or un.min() < 0 or un.max() >= N:
+    if tr.min() < 0 or tr.max() >= q or unit.min() < 0 or unit.max() >= N:
         raise ValueError("lag : indice de caractere hors de 0..%d ou d'unite hors de 0..%d." % (q - 1, N - 1))
-    cle = tr * N + un
-    if len(np.unique(cle)) != n:
+    key = tr * N + unit
+    if len(np.unique(key)) != n:
         raise ValueError("lag : %d couple(s) (caractere, unite) en double. Chaque unite ne "
                          "peut porter qu'une observation par caractere : sinon M n'est pas "
-                         "definie." % (n - len(np.unique(cle))))
+                         "definie." % (n - len(np.unique(key))))
     Ws = [sp.csr_matrix(W, dtype=np.float64) for W in lag["W"]]
     if len(Ws) not in (1, q):
         raise ValueError("lag : %d matrice(s) W pour %d caracteres (1 ou %d attendues)."
@@ -154,79 +165,80 @@ def prepare_lag(lag, y, X):
     if crit not in CRITERES:
         raise ValueError("lag : critere '%s' inconnu (%s)." % (crit, ", ".join(CRITERES)))
 
-    # Echelle : somme moyenne des |lignes| de W, moyennee sur les W.
+    # Scale: mean row sum of |W|, averaged over the W matrices.
     s = float(np.mean([np.asarray(abs(W).sum(axis=1)).mean() for W in Ws]))
     s = s if s > 0 else 1.0
 
     widx = np.zeros(n, dtype=np.int64) if len(Ws) == 1 else tr
-    # Q[r, u] = (W_{t(r)} y_u)[unit(r)] : M y = sum_u Psi[t(r), u] Q[r, u]. y* est
-    # donc LINEAIRE en Psi avec Q constant, et son calcul coute n q par
-    # evaluation au lieu d'un produit n x n.
+    # Q[r, u] = (W_{t(r)} y_u)[unit(r)], so that M y = sum_u Psi[t(r), u] Q[r, u].
+    # y* is therefore linear in Psi with Q constant. Computing it costs n q per
+    # evaluation instead of an n x n product.
     yfull = np.zeros((q, N))
-    yfull[tr, un] = y
-    WY = [np.asarray(W @ yfull.T) for W in Ws]            # (N, q) chacun
+    yfull[tr, unit] = y
+    WY = [np.asarray(W @ yfull.T) for W in Ws]            # (N, q) each
     Q = np.empty((n, q))
     for k in range(len(Ws)):
         rows = np.flatnonzero(widx == k)
-        Q[rows] = WY[k][un[rows]]
+        Q[rows] = WY[k][unit[rows]]
 
-    motif = mask | (value != 0)
-    complet = n == q * N
-    unique_W = len(Ws) == 1 or all((abs(W - Ws[0]).max() if (W - Ws[0]).nnz else 0.0) == 0
+    pattern = mask | (value != 0)
+    complete = n == q * N
+    single_W = len(Ws) == 1 or all((abs(W - Ws[0]).max() if (W - Ws[0]).nnz else 0.0) == 0
                                    for W in Ws[1:])
     W0 = Ws[0]
     asym = abs(W0 - W0.T).max() if W0.nnz else 0.0
     sym = asym <= 1e-12 * max(1.0, abs(W0).max() if W0.nnz else 1.0)
-    if _nilpotent(motif):
-        chemin = "nilpotent"
-    elif unique_W and sym and complet:
-        chemin = "rapide"
+    if _nilpotent(pattern):
+        path = "nilpotent"
+    elif single_W and sym and complete:
+        path = "rapide"
     else:
-        chemin = "general"
-    # Forcage du chemin, pour les TESTS seulement (comparer rapide et general
-    # sur le meme modele). Le chemin nilpotent exige le motif nilpotent.
+        path = "general"
+    # Forcing the path is meant for tests only, to compare the fast and general
+    # paths on the same model. The nilpotent path requires a nilpotent pattern.
     force = lag.get("force_chemin")
     if force:
         if force not in ("rapide", "general", "nilpotent"):
             raise ValueError("lag : force_chemin = %r inconnu." % force)
-        if force == "nilpotent" and chemin != "nilpotent":
+        if force == "nilpotent" and path != "nilpotent":
             raise ValueError("lag : chemin nilpotent force sur un motif de Psi avec boucle.")
-        if force == "rapide" and not (unique_W and sym and complet):
+        if force == "rapide" and not (single_W and sym and complete):
             raise ValueError("lag : chemin rapide force sans W unique symetrique et plan complet.")
-        chemin = force
+        path = force
 
     mi, mj = np.nonzero(mask)
-    # Psi identiquement nulle (aucune entree libre, aucune valeur fixee non
-    # nulle) : A = I, et l'objectif doit etre CELUI du modele sans decalage,
-    # bit pour bit. On ne passe donc ni par slogdet(X'X) en JAX (qui differe du
-    # log|X'X| numpy au dernier chiffre) ni par aucun autre detour flottant.
-    vide = not motif.any()
-    out = dict(lag, _prepare=True, vide=vide, q=q, N=N, n=n, p=p, trait=tr, unit=un, mask=mask,
-               value=value, criterion=crit, scale=s, chemin=chemin, Q=jnp.asarray(Q),
+    # When Psi is identically zero (no free entry, no nonzero fixed value),
+    # A = I and the objective must equal the one of the model without a lag,
+    # to the bit. The code therefore avoids slogdet(X'X) in JAX, which differs
+    # from the numpy log|X'X| in the last digit, and any other floating-point
+    # detour.
+    empty = not pattern.any()
+    out = dict(lag, _prepare=True, vide=empty, q=q, N=N, n=n, p=p, trait=tr, unit=unit, mask=mask,
+               value=value, criterion=crit, scale=s, chemin=path, Q=jnp.asarray(Q),
                tr_j=jnp.asarray(tr), mi=mi, mj=mj, value_j=jnp.asarray(value),
                traits=list(lag.get("traits") or ["T%d" % (k + 1) for k in range(q)]),
                logXX=(float(np.linalg.slogdet(X.T @ X)[1]) if p else 0.0))
-    if chemin == "rapide":
+    if path == "rapide":
         lam, U = np.linalg.eigh(W0.toarray())
         pos = np.empty((q, N), dtype=np.int64)
-        pos[tr, un] = np.arange(n)
+        pos[tr, unit] = np.arange(n)
         Xt = np.einsum("ik,tip->ktp", U, X[pos]) if p else np.zeros((N, q, 0))
         out.update(lam=jnp.asarray(lam), lam_np=lam, Xt=jnp.asarray(Xt),
                    lam_min=float(lam.min()), lam_max=float(lam.max()))
     else:
-        # W "longue" : Wl[r, s] = W_{t(r)}[unit(r), unit(s)], n x n dense comme V.
+        # Long W: Wl[r, s] = W_{t(r)}[unit(r), unit(s)], dense n x n like V.
         Wl = np.empty((n, n))
         for k, W in enumerate(Ws):
             rows = np.flatnonzero(widx == k)
             if rows.size:
-                Wd = W[un[rows]].toarray()
-                Wl[rows] = Wd[:, un]
+                Wd = W[unit[rows]].toarray()
+                Wl[rows] = Wd[:, unit]
         out.update(Wl=jnp.asarray(Wl))
     return out
 
 
 def psi_from_theta(th_lag, L):
-    """Psi (q x q, unites de W) depuis les parametres libres."""
+    """Psi (q x q, in units of W) from the free parameters."""
     Psi = L["value_j"]
     if len(L["mi"]):
         Psi = Psi.at[L["mi"], L["mj"]].set(jnp.asarray(th_lag) / L["scale"])
@@ -234,7 +246,7 @@ def psi_from_theta(th_lag, L):
 
 
 def theta_from_psi(Psi, L):
-    """Inverse de psi_from_theta sur les entrees libres (depart)."""
+    """Inverse of psi_from_theta on the free entries, used for starting values."""
     Psi = np.asarray(Psi, dtype=np.float64)
     return Psi[L["mi"], L["mj"]] * L["scale"]
 
@@ -247,9 +259,11 @@ def ystar(th_lag, L, y):
     return jnp.asarray(y) - jnp.sum(Psi[L["tr_j"], :] * L["Q"], axis=1)
 
 
-def _vp_reelles_admissibles(Psi, lam_min, lam_max):
-    """Toute valeur propre reelle mu de Psi verifie mu lambda < 1 aux deux
-    extremes du spectre de W (numpy ; appele hors derivation)."""
+def _real_eigenvalues_admissible(Psi, lam_min, lam_max):
+    """Whether every real eigenvalue mu of Psi gives mu lambda < 1 at both ends of the spectrum of W.
+
+    Plain numpy, called outside differentiation.
+    """
     Psi = np.asarray(Psi, dtype=np.float64)
     mu = np.linalg.eigvals(Psi)
     tol = 1e-10 * max(1.0, float(np.max(np.abs(mu))) if mu.size else 1.0)
@@ -258,36 +272,40 @@ def _vp_reelles_admissibles(Psi, lam_min, lam_max):
 
 
 def _ok_rapide(Psi, L):
-    """Condition exacte de la region (en-tete), sous jit : rappel numpy sur Psi
-    q x q, a travers stop_gradient (ok n'a pas de derivee, et sans lui la
-    differentiation chercherait une regle de derivation du rappel)."""
+    """Exact region condition of the fast path (module docstring), under jit.
+
+    It is a numpy callback on the q x q matrix Psi. Psi goes through
+    stop_gradient because the result has no derivative. Without it,
+    differentiation would look for a derivative rule of the callback.
+    """
     lmin, lmax = L["lam_min"], L["lam_max"]
-    return jax.pure_callback(lambda P: _vp_reelles_admissibles(P, lmin, lmax),
+    return jax.pure_callback(lambda P: _real_eigenvalues_admissible(P, lmin, lmax),
                              jax.ShapeDtypeStruct((), jnp.bool_),
                              jax.lax.stop_gradient(Psi))
 
 
 def _M_dense(Psi, L):
+    """Dense M (n x n) on the general and nilpotent paths."""
     tr = L["tr_j"]
     return Psi[tr[:, None], tr[None, :]] * L["Wl"]
 
 
 def lag_terms(th_lag, L, X):
-    """Termes du critere qui dependent de Psi au-dela de y*.
+    """Terms of the criterion that depend on Psi beyond y*.
 
-    Rend (log|det A|, terme de moyenne, ok) :
-      terme de moyenne = 1/2 log|X_y'X_y| - 1/2 log|X'X| (0 si non demande) ;
-      ok = point dans la region admissible (booleen JAX).
+    Returns (log|det A|, mean term, ok). The mean term is
+    1/2 log|X_y'X_y| - 1/2 log|X'X|, and 0 when the criterion does not use it.
+    ok tells whether the point lies in the admissible region (JAX boolean).
     """
     if L.get("vide"):
         return jnp.asarray(0.0), jnp.asarray(0.0), jnp.asarray(True)
     Psi = psi_from_theta(th_lag, L)
     q = L["q"]
-    besoin_moy = L["criterion"] == "reml_y" and L["p"] > 0
+    need_mean = L["criterion"] == "reml_y" and L["p"] > 0
     Xj = jnp.asarray(X)
     if L["chemin"] == "nilpotent":
         ldA, ok = jnp.asarray(0.0), jnp.asarray(True)
-        if besoin_moy:
+        if need_mean:
             M = _M_dense(Psi, L)
             Xy = Xj
             for _ in range(q - 1):            # A^-1 X = sum_{m<q} M^m X, exact
@@ -299,10 +317,10 @@ def lag_terms(th_lag, L, X):
         B = jnp.eye(q)[None] - lam[:, None, None] * Psi[None]
         d = jnp.linalg.det(B)
         ok = jnp.all(d > 0) & _ok_rapide(Psi, L)
-        # DOUBLE GARDE : calcul sur une matrice sure, choix ensuite (en-tete).
+        # Double guard: compute on a safe matrix, then select (module docstring).
         Bs = jnp.where(ok, B, jnp.eye(q)[None])
         ldA = jnp.sum(jnp.linalg.slogdet(Bs)[1])
-        if besoin_moy:
+        if need_mean:
             Yk = jnp.linalg.solve(Bs, L["Xt"])                 # (N, q, p)
             G = jnp.einsum("ktp,ktm->pm", Yk, Yk)
             return ldA, 0.5 * (jnp.linalg.slogdet(G)[1] - L["logXX"]), ok
@@ -312,23 +330,23 @@ def lag_terms(th_lag, L, X):
         A = jnp.eye(n) - _M_dense(Psi, L)
         lu, piv = jax.scipy.linalg.lu_factor(A)
         dg = jnp.diagonal(lu)
-        n_ech = jnp.sum(piv != jnp.arange(n))
-        signe = jnp.prod(jnp.sign(dg)) * (1 - 2 * (n_ech % 2))
-        ok = (signe > 0) & jnp.all(dg != 0)
+        n_swaps = jnp.sum(piv != jnp.arange(n))
+        sign = jnp.prod(jnp.sign(dg)) * (1 - 2 * (n_swaps % 2))
+        ok = (sign > 0) & jnp.all(dg != 0)
         ldA = jnp.sum(jnp.log(jnp.abs(jnp.where(dg == 0, 1.0, dg))))
-        Xy = jax.scipy.linalg.lu_solve((lu, piv), Xj) if besoin_moy else None
-    if besoin_moy:
+        Xy = jax.scipy.linalg.lu_solve((lu, piv), Xj) if need_mean else None
+    if need_mean:
         G = Xy.T @ Xy
         return ldA, 0.5 * (jnp.linalg.slogdet(G)[1] - L["logXX"]), ok
     return ldA, jnp.asarray(0.0), ok
 
 
 def lag_report(th_lag, L, X, neg2):
-    """Sorties du decalage au point final (numpy), y compris le rayon spectral de M."""
+    """Lag outputs at the final point (numpy), including the spectral radius of M."""
     Psi = np.asarray(psi_from_theta(jnp.asarray(th_lag), L))
     crit = L["criterion"]
-    # Le terme de moyenne est rapporte meme pour les criteres qui ne l'incluent
-    # pas, pour qu'on puisse passer d'un critere a l'autre sans reajuster.
+    # The mean term is reported even for the criteria that leave it out. The
+    # user can then move from one criterion to another without refitting.
     L2 = dict(L, criterion="reml_y")
     ldA, ldm, ok = lag_terms(jnp.asarray(th_lag), L2, X)
     ldA, ldm, ok = float(ldA), float(ldm), bool(ok)
@@ -337,9 +355,9 @@ def lag_report(th_lag, L, X, neg2):
     elif L["chemin"] == "rapide":
         rho = float(np.max(np.abs(L["lam_np"])) * np.max(np.abs(np.linalg.eigvals(Psi))))
     else:
-        # Chemin general : le spectre de M, une fois, donne le rayon spectral ET
-        # la condition exacte de la region (seul det A > 0 a ete verifie
-        # pendant l'optimisation).
+        # General path: the spectrum of M, computed once, gives the spectral
+        # radius and the exact region condition. Only det A > 0 was checked
+        # during the optimisation.
         mu = np.linalg.eigvals(np.asarray(_M_dense(jnp.asarray(Psi), L)))
         rho = float(np.max(np.abs(mu))) if mu.size else 0.0
         tol = 1e-10 * max(1.0, rho)
@@ -361,7 +379,7 @@ def lag_report(th_lag, L, X, neg2):
 
 
 def lag_component_names(L):
-    """Noms des entrees libres, dans l'ordre de theta : Psi[receveur<-emetteur]."""
-    tn = L.get("traits") or ["T%d" % (k + 1) for k in range(int(L["q"]))]
+    """Names of the free entries in theta order, as Psi[receiver<-emitter]."""
+    names = L.get("traits") or ["T%d" % (k + 1) for k in range(int(L["q"]))]
     mi, mj = np.nonzero(np.asarray(L["mask"], dtype=bool).reshape(int(L["q"]), int(L["q"])))
-    return ["Psi[%s<-%s]" % (tn[i], tn[j]) for i, j in zip(mi, mj)]
+    return ["Psi[%s<-%s]" % (names[i], names[j]) for i, j in zip(mi, mj)]
