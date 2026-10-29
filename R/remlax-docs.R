@@ -208,7 +208,7 @@ NULL
 #' @param verbose pass the solver's output through: one line per optimiser
 #'   iteration and one per Newton polishing step.
 #' @param keep keep `dir` after the fit.
-#' @param optimizer `"lbfgsb"` (default), `"ai"`, `"ai_theta"` or `"auto"`
+#' @param optimizer `"lbfgsb"` (default), `"ai"` or `"auto"`
 #'   (`"ai"` with the mixed model equations engine, `"lbfgsb"` otherwise). `"ai"` is
 #'   AI-REML with steps taken on the variance scale (the entries of each
 #'   `Sigma`), as in ASReml. A `us` block whose optimum is rank deficient is
@@ -216,8 +216,7 @@ NULL
 #'   the step six times does not decrease `-2 logL`, the step is damped in the
 #'   manner of Levenberg and Marquardt (`AI + mu I`, `mu` increasing), which
 #'   turns it towards the gradient. An AI run that cannot certify its optimum
-#'   hands over to L-BFGS-B. `"ai_theta"` takes the AI steps on the Cholesky
-#'   scale of `theta` (earlier variant). The default can be set with
+#'   hands over to L-BFGS-B. The default can be set with
 #'   `options(remlax.optimizer = )` or the environment variable
 #'   `RX_OPTIMIZER`.
 #' @param engine `"dense"` (default), `"mme"`, `"blocks"` or `"auto"`. `"auto"`
@@ -1090,7 +1089,8 @@ NULL
 #' the first of `RX_PY`, `IGE_JAX_CMD`, `IGE_JAX_SIF` (expanded to
 #' `apptainer exec --nv <sif> python3`), `python3`. `rx_solver_args()` returns
 #' the arguments that select the solver entry point: `RX_CLI` if set,
-#' otherwise the copy shipped in `system.file("python", package = "remlax")`.
+#' otherwise the launcher `remlax_run.py` of the copy shipped in
+#' `system.file("python", package = "remlax")`, followed by `"cli"`.
 #' The shipped copy is used even when a Python package `remlax` is importable,
 #' so that the interface and the engine are always those of the same version.
 #' It stops with a message if the shipped copy is missing.
@@ -1098,7 +1098,7 @@ NULL
 #' @return A character vector.
 #' @examples
 #' rx_python_cmd()
-#' basename(rx_solver_args())
+#' basename(rx_solver_args()[1])
 #' @usage
 #' rx_python_cmd()
 #' rx_solver_args()
