@@ -1,12 +1,26 @@
-"""Point d'entree du solveur : lit un dispositif serialise, ajuste, ecrit.
+"""Entry point of the solver: reads a serialised model, fits it, writes the result.
 
-    python3 remlax_run.py cli <repertoire> [--backend auto|gpu|cpu] [--maxiter N]
+    python3 remlax_run.py cli <bundle> [--backend auto|gpu|cpu] [--maxiter N]
                               [--polish N] [--no-hessian] [--no-blups] [--quiet]
 
-Ecrit dans le meme repertoire : result.json (scalaires et dimensions) et des
-binaires out_*.bin (theta, beta, Sigma, BLUPs) relus par R. Le format de sortie
-est le miroir exact du format d'entree, pour que R n'ait besoin d'aucune
-dependance Python et Python d'aucune dependance R.
+The result goes into the bundle directory: result.json (scalars and the
+dimensions of every array) and raw float64 files out_*.bin (theta, beta,
+Sigma, BLUPs) read back by R. The output format mirrors the input format, so
+that R needs no Python dependency and Python no R dependency.
+
+main() runs these steps in order:
+
+    _parser            command line
+    _select_device     JAX device, entered as a context for the whole run
+    _read_inputs       bundle, weights, spatial lag, checks of the options
+    _parse_vpredict    vpredict expressions, checked before the fit
+    _fit               REML fit, posterior mode, or no fit (--only-predict)
+    _inference         component table, vpredict, Kenward-Roger, predict, Wald
+    _sample_bayes      posterior sample (--bayes)
+    _write_outputs     out_*.bin and result.json
+
+A step that refuses the request raises _Refusal; main() prints its message on
+stderr and returns 2.
 """
 import time
 import argparse  # noqa: E402
@@ -14,24 +28,21 @@ import json  # noqa: E402
 import os  # noqa: E402
 import sys  # noqa: E402
 
-# fin du demarrage de l'interpreteur, notee par remlax_run.py avant tout import lourd
+# End of interpreter start-up, recorded by remlax_run.py before any heavy import.
 _T_DEBUT = float(os.environ.get("RX_T_DEBUT", time.time()))
 
-# FILS BORNES AUX COEURS ALLOUES, avant l'import de NumPy et de JAX qui
-# dimensionnent leurs groupes de fils sur l'affinite du processus (fils.py).
+# Threads bounded to the allocated cores, before NumPy and JAX size their
+# thread pools on the affinity of the process (fils.py).
 from remlax.fils import borner_fils, _ETAT as _FILS  # noqa: E402
 borner_fils()
 
 import numpy as np  # noqa: E402
 
-# MODE ECONOME ET MOTEUR PAR BLOCS : PLAFOND DE L'ALLOCATEUR. JAX limite par defaut sa reserve a 75 %
-# de la memoire du GPU, meme sans preallocation. Sur une tranche MIG de 10 Go la
-# limite tombe a 7,65 Go : l'auto-reglage de la compilation y monte a 6,1 Go et
-# fragmente la reserve, puis les temporaires de l'evaluation (4,1 Go d'un seul
-# tenant sur mvD7) ne trouvent plus de place (mesure le 2026-10-25). A 95 %, le
-# meme calcul passe. La variable est lue a l'initialisation du backend, qui a
-# lieu des l'import des modules ci-dessous : elle se pose donc ici. Une valeur
-# fixee par l'appelant est respectee.
+# Allocator ceiling for the low-memory mode and the blocks engine. By default
+# JAX caps its pool at 75 % of the GPU memory, which is too little on a MIG
+# slice (dev/notes.md). The variable is read when the backend initialises,
+# which happens on the imports below, so it is set here. A value set by the
+# caller is kept.
 if "--memoire=econome" in sys.argv or "--moteur=blocs" in sys.argv or "--inversion=hybride" in sys.argv or any(
         (a, b) in (("--memoire", "econome"), ("--moteur", "blocs"), ("--inversion", "hybride"))
         for a, b in zip(sys.argv, sys.argv[1:])):
@@ -43,16 +54,55 @@ from remlax.bundle import Bundle  # noqa: E402
 from remlax.device import pick_device, device_report, activer_cache_compilation, sans_greffons_gpu  # noqa: E402
 from remlax.fit import fit_reml  # noqa: E402
 
-# CHRONOMETRAGE PAR ETAPES (chrono.py). "demarrage" : du lancement par R
-# (RX_T_LANCEMENT) a la premiere ligne de ce fichier ; "imports" : numpy, JAX
-# et le solveur. En mode serveur, serveur.py remet le chrono a zero a chaque
-# requete et ces deux etapes disparaissent : c'est tout son interet.
+# Timing by stages (chrono.py). "demarrage" runs from the launch by R
+# (RX_T_LANCEMENT) to the first line of this file; "imports" covers numpy, JAX
+# and the solver. In server mode, serveur.py resets the timer at each request
+# and both stages disappear.
 chrono.raz()
 chrono.poser("demarrage", _T_DEBUT)
 chrono.marque("imports")
 
 
+class _Refusal(Exception):
+    """A request the solver refuses; main() prints it and returns 2."""
+
+
+def _error(msg):
+    print("[remlax] ERREUR : %s" % msg, file=sys.stderr, flush=True)
+
+
 def main(argv=None):
+    a = _parser().parse_args(argv)
+    import jax
+    dev, plat = _select_device(a)
+    with jax.default_device(dev):
+        try:
+            return _run(a, plat)
+        except _Refusal as e:
+            _error(str(e))
+            return 2
+
+
+def _run(a, plat):
+    inp = _read_inputs(a)
+    exprs = _parse_vpredict(a, inp)
+    fixed = [int(v) - 1 for v in a.fixed_theta.split(",") if v.strip()] if a.fixed_theta else None
+    r, Hu_map, prior = _fit(a, inp, fixed)
+    _inference(a, r, inp, exprs, fixed)
+    bayes = _sample_bayes(a, r, inp, exprs, fixed, plat, Hu_map, prior)
+    chrono.marque("inference")
+    _write_outputs(a, r, bayes, plat)
+    if not a.quiet and not a.only_predict:
+        print("[remlax] logLik = %.9f | %d parametres | %.1f s"
+              % (r["logLik"], r["n_par"], r["secondes"]), flush=True)
+    return 0
+
+
+# ------------------------------------------------------------------------------
+# Command line
+# ------------------------------------------------------------------------------
+
+def _parser():
     ap = argparse.ArgumentParser(description="solveur REML generique")
     ap.add_argument("bundle")
     ap.add_argument("--backend", default="auto", choices=["auto", "gpu", "cpu"])
@@ -119,315 +169,412 @@ def main(argv=None):
                     help="fichier JSON de loi a priori, relatif au paquet (prior.json)")
     ap.add_argument("--bayes-effets", dest="bayes_effets", type=int, default=100,
                     help="tirages servant aux moments a posteriori de beta et des BLUP")
-    a = ap.parse_args(argv)
+    return ap
 
-    import jax
-    # CPU SEUL quand le processus entier l'est (JAX_PLATFORMS=cpu, pose par R
-    # pour backend = "cpu" en sous-processus) : pas de greffon CUDA. Le serveur
-    # persistant, lui, sert CPU et GPU dans le meme processus et garde tout.
+
+def _pev_arg(a):
+    """The --pev-termes list, or the --pev flag."""
+    return a.pev_termes.split(",") if a.pev_termes else a.pev
+
+
+def _slow_stop_arg(a):
+    """--arret-lent as (window, minimal gain)."""
+    w, g = a.arret_lent.split(",")
+    return (int(w), float(g))
+
+
+# ------------------------------------------------------------------------------
+# Device
+# ------------------------------------------------------------------------------
+
+def _select_device(a):
+    """The JAX device of the run. jax.default_device() in main() applies it to
+    every later operation: the CPU/GPU choice enters nowhere else."""
+    # CPU only when the whole process is (JAX_PLATFORMS=cpu, set by R for
+    # backend = "cpu" in a subprocess): no CUDA plugin. The persistent server
+    # serves CPU and GPU in the same process and keeps everything.
     if os.environ.get("JAX_PLATFORMS", "").strip().lower() == "cpu":
         sans_greffons_gpu()
     activer_cache_compilation()
     dev, plat = pick_device(a.backend)
-    # jax.default_device fixe le peripherique pour TOUTES les operations
-    # suivantes : c'est le seul endroit ou le choix CPU/GPU intervient, et il
-    # ne touche a rien d'autre que la machine.
-    ctx = jax.default_device(dev)
-    ctx.__enter__()
     if not a.quiet:
         print("[remlax] peripheriques : %s" % device_report(), flush=True)
         if _FILS["message"]:
             print(_FILS["message"], flush=True)
         print("[remlax] backend retenu : %s (%s)" % (plat, dev), flush=True)
     chrono.marque("peripherique")
+    return dev, plat
 
+
+# ------------------------------------------------------------------------------
+# Inputs
+# ------------------------------------------------------------------------------
+
+class _Inputs:
+    """What the bundle holds: the model (terms, res, y, X), the prior weights,
+    the prepared spatial lag, and the bundle itself for the optional files."""
+
+    def __init__(self, bundle, terms, res, y, X, weights, lag):
+        self.bundle, self.terms, self.res, self.y, self.X = bundle, terms, res, y, X
+        self.weights, self.lag = weights, lag
+
+
+def _read_inputs(a):
     b = Bundle(a.bundle)
     terms, res, y, X = b.terms(), b.residual(), b.y, b.X
     chrono.marque("lecture")
-    # poids a priori des observations (rx_model(weights = )) : fit.fit_reml
-    poids = np.asarray(b.get("poids"), dtype=np.float64) if b.has("poids") else None
-    if poids is not None and a.bayes:
-        print("[remlax] ERREUR : la voie bayesienne ne prend pas encore les poids", file=sys.stderr)
-        return 2
+    # Prior weights of the observations (rx_model(weights = )): fit.fit_reml.
+    weights = np.asarray(b.get("poids"), dtype=np.float64) if b.has("poids") else None
+    if weights is not None and a.bayes:
+        raise _Refusal("la voie bayesienne ne prend pas encore les poids")
     lag = b.lag()
     if lag is not None:
-        # Prepare une fois (decomposition spectrale de W, W longue) : le meme
-        # objet sert a l'ajustement et aux tables d'inference.
-        from remlax.lag import prepare_lag
-        lag = prepare_lag(lag, y, X)
-        if not a.quiet:
-            print("[remlax] decalage spatial : q=%d, %d entree(s) libre(s) de Psi, critere %s, "
-                  "chemin %s" % (lag["q"], int(lag["mask"].sum()), lag["criterion"],
-                                 lag["chemin"]), flush=True)
-        if a.kenward_roger or a.predict or a.only_predict:
-            print("[remlax] ERREUR : Kenward-Roger et predict ne sont pas disponibles avec un "
-                  "decalage spatial (rx_lag) : ils supposent y lineaire en beta et u a V "
-                  "donnee, alors qu'ici seule y* = (I - M) y l'est.",
-                  file=sys.stderr, flush=True)
-            return 2
+        lag = _prepare_lag(a, lag, y, X)
     if not a.quiet:
-        print("[remlax] n=%d, %d effet(s) fixe(s), %d terme(s) aleatoire(s)"
-              % (len(y), X.shape[1], len(terms)), flush=True)
-        for t in terms:
-            print("          %-14s %-5s t=%-3d q=%-5d %s"
-                  % (t["name"], t["struct"], t["t"], t["q"],
-                     "K=I" if t["LK"] is None else "K fournie"), flush=True)
+        _print_model(terms, y, X)
+    return _Inputs(b, terms, res, y, X, weights, lag)
 
-    # Les expressions vpredict sont lues et verifiees AVANT l'ajustement : une
-    # faute de nom ne doit pas couter une optimisation entiere.
+
+def _prepare_lag(a, lag, y, X):
+    """Spectral decomposition of W and long-format W, prepared once: the same
+    object serves the fit and the inference tables."""
+    from remlax.lag import prepare_lag
+    lag = prepare_lag(lag, y, X)
+    if not a.quiet:
+        print("[remlax] decalage spatial : q=%d, %d entree(s) libre(s) de Psi, critere %s, "
+              "chemin %s" % (lag["q"], int(lag["mask"].sum()), lag["criterion"],
+                             lag["chemin"]), flush=True)
+    if a.kenward_roger or a.predict or a.only_predict:
+        raise _Refusal("Kenward-Roger et predict ne sont pas disponibles avec un "
+                       "decalage spatial (rx_lag) : ils supposent y lineaire en beta et u a V "
+                       "donnee, alors qu'ici seule y* = (I - M) y l'est.")
+    return lag
+
+
+def _print_model(terms, y, X):
+    print("[remlax] n=%d, %d effet(s) fixe(s), %d terme(s) aleatoire(s)"
+          % (len(y), X.shape[1], len(terms)), flush=True)
+    for t in terms:
+        print("          %-14s %-5s t=%-3d q=%-5d %s"
+              % (t["name"], t["struct"], t["t"], t["q"],
+                 "K=I" if t["LK"] is None else "K fournie"), flush=True)
+
+
+def _parse_vpredict(a, inp):
+    """The vpredict expressions as (name, formula) pairs, checked before the
+    fit: a misspelt name must not cost a whole optimisation."""
     exprs = []
-    if a.vpredict:
-        for bloc in a.vpredict.split(";"):
-            if not bloc.strip():
-                continue
-            nom, _, ex = bloc.partition("=")
-            exprs.append((nom.strip(), ex.strip()))
-        from remlax.inference import check_vpredict
-        try:
-            check_vpredict(exprs, terms, res, lag=lag)
-        except ValueError as e:
-            print("[remlax] ERREUR : %s" % e, file=sys.stderr, flush=True)
-            return 2
+    if not a.vpredict:
+        return exprs
+    for block in a.vpredict.split(";"):
+        if not block.strip():
+            continue
+        name, _, ex = block.partition("=")
+        exprs.append((name.strip(), ex.strip()))
+    from remlax.inference import check_vpredict
+    try:
+        check_vpredict(exprs, inp.terms, inp.res, lag=inp.lag)
+    except ValueError as e:
+        raise _Refusal(str(e))
+    return exprs
 
-    fixe = None
-    if a.fixed_theta:
-        fixe = [int(v) - 1 for v in a.fixed_theta.split(",") if v.strip()]
+
+# ------------------------------------------------------------------------------
+# Fit
+# ------------------------------------------------------------------------------
+
+def _read_theta(a):
+    return np.fromfile(os.path.join(a.bundle, "in_theta.bin"), dtype=np.float64)
+
+
+def _fit(a, inp, fixed):
+    """The fit result r, plus the whitening Hu_map and the prior of the
+    Bayesian route (None otherwise).
+
+    --only-predict fits nothing: it reads theta back. Without it, every call to
+    rx_predict() would rerun the whole optimisation to recover a theta already
+    known, with no guarantee of reaching the same optimum."""
+    th0 = None
     if a.only_predict:
-        # Predire ne demande PAS de reajuster. Sans ce mode, chaque appel a
-        # rx_predict() relancerait l'optimisation complete pour retrouver le
-        # theta qu'on a deja — et rien ne garantirait qu'il retombe sur le meme
-        # optimum.
-        r = dict(theta=np.fromfile(os.path.join(a.bundle, "in_theta.bin"),
-                                   dtype=np.float64),
-                 n_par=0, n_obs=len(y), logLik=float("nan"), secondes=0.0,
-                 only_predict=True)
+        r = dict(theta=_read_theta(a), n_par=0, n_obs=len(inp.y), logLik=float("nan"),
+                 secondes=0.0, only_predict=True)
         a.predict = True
-    else:
-        th0 = None
-        if a.theta_in:
-            th0 = np.fromfile(os.path.join(a.bundle, "in_theta.bin"), dtype=np.float64)
+    elif a.theta_in:
+        th0 = _read_theta(a)
     prior, Hu_map = None, None
     if a.bayes and a.prior:
         with open(os.path.join(a.bundle, a.prior)) as fp:
             prior = json.load(fp)
     if a.bayes and a.depart == "map" and not a.only_predict:
-        # VOIE BAYESIENNE SANS REML. Sur un gros modele, l'ajustement REML seul
-        # prend des heures : le mode a posteriori le remplace comme point de
-        # depart et comme blanchiment, puis une simple EVALUATION en ce point
-        # (maxiter = 0) fournit Sigma, beta et les BLUP au mode.
-        from remlax.bayes import preparer, mode_posterieur, disponible
-        from remlax.fit import initial_theta
-        if not disponible():
-            print("[remlax] ERREUR : la voie bayesienne exige blackjax (pip install blackjax)",
-                  file=sys.stderr, flush=True)
-            return 2
-        if lag is not None:
-            print("[remlax] ERREUR : la voie bayesienne n'accepte pas encore de decalage spatial",
-                  file=sys.stderr, flush=True)
-            return 2
-        depart = th0 if th0 is not None else initial_theta(terms, res, y)
-        th_map, Hu_map, info_map = mode_posterieur(preparer(terms, res, y, X, prior), depart,
-                                                   fixed_idx=fixe, floor=a.floor, ceil=a.ceil,
-                                                   verbose=not a.quiet)
-        r = fit_reml(terms, res, y, X, theta_init=th_map, maxiter=0, polish=0,
-                     floor=a.floor, ceil=a.ceil, verbose=False, hessian=False,
-                     blups=not a.no_blups,
-                     pev=(a.pev_termes.split(",") if a.pev_termes else a.pev),
-                     fixed_idx=fixe, optimizer=a.optimiseur, moteur=a.moteur,
-                     inversion=a.inversion, memoire=a.memoire, finition=a.finition, poids=poids,
-                     arret_lent=(int(a.arret_lent.split(',')[0]), float(a.arret_lent.split(',')[1])))
-        r["depart_bayes"] = "map"
-        r["mode_posterieur"] = info_map
+        r, Hu_map = _fit_posterior_mode(a, inp, fixed, th0, prior)
     elif not a.only_predict:
-        r = fit_reml(terms, res, y, X, theta_init=th0,
+        r = fit_reml(inp.terms, inp.res, inp.y, inp.X, theta_init=th0,
                      maxiter=a.maxiter, polish=a.polish,
                      floor=a.floor, ceil=a.ceil, verbose=not a.quiet,
                      hessian=not a.no_hessian, blups=not a.no_blups,
-                     pev=(a.pev_termes.split(",") if a.pev_termes else a.pev),
-                     n_restarts=a.restarts, restart_sd=a.restart_sd, fixed_idx=fixe,
-                     lag=lag, optimizer=a.optimiseur, moteur=a.moteur,
-                     inversion=a.inversion, memoire=a.memoire, finition=a.finition, poids=poids,
-                     arret_lent=(int(a.arret_lent.split(',')[0]), float(a.arret_lent.split(',')[1])))
+                     pev=_pev_arg(a),
+                     n_restarts=a.restarts, restart_sd=a.restart_sd, fixed_idx=fixed,
+                     lag=inp.lag, optimizer=a.optimiseur, moteur=a.moteur,
+                     inversion=a.inversion, memoire=a.memoire, finition=a.finition,
+                     poids=inp.weights, arret_lent=_slow_stop_arg(a))
+    return r, Hu_map, prior
 
-    # --- inference ------------------------------------------------------------
-    from remlax.inference import vpredict as _vp, wald as _wald, component_names
+
+def _fit_posterior_mode(a, inp, fixed, th0, prior):
+    """Bayesian route without REML. On a large model the REML fit alone takes
+    hours: the posterior mode replaces it as starting point and whitening, and
+    an evaluation at that point (maxiter = 0) gives Sigma, beta and the BLUPs
+    at the mode."""
+    from remlax.bayes import preparer, mode_posterieur, disponible
+    from remlax.fit import initial_theta
+    if not disponible():
+        raise _Refusal("la voie bayesienne exige blackjax (pip install blackjax)")
+    if inp.lag is not None:
+        raise _Refusal("la voie bayesienne n'accepte pas encore de decalage spatial")
+    start = th0 if th0 is not None else initial_theta(inp.terms, inp.res, inp.y)
+    th_map, Hu_map, info_map = mode_posterieur(preparer(inp.terms, inp.res, inp.y, inp.X, prior),
+                                               start, fixed_idx=fixed, floor=a.floor,
+                                               ceil=a.ceil, verbose=not a.quiet)
+    r = fit_reml(inp.terms, inp.res, inp.y, inp.X, theta_init=th_map, maxiter=0, polish=0,
+                 floor=a.floor, ceil=a.ceil, verbose=False, hessian=False,
+                 blups=not a.no_blups, pev=_pev_arg(a),
+                 fixed_idx=fixed, optimizer=a.optimiseur, moteur=a.moteur,
+                 inversion=a.inversion, memoire=a.memoire, finition=a.finition,
+                 poids=inp.weights, arret_lent=_slow_stop_arg(a))
+    r["depart_bayes"] = "map"
+    r["mode_posterieur"] = info_map
+    return r, Hu_map
+
+
+# ------------------------------------------------------------------------------
+# Inference
+# ------------------------------------------------------------------------------
+
+def _inference(a, r, inp, exprs, fixed):
+    """Adds to r the component names and table, the vpredict values, the
+    Kenward-Roger adjustment, the predictions and the Wald tests requested."""
+    from remlax.inference import vpredict, component_names
+    terms, res, lag = inp.terms, inp.res, inp.lag
     r["composantes_noms"] = component_names(terms, res, lag=lag)
     if a.only_predict and len(r["theta"]) != len(r["composantes_noms"]) and not a.quiet:
         print("[remlax] mode predict seul : %d parametre(s) relus"
               % len(r["theta"]), flush=True)
     if not a.only_predict:
-        from remlax.inference import varcomp_table
-        try:
-            r["varcomp"] = varcomp_table(r["theta"], r.get("hessian"), terms, res,
-                                         floor=a.floor, ceil=a.ceil, fixed_idx=fixe,
-                                         lag=lag, alias=r.get("alias"))
-        except Exception as e:  # la table ne doit jamais faire echouer un ajustement
-            if not a.quiet:
-                print("[remlax] table des composantes non calculee : %s" % e, flush=True)
+        _add_varcomp(a, r, inp, fixed)
     if exprs:
-        libre = np.ones(len(r["theta"]), dtype=bool)
-        if fixe:
-            libre[np.array(fixe)] = False
-        r["vpredict"] = _vp(r["theta"], r.get("hessian"), terms, res, exprs, free=libre,
-                            lag=lag, alias=r.get("alias"))
+        free = np.ones(len(r["theta"]), dtype=bool)
+        if fixed:
+            free[np.array(fixed)] = False
+        r["vpredict"] = vpredict(r["theta"], r.get("hessian"), terms, res, exprs, free=free,
+                                 lag=lag, alias=r.get("alias"))
     if a.kenward_roger:
-        from remlax.inference import kenward_roger as _kr
-        rk = _kr(r["theta"], terms, res, y, X, termes_fixes=b.fixed_groups())
+        from remlax.inference import kenward_roger
+        rk = kenward_roger(r["theta"], terms, res, inp.y, inp.X,
+                           termes_fixes=inp.bundle.fixed_groups())
         if rk.get("vbeta_kr") is not None:
             r["vbeta_kr"] = rk.pop("vbeta_kr")
         r["kenward_roger"] = rk
     if a.predict:
-        from remlax.inference import predict as _pred
-        Lp = np.fromfile(os.path.join(a.bundle, "pred_L.bin"),
-                         dtype=np.float64).reshape((-1, X.shape[1]), order="F")
-        M = {}
-        for t in terms:
-            fp = os.path.join(a.bundle, "pred_M_%s.bin" % t["name"])
-            if os.path.exists(fp):
-                M[t["name"]] = np.fromfile(fp, dtype=np.float64).reshape(
-                    (Lp.shape[0], t["t"] * t["q"]), order="F")
-        pr = _pred(r["theta"], terms, res, y, X, Lp, M=M or None, vbeta=r.get("vbeta"))
-        r["pred_cov"] = pr.pop("cov")
-        r["predictions"] = pr
+        _add_predictions(a, r, inp)
     if a.wald:
-        import jax.numpy as _jnp
-        from remlax.model import assemble_V as _aV, dense_Z as _dZ
-        Zs = [_dZ(t, len(y)) for t in terms]
-        V = np.asarray(_aV(_jnp.asarray(r["theta"]), terms, Zs, res, len(y)))
-        # Avec un decalage, le modele lineaire en beta est celui de y*.
-        r["wald"] = _wald(r.get("ystar", y), X, V, termes_fixes=b.fixed_groups())
+        _add_wald(r, inp)
 
-    bayes = None
-    if a.bayes and not a.only_predict:
-        from remlax.bayes import sample_posterior
-        nch = a.chaines or (32 if plat == "gpu" else 8)
-        if a.moteur == "mme" and not a.quiet:
-            print("  [bayes] la loi a posteriori est evaluee par le moteur dense", flush=True)
-        try:
-            bayes = sample_posterior(
-                terms, res, y, X, r["theta"], H=r.get("hessian"), Hu=Hu_map, prior=prior,
-                chains=nch, superchains=a.superchaines, warmup=a.chauffe, draws=a.tirages,
-                seed=a.graine, target_accept=a.acceptation, max_leapfrog=a.sauts_max,
-                fixed_idx=fixe, expressions=exprs, n_effets=a.bayes_effets,
-                pev=(a.pev_termes.split(",") if a.pev_termes else
-                     ([t["name"] for t in terms] if a.pev else ())),
-                lag=lag, verbose=not a.quiet)
-        except (RuntimeError, ValueError) as e:
-            print("[remlax] ERREUR : %s" % e, file=sys.stderr, flush=True)
-            return 2
 
-    chrono.marque("inference")
-    out = {k: (float(v) if isinstance(v, (int, float, np.floating, np.integer)) else v)
-           for k, v in r.items()
-           if k not in ("theta", "beta", "sigmas", "sigma_res", "sigmas_res",
-                        "blups", "hessian", "Py", "vbeta", "vbeta_kr", "Vi",
-                        "pred_cov", "loadings", "loadings_res", "pev", "lag", "ystar")}
-    out["backend"] = plat
-    out["devices"] = device_report()
+def _add_varcomp(a, r, inp, fixed):
+    from remlax.inference import varcomp_table
+    try:
+        r["varcomp"] = varcomp_table(r["theta"], r.get("hessian"), inp.terms, inp.res,
+                                     floor=a.floor, ceil=a.ceil, fixed_idx=fixed,
+                                     lag=inp.lag, alias=r.get("alias"))
+    except Exception as e:  # the table must never make a fit fail
+        if not a.quiet:
+            print("[remlax] table des composantes non calculee : %s" % e, flush=True)
 
+
+def _add_predictions(a, r, inp):
+    """Predictions L beta (+ M u): pred_L.bin, and pred_M_<term>.bin for the
+    random terms in the classify."""
+    from remlax.inference import predict
+    X = inp.X
+    Lp = np.fromfile(os.path.join(a.bundle, "pred_L.bin"),
+                     dtype=np.float64).reshape((-1, X.shape[1]), order="F")
+    M = {}
+    for t in inp.terms:
+        fp = os.path.join(a.bundle, "pred_M_%s.bin" % t["name"])
+        if os.path.exists(fp):
+            M[t["name"]] = np.fromfile(fp, dtype=np.float64).reshape(
+                (Lp.shape[0], t["t"] * t["q"]), order="F")
+    pr = predict(r["theta"], inp.terms, inp.res, inp.y, X, Lp, M=M or None, vbeta=r.get("vbeta"))
+    r["pred_cov"] = pr.pop("cov")
+    r["predictions"] = pr
+
+
+def _add_wald(r, inp):
+    import jax.numpy as jnp
+    from remlax.inference import wald
+    from remlax.model import assemble_V, dense_Z
+    n = len(inp.y)
+    Zs = [dense_Z(t, n) for t in inp.terms]
+    V = np.asarray(assemble_V(jnp.asarray(r["theta"]), inp.terms, Zs, inp.res, n))
+    # With a spatial lag, the model linear in beta is that of y*.
+    r["wald"] = wald(r.get("ystar", inp.y), inp.X, V, termes_fixes=inp.bundle.fixed_groups())
+
+
+def _sample_bayes(a, r, inp, exprs, fixed, plat, Hu_map, prior):
+    """Posterior sample of the variance parameters (--bayes), or None."""
+    if not a.bayes or a.only_predict:
+        return None
+    from remlax.bayes import sample_posterior
+    n_chains = a.chaines or (32 if plat == "gpu" else 8)
+    if a.moteur == "mme" and not a.quiet:
+        print("  [bayes] la loi a posteriori est evaluee par le moteur dense", flush=True)
+    pev = (a.pev_termes.split(",") if a.pev_termes else
+           ([t["name"] for t in inp.terms] if a.pev else ()))
+    try:
+        return sample_posterior(
+            inp.terms, inp.res, inp.y, inp.X, r["theta"], H=r.get("hessian"), Hu=Hu_map,
+            prior=prior, chains=n_chains, superchains=a.superchaines, warmup=a.chauffe,
+            draws=a.tirages, seed=a.graine, target_accept=a.acceptation,
+            max_leapfrog=a.sauts_max, fixed_idx=fixed, expressions=exprs,
+            n_effets=a.bayes_effets, pev=pev, lag=inp.lag, verbose=not a.quiet)
+    except (RuntimeError, ValueError) as e:
+        raise _Refusal(str(e))
+
+
+# ------------------------------------------------------------------------------
+# Outputs
+# ------------------------------------------------------------------------------
+
+# Fields of r written as binary files, not into result.json.
+_ARRAY_FIELDS = ("theta", "beta", "sigmas", "sigma_res", "sigmas_res",
+                 "blups", "hessian", "Py", "vbeta", "vbeta_kr", "Vi",
+                 "pred_cov", "loadings", "loadings_res", "pev", "lag", "ystar")
+
+# Single arrays of r and their file names.
+_SINGLE_ARRAYS = (("beta", "out_beta"), ("vbeta", "out_vbeta"),
+                  ("vbeta_kr", "out_vbeta_kr"), ("pred_cov", "out_pred_cov"))
+
+
+def _write_outputs(a, r, bayes, plat):
+    """out_*.bin and result.json. Every array is written in binary with its
+    dimensions in the JSON."""
     def wr(name, arr):
         np.asarray(arr, dtype=np.float64).ravel(order="F").tofile(
             os.path.join(a.bundle, name + ".bin"))
 
+    out = {k: (float(v) if isinstance(v, (int, float, np.floating, np.integer)) else v)
+           for k, v in r.items() if k not in _ARRAY_FIELDS}
+    out["backend"] = plat
+    out["devices"] = device_report()
     wr("out_theta", r["theta"])
-    if "beta" in r: wr("out_beta", r["beta"])
-    if "vbeta" in r: wr("out_vbeta", r["vbeta"])
-    if "vbeta_kr" in r: wr("out_vbeta_kr", r["vbeta_kr"])
-    if "pred_cov" in r: wr("out_pred_cov", r["pred_cov"])
-    out["sigma_dims"] = {}
-    for nm, S in r.get("sigmas", {}).items():
-        wr("out_sigma_%s" % nm, S); out["sigma_dims"][nm] = list(np.shape(S))
-    if "sigma_res" in r: wr("out_sigma_res", r["sigma_res"])
-    out["sigma_res_dims"] = {}
-    for nm, S in r.get("sigmas_res", {}).items():
-        wr("out_sigmares_%s" % nm, S); out["sigma_res_dims"][nm] = list(np.shape(S))
-    # LOADINGS ET PEV. Ecrits en binaire comme les autres tableaux, avec leurs
-    # dimensions dans le JSON : le format de sortie est le miroir du format
-    # d'entree, pour que R n'ait aucune dependance Python.
-    out["loadings_dims"], out["psi_dims"] = {}, {}
-    for src, pref in (("loadings", ""), ("loadings_res", "res_")):
-        for nm, lo in (r.get(src) or {}).items():
-            wr("out_loadings_%s%s" % (pref, nm), lo["Lambda"])
-            out["loadings_dims"]["%s%s" % (pref, nm)] = list(np.shape(lo["Lambda"]))
-            if lo.get("psi") is not None:
-                wr("out_psi_%s%s" % (pref, nm), lo["psi"])
-                out["psi_dims"]["%s%s" % (pref, nm)] = [int(np.size(lo["psi"]))]
-    out["pev_dims"] = {}
-    for nm, Pv in (r.get("pev") or {}).items():
-        wr("out_pev_%s" % nm, Pv); out["pev_dims"][nm] = list(np.shape(Pv))
-    out["blup_dims"] = {}
-    for nm, U in r.get("blups", {}).items():
-        wr("out_blup_%s" % nm, U); out["blup_dims"][nm] = list(np.shape(U))
-    if "hessian" in r: wr("out_hessian", r["hessian"])
-    # DECALAGE SPATIAL. Psi (q x q, unites de W) et ses erreurs-types (celles de
-    # la table des composantes : methode delta, covariance 2 H^-1), en binaire ;
-    # les scalaires dans le JSON.
+    for key, name in _SINGLE_ARRAYS:
+        if key in r:
+            wr(name, r[key])
+    out["sigma_dims"] = _write_named(wr, r.get("sigmas", {}), "out_sigma_")
+    if "sigma_res" in r:
+        wr("out_sigma_res", r["sigma_res"])
+    out["sigma_res_dims"] = _write_named(wr, r.get("sigmas_res", {}), "out_sigmares_")
+    out["loadings_dims"], out["psi_dims"] = _write_loadings(wr, r)
+    out["pev_dims"] = _write_named(wr, r.get("pev") or {}, "out_pev_")
+    out["blup_dims"] = _write_named(wr, r.get("blups", {}), "out_blup_")
+    if "hessian" in r:
+        wr("out_hessian", r["hessian"])
     if r.get("lag") is not None:
-        Lr = r["lag"]
-        q_ = Lr["Psi"].shape[0]
-        se = np.full((q_, q_), np.nan)
-        noms_vc = {d["nom"]: d.get("se") for d in (r.get("varcomp") or [])}
-        mi, mj = np.nonzero(Lr["mask"])
-        for i_, j_ in zip(mi, mj):
-            v_ = noms_vc.get("Psi[%s<-%s]" % (Lr["traits"][i_], Lr["traits"][j_]))
-            se[i_, j_] = np.nan if v_ is None else v_
-        wr("out_lag_psi", Lr["Psi"])
-        wr("out_lag_psi_se", se)
-        wr("out_ystar", r["ystar"])
-        out["lag"] = {k: v for k, v in Lr.items() if k not in ("Psi", "mask")}
-        out["lag"]["q"] = int(q_)
-
+        out["lag"] = _write_lag(wr, r)
     if bayes is not None:
-        th = bayes["theta"]
-        C_, D_, p_ = th.shape
-        wr("out_bayes_theta", th.reshape(C_ * D_, p_))
-        wr("out_bayes_comp", bayes["composantes"])
-        if bayes["expressions"].shape[1]:
-            wr("out_bayes_vp", bayes["expressions"])
-        jb = dict(resume=bayes["resume"], diagnostics=bayes["diagnostics"],
-                  prior=bayes["prior"], composantes_noms=bayes["composantes_noms"],
-                  expressions_noms=bayes["expressions_noms"],
-                  dims=dict(chaines=C_, tirages=D_, p=p_,
-                            k=int(bayes["composantes"].shape[1]),
-                            e=int(bayes["expressions"].shape[1])))
-        ef = bayes["effets"]
-        if ef is not None:
-            wr("out_bayes_beta_moy", ef["beta_moyenne"])
-            wr("out_bayes_beta_cov", ef["beta_cov"])
-            jb["effets"] = dict(n=ef["n"], secondes=ef["secondes"], blup_dims={},
-                                blup_sd=sorted(ef["blup_sd"]))
-            for nm, U in ef["blup_moyenne"].items():
-                wr("out_bayes_blup_moy_%s" % nm, U)
-                jb["effets"]["blup_dims"][nm] = list(np.shape(U))
-            for nm, U in ef["blup_sd"].items():
-                wr("out_bayes_blup_sd_%s" % nm, U)
-        out["bayes"] = jb
-
-    # JSON n'a pas de NaN : json.dump en ecrit quand meme, et tout lecteur
-    # conforme (jsonlite par exemple) refuse alors le fichier ENTIER. Un
-    # diagnostic indisponible ferait donc perdre l'ajustement complet. On
-    # convertit en null, que R relit en NA.
-    def propre(o):
-        if isinstance(o, dict):
-            return {k: propre(v) for k, v in o.items()}
-        if isinstance(o, (list, tuple)):
-            return [propre(v) for v in o]
-        if isinstance(o, float) and not np.isfinite(o):
-            return None
-        return o
-
+        out["bayes"] = _write_bayes(wr, bayes)
     chrono.marque("ecriture")
     out["chrono"] = chrono.dict_etapes()
-    # coeurs reellement utilises : la taille du masque d'affinite, apres bornage
+    # Cores actually used: the size of the affinity mask, after bounding.
     out["coeurs"] = len(os.sched_getaffinity(0)) if hasattr(os, "sched_getaffinity") else os.cpu_count()
     out["fils_bornes"] = _FILS["message"]
     with open(os.path.join(a.bundle, "result.json"), "w") as f:
-        json.dump(propre(out), f, indent=2, default=float)
-    if not a.quiet and not a.only_predict:
-        print("[remlax] logLik = %.9f | %d parametres | %.1f s"
-              % (r["logLik"], r["n_par"], r["secondes"]), flush=True)
-    ctx.__exit__(None, None, None)
-    return 0
+        json.dump(_json_safe(out), f, indent=2, default=float)
+
+
+def _write_named(wr, arrays, prefix):
+    """Writes <prefix><name>.bin for each named array; returns their dimensions."""
+    dims = {}
+    for nm, A in arrays.items():
+        wr(prefix + nm, A)
+        dims[nm] = list(np.shape(A))
+    return dims
+
+
+def _write_loadings(wr, r):
+    """Loadings Lambda and specific variances psi of the fa/rr terms and of the
+    residual sections (prefixed res_)."""
+    loadings_dims, psi_dims = {}, {}
+    for src, pref in (("loadings", ""), ("loadings_res", "res_")):
+        for nm, lo in (r.get(src) or {}).items():
+            wr("out_loadings_%s%s" % (pref, nm), lo["Lambda"])
+            loadings_dims["%s%s" % (pref, nm)] = list(np.shape(lo["Lambda"]))
+            if lo.get("psi") is not None:
+                wr("out_psi_%s%s" % (pref, nm), lo["psi"])
+                psi_dims["%s%s" % (pref, nm)] = [int(np.size(lo["psi"]))]
+    return loadings_dims, psi_dims
+
+
+def _write_lag(wr, r):
+    """Spatial lag: Psi (q x q, units of W) and its standard errors, taken from
+    the component table (delta method, covariance 2 H^-1), in binary; y*; the
+    scalars go to the JSON."""
+    Lr = r["lag"]
+    q_ = Lr["Psi"].shape[0]
+    se = np.full((q_, q_), np.nan)
+    vc_se = {d["nom"]: d.get("se") for d in (r.get("varcomp") or [])}
+    mi, mj = np.nonzero(Lr["mask"])
+    for i_, j_ in zip(mi, mj):
+        v_ = vc_se.get("Psi[%s<-%s]" % (Lr["traits"][i_], Lr["traits"][j_]))
+        se[i_, j_] = np.nan if v_ is None else v_
+    wr("out_lag_psi", Lr["Psi"])
+    wr("out_lag_psi_se", se)
+    wr("out_ystar", r["ystar"])
+    out = {k: v for k, v in Lr.items() if k not in ("Psi", "mask")}
+    out["q"] = int(q_)
+    return out
+
+
+def _write_bayes(wr, bayes):
+    """Posterior draws of theta, of the components and of the expressions, and
+    the posterior moments of beta and of the BLUPs."""
+    th = bayes["theta"]
+    C_, D_, p_ = th.shape
+    wr("out_bayes_theta", th.reshape(C_ * D_, p_))
+    wr("out_bayes_comp", bayes["composantes"])
+    if bayes["expressions"].shape[1]:
+        wr("out_bayes_vp", bayes["expressions"])
+    jb = dict(resume=bayes["resume"], diagnostics=bayes["diagnostics"],
+              prior=bayes["prior"], composantes_noms=bayes["composantes_noms"],
+              expressions_noms=bayes["expressions_noms"],
+              dims=dict(chaines=C_, tirages=D_, p=p_,
+                        k=int(bayes["composantes"].shape[1]),
+                        e=int(bayes["expressions"].shape[1])))
+    ef = bayes["effets"]
+    if ef is not None:
+        wr("out_bayes_beta_moy", ef["beta_moyenne"])
+        wr("out_bayes_beta_cov", ef["beta_cov"])
+        jb["effets"] = dict(n=ef["n"], secondes=ef["secondes"], blup_dims={},
+                            blup_sd=sorted(ef["blup_sd"]))
+        for nm, U in ef["blup_moyenne"].items():
+            wr("out_bayes_blup_moy_%s" % nm, U)
+            jb["effets"]["blup_dims"][nm] = list(np.shape(U))
+        for nm, U in ef["blup_sd"].items():
+            wr("out_bayes_blup_sd_%s" % nm, U)
+    return jb
+
+
+def _json_safe(o):
+    """NaN and infinities to null. JSON has no NaN: json.dump writes it anyway,
+    and a conforming reader (jsonlite) then rejects the whole file, so one
+    unavailable diagnostic would lose the fit. R reads null back as NA."""
+    if isinstance(o, dict):
+        return {k: _json_safe(v) for k, v in o.items()}
+    if isinstance(o, (list, tuple)):
+        return [_json_safe(v) for v in o]
+    if isinstance(o, float) and not np.isfinite(o):
+        return None
+    return o
 
 
 if __name__ == "__main__":
