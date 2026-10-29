@@ -14,7 +14,6 @@ export(rx_spl2d)
 
 # --- ajustement ---
 export(rx_fit)
-export(rx_fit_sparse)
 export(rx_fit_mme)
 export(rx_bayes)
 export(rx_prior)
@@ -32,8 +31,6 @@ export(rx_n_params)
 export(rx_n_level)
 export(rx_n_loadings)
 export(rx_n_theta)
-export(rx_sparse_scope)
-export(rx_tmb_available)
 
 # --- localisation du solveur ---
 export(rx_python_cmd)

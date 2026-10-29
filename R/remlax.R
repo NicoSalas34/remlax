@@ -160,6 +160,59 @@ rx_n_level <- function(level, order = 0L, opts = NULL, parts = NULL) {
   RX_LEVEL_NP[[level]]
 }
 
+# Structure de niveaux effective d'un terme rx_term.
+#
+# `level = "auto"` est la valeur par defaut de rx_term : elle signifie « pas de
+# structure entre niveaux », sauf si une parente est fournie. Une parente en
+# `LK` est un facteur de Cholesky dense ("fixed") ; une parente en `Kinv` est
+# une precision creuse ("prec"). Cette resolution est faite ici et nulle part
+# ailleurs.
+rx_level_of <- function(tm) {
+  lv <- tm$level %||% "auto"
+  if (!is.null(tm$Kinv)) return("prec")
+  if (!is.null(tm$LK)) return("fixed")
+  if (lv %in% c("auto", "id", "iid")) return("id")
+  lv
+}
+
+# Longueur du vecteur theta d'un modele
+#
+# Utile des qu'on veut IMPOSER un theta : un banc apparie doit evaluer deux
+# moteurs au MEME point, sinon chacun part de son theta initial et les
+# vraisemblances rapportees ne sont pas comparables. Mesure du piege : les
+# valeurs divergeaient de 1e-5 a 9e-3 en croissant avec le nombre de
+# caracteres, alors qu'a theta commun les moteurs s'accordent a 1e-12.
+#
+# @param model objet rx_model
+# @return entier
+# @export
+rx_n_theta <- function(model) {
+  # COMPTE GENERAL. Une version anterieure passait par des compteurs qui ne
+  # connaissaient que iid/diag/us et id/ar1/ar1ar1/prec/fixed : sur un modele
+  # fa, corh, cor, ar2, une residuelle us ou sectionnee, la fonction levait
+  # « structure inconnue » alors que sa documentation en fait la longueur du
+  # theta de N'IMPORTE quel modele, celle qu'il faut pour theta_init. Le
+  # decoupage est celui du moteur dense (rx_n_params + rx_n_level par terme,
+  # puis par section residuelle), verifie par test-comptages.R.
+  n_lv <- function(lv, order, opts, parts) {
+    if (lv %in% c("id", "fixed", "prec")) return(0L)
+    as.integer(rx_n_level(lv, order %||% 0L, opts, parts = parts))
+  }
+  np <- 0L
+  for (tm in model$terms)
+    np <- np + as.integer(rx_n_params(tm$struct %||% "iid", tm$t, tm$rank %||% 0L)) +
+      n_lv(rx_level_of(tm), tm$order, tm$opts, tm$parts)
+  .t_de <- function(r) if (is.null(r$trait)) 1L else nlevels(factor(r$trait))
+  res <- model$residual
+  for (s in (res$sections %||% list(res))) {
+    if (identical(s$struct, "none")) next
+    np <- np + as.integer(rx_n_params(s$struct %||% "iid", .t_de(s), s$rank %||% 0L)) +
+      n_lv(s$level %||% "id", s$order, s$opts, NULL)
+  }
+  # Entrees libres de Psi (rx_lag), en queue de theta comme dans le moteur.
+  np + (if (is.null(model$lag)) 0L else as.integer(model$lag$n_free))
+}
+
 # Argument facon asreml : 3 = estime en partant de 3 ; "3 F" = fixe a 3 ;
 # absent = fixe au defaut. C'est la regle du manuel, reprise telle quelle.
 .rx_arg_vs <- function(x, defaut, estime_si_absent = FALSE) {

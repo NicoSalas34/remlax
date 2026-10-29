@@ -100,14 +100,12 @@ test_that("rx_lag refuse les specifications ambigues ou fausses", {
                         lag = rx_lag(d$W, d$trait, d$unit)), "lignes declarees")
 })
 
-test_that("decalage et residuelle none : moteur dense seulement, KR et predict refuses", {
+test_that("decalage et residuelle none : KR refuse, residuelle none comptee", {
   d <- .jeu_lag()
   m <- .modele_tb(d, lag = rx_lag(d$W, d$trait, d$unit))
-  expect_error(rx_fit_sparse(m), "dense seulement")
   expect_error(rx_fit(m, kenward_roger = TRUE, verbose = FALSE), "Kenward-Roger")
   m0 <- .modele_tb(d, res = rx_residual("none"))
   expect_equal(m0$n_par, 3L)
-  expect_error(rx_fit_sparse(m0), "dense seulement")
   expect_error(rx_model(d$y, d$X, list(), rx_residual("none")), "V serait nulle")
 })
 

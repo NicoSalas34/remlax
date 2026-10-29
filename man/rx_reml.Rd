@@ -75,7 +75,7 @@ over the field. A \code{spl2d()} surface is available for a single trait only;
 for several traits, build it with \code{\link[=rx_spl2d]{rx_spl2d()}} and use \code{\link[=rx_model]{rx_model()}}.
 }
 \examples{
-\dontshow{if (rx_python_check(quiet = TRUE)$ok) (if (getRversion() >= "3.4") withAutoprint else force)(\{ # examplesIf}
+\dontshow{if (rx_python_check(quiet = TRUE)$ok) withAutoprint(\{ # examplesIf}
 \donttest{
 set.seed(2026)
 d <- expand.grid(gid = factor(1:30), bloc = factor(1:3))

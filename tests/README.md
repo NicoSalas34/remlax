@@ -142,14 +142,12 @@ Status: `covered (existing)`, `covered (new)`, `covered (existing + new)`, `not 
 | `rx_scan` refusals (unknown family, unknown term, wrong nrow, missing matrix, t > 1 without index, index out of range); `rx_scan_seuil` | R/remlax_scan.R | — | tests/testthat/test-scan.R (refuse...) | covered (new) |
 | `rx_scan` on a simulated set: columns per test, causal SNP first, meta, non-centred doses refused for sim | R/remlax_scan.R | — | tests/testthat/test-scan.R (jeu simule) | covered (new) |
 
-## 8. Sparsity diagnostic (sparsity.py) and sparse engine (R/remlax_tmb.R)
+## 8. Sparsity diagnostic (sparsity.py) and parameter counts
 
 | feature | where implemented | test (existing) | test (new) | status |
 |---|---|---|---|---|
 | `symbolic_cholesky_nnz` on tridiagonal / full / arrow patterns; `mme_pattern` dimensions and blocks; `incidence_fill`; `dense_cost`; `sparsity_report` | sparsity.py | — | tests-python/test_sparsity.py | covered (new) |
-| `rx_sparse_scope` names the offending structure; Kinv and ar1 in scope; `rx_tmb_available` | R/remlax_tmb.R | remlax-validation: tests/R/test_remlax_tmb_parity.R section 4 | tests/testthat/test-moteur-creux.R | covered (existing + new) |
-| `rx_fit_sparse`: refusal out of scope, evaluation-only, fit; -2logL equals rx_fit at common theta (rx_n_theta); Kinv (AR1 precision) equals dense K | R/remlax_tmb.R | remlax-validation: tests/R/test_remlax_tmb_vs_dense.R, test_remlax_tmb_prec.R, test_remlax_tmb_parity.R (scripts) | tests/testthat/test-moteur-creux.R (skips without RTMB) | covered (existing + new) |
-| `rx_n_theta` equals model$n_par for every structure (not only the sparse scope) | R/remlax_tmb.R rx_n_theta | tests/testthat/test-comptages.R (iid only) | tests/testthat/test-grammaire.R (every formula) | covered (existing + new) |
+| `rx_n_theta` equals model$n_par for every structure | R/remlax.R rx_n_theta | tests/testthat/test-comptages.R (iid only) | tests/testthat/test-grammaire.R (every formula) | covered (existing + new) |
 
 ## 9. R interface: grammar, rx_term, rx_model, rx_reml, rx_spl2d, rx_predict, print methods
 
@@ -231,7 +229,7 @@ These scripts are not run by CI (they need nlme, lme4, sommer or a licensed asre
 | VP+, TB, TB+ = engine `igepath_reml` (logLik and estimates) | whole chain | tests/testthat/test-decalage.R (runs only with REMLAX_IGEPATH); the full cross-validation is in the IGE repository, docs/papier/genetics/notes/remlax_structurel_implementation.md | covered (new, optional) |
 | `rx_lag()`: parameter order and names, mask realigned by dimnames, receivers/emitters, units by rownames, refusals | R/remlax_lag.R | tests/testthat/test-decalage.R | covered (new) |
 | residual `"none"`: no parameter, V not PD refused with a clear message, VP+ fitted, print | model.py res_sections, fit.py, R/remlax.R | tests-python/test_decalage.py::test_residuelle_none_refusee_si_V_singuliere_et_vp_plus_ajuste; tests/testthat/test-decalage.R | covered (new) |
-| lag and residual `"none"` refused by `rx_fit_sparse()`; Kenward-Roger refused with a lag | R/remlax_tmb.R, R/remlax.R | tests/testthat/test-decalage.R | covered (new) |
+| Kenward-Roger refused with a lag | R/remlax.R | tests/testthat/test-decalage.R | covered (new) |
 | entries of a `us` term with identical patterns in V detected (VP+ plant term: q(q-1)/2 for q = 2, 3 with symmetric W; none with asymmetric W; none for the genetic [Z, WZ] term) | inst/python/remlax/model.py alias_entrees | tests-python/test_decalage.py::test_alias_vp_plus_q_moins_1_sur_2_directions_plates | covered (new) |
 | VP+ : flat directions excluded from the Hessian verdict, `n_par_identifies` = 19 (q = 2), entries coded N, identified sum with finite SE; R `summary()` AIC on the identified count | fit.py _diagnostic, inference.py varcomp_table/vpredict, R/remlax_summary.R | tests-python/test_decalage.py::test_vp_plus_directions_plates_exclues_du_verdict_et_sommes_identifiees; tests/testthat/test-decalage.R (residuelle none) | covered (new) |
 | warning for TB+ with IEE* and a reciprocal Psi pair free; no warning with a mask or without IEE* | R/remlax_lag.R .rx_avertir_tb_iee | tests/testthat/test-decalage.R | covered (new) |

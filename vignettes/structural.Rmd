@@ -393,9 +393,9 @@ cross-validated against the independent engine of the IGE programme
 log-likelihood under the same criterion and same estimates, to the
 optimiser's tolerance.
 
-Not available with a lag: the RTMB engine (`rx_fit_sparse()`),
-Kenward-Roger, `rx_predict()` and `rx_scan()`, which all assume `y` linear in
-`b` and `u` at given `V`. `fitted()` and `residuals()` refer to `y*`
+Not available with a lag: Kenward-Roger, `rx_predict()` and `rx_scan()`, which
+all assume `y` linear in `b` and `u` at given `V`. The mixed model equations
+engine does not cover the lag either, and the dense engine fits it. `fitted()` and `residuals()` refer to `y*`
 (`fit$ystar`). The Hessian is computed by finite differences of the gradient:
 at an optimum close to the edge of the admissible region a step can cross it,
 and the corresponding column of the Hessian is then wrong; the reported

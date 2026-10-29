@@ -181,13 +181,13 @@ polishing and the same diagnostics.
 A model containing a term declared by its precision (\code{Kinv}) without
 a factor of \code{K} is refused by the dense engine, which needs \code{K} and would
 otherwise treat the term as independent without a message. Fit such a term
-with \code{engine = "mme"}, which uses \code{K^-1} directly, or with
-\code{\link[=rx_fit_sparse]{rx_fit_sparse()}}, or supply \code{K} to \code{\link[=rx_term]{rx_term()}}. With a spatial lag,
+with \code{engine = "mme"}, which uses \code{K^-1} directly, or supply \code{K} to
+\code{\link[=rx_term]{rx_term()}}. With a spatial lag,
 \code{kenward_roger} and \code{predict} are refused: both assume \code{y} linear in \code{beta}
 and \code{u} at given \code{V}, which only \verb{y*} is.
 }
 \examples{
-\dontshow{if (rx_python_check(quiet = TRUE)$ok) (if (getRversion() >= "3.4") withAutoprint else force)(\{ # examplesIf}
+\dontshow{if (rx_python_check(quiet = TRUE)$ok) withAutoprint(\{ # examplesIf}
 \donttest{
 set.seed(1)
 d <- data.frame(gid = factor(rep(1:30, each = 4)), x = rnorm(120))
@@ -200,5 +200,5 @@ f$sigmas
 \dontshow{\}) # examplesIf}
 }
 \seealso{
-\code{\link[=rx_reml]{rx_reml()}}, \code{\link[=rx_fit_mme]{rx_fit_mme()}}, \code{\link[=rx_fit_sparse]{rx_fit_sparse()}}, \code{\link[=rx_read_result]{rx_read_result()}}, \code{\link[=rx_lag]{rx_lag()}}
+\code{\link[=rx_reml]{rx_reml()}}, \code{\link[=rx_fit_mme]{rx_fit_mme()}}, \code{\link[=rx_read_result]{rx_read_result()}}, \code{\link[=rx_lag]{rx_lag()}}
 }

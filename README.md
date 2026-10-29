@@ -31,16 +31,21 @@ group, a separable `ar1 x ar1` field, or a `us` between traits of the same
 unit. The covariance catalogue follows ASReml-R (see "Structure catalogue"
 below).
 
-Two interfaces build the model. `rx_reml()` reads formulas, for instance a
-genomic G x E model in long format:
+`rx_reml()` is the main function of the package. It reads the model from
+formulas and fits it. For instance, a genomic G x E model in long format:
 
 ```r
 rx_reml(y ~ env, random = ~ fa(gid, rank = 2, K = K) + iid(bloc),
         residual = ~ diag(env):units, data = d, trait = "env")
 ```
 
-`rx_model()` and `rx_term()` take the matrices directly, for designs that no
-formula describes, such as one weighted incidence per neighbour class.
+Designs that no factor describes also go through `rx_reml()`. `mm(Z)` adds a
+supplied incidence matrix, and `str(~ gid + mm(Zw), struct = "us")` groups
+several incidences in one term, as for direct and indirect genetic effects.
+Every option of the solver (engine, optimiser, device, outputs) is an
+argument of `rx_reml()`. At a lower level, `rx_model()` and `rx_term()` build
+the same model object from matrices, and `rx_fit()` fits it with the same
+options.
 
 ## How the solver works
 
@@ -55,22 +60,26 @@ for the session, which saves the start of Python and the import of JAX (about
 
 An engine computes the restricted likelihood, its gradient and the average
 information matrix. All engines compute the same likelihood. They differ in
-the matrix they factorise.
+the matrix they factorise, and so in the size that drives their cost. That
+size is either `n`, the number of observations, or `m`, the size of the mixed
+model equations. `m` counts the fixed effects plus the levels of every random
+term, a term with `t` columns over `q` levels counting `t x q`. A genomic G x
+E model on 2000 genotypes in 10 environments has `m` close to 20 000, whatever
+the number of plots.
 
-| engine | call | factorises | cost grows with | devices |
+| engine | option of `rx_reml()` | factorises | cost grows with | devices |
 |---|---|---|---|---|
-| dense | `rx_fit()` (default) | `V`, `n x n`, differentiated by JAX | `n` | CPU, GPU |
-| mixed model equations | `rx_fit(engine = "mme")`, `rx_fit_mme()` | `C = W'R^-1W + diag(0, G^-1)`, `m x m` | `m` and the fill-in of `C` | CPU, GPU (dense inversion) |
-| blocks | `rx_fit(engine = "blocks")` | `V = A + U U'`, `A` block diagonal | the largest block | CPU, GPU |
-| sparse RTMB | `rx_fit_sparse()` | `C` through TMB | the fill-in of `C` | CPU |
+| dense | `engine = "dense"` (default) | the marginal covariance `V` (`n x n`), differentiated by JAX | `n` | CPU, GPU |
+| mixed model equations | `engine = "mme"` | `C = W'R^-1W + diag(0, G^-1)` (`m x m`), with `W = [X Z]` | `m` and the fill-in of `C` | CPU, GPU (dense inversion) |
+| blocks (experimental) | `engine = "blocks"` | `V = A + U U'`, `A` block diagonal | the largest block and the width of `U` | CPU, GPU |
 
 The dense engine covers every structure. It forms `V`, so it suits models with
 at most a few tens of thousands of observations, many variance parameters, or
 structures without a sparse inverse. Its low memory mode (`memory = "low"`)
 keeps fewer `n x n` matrices alive and lets larger models fit on a GPU.
 
-The mixed model equations engine suits large `n` with fewer levels, and
-sparse `C` (pedigree, separable fields). It inverts `C` densely, or computes
+The mixed model equations engine suits models where `m` is small against `n`,
+and sparse `C` (pedigree, separable fields). It inverts `C` densely, or computes
 only the entries of `C^-1` it needs by a supernodal selected inversion of the
 sparse Cholesky factor. It finds independent blocks of `C` and orders them by
 nested dissection when `pymetis` is installed. A model outside its scope
@@ -78,8 +87,12 @@ nested dissection when `pymetis` is installed. A model outside its scope
 the dense engine, with a message.
 
 The blocks engine finds by itself the terms that link otherwise independent
-groups of observations, for instance genetic terms across tanks. It processes
-the blocks in batches.
+groups of observations, for instance genetic terms across tanks, and writes
+them as the low-rank part `U U'`. It processes the blocks in batches and runs
+with L-BFGS-B only. It has been measured on one design so far: on a
+two-species model with 12 760 observations, one evaluation took 0.90 s
+against 4.85 s for the dense engine in low memory mode, on a slice of an
+A100. It has not yet been compared with the mixed model equations engine.
 
 ### Optimisers
 
@@ -113,7 +126,7 @@ multi-environment trials.
 
 ### Choosing automatically
 
-`rx_fit(model, engine = "auto", optimizer = "auto")` takes the mixed model
+`rx_reml(..., engine = "auto", optimizer = "auto")` takes the mixed model
 equations engine with average information REML when the model is in its
 scope, and otherwise the dense engine with L-BFGS-B, in low memory mode above
 n = 5000. On genetic models with a relationship matrix (genomic BLUP, G x E in
@@ -139,7 +152,7 @@ faster. The automatic choice does not yet detect this case.
 
 ## Beyond REML
 
-- Bayesian route. `rx_fit(model, bayes = rx_bayes(prior = rx_prior()))`
+- Bayesian route. `rx_reml(..., bayes = rx_bayes(prior = rx_prior()))`
   samples the posterior of the variance parameters. Fixed and random effects
   are integrated out analytically. Many short Hamiltonian Monte Carlo chains,
   adapted by the ChEES criterion (BlackJAX), run together on CPU or GPU. It
@@ -159,7 +172,7 @@ faster. The automatic choice does not yet detect this case.
 ## What it is not
 
 - The dense engine is limited by `n`. It forms `V` explicitly: at n = 16 000,
-  `V` takes 2.1 GB in double precision. Large `n` with few levels, or a sparse
+  `V` takes 2.1 GB in double precision. Large `n` with a small `m`, or a sparse
   `C`, belongs to `engine = "mme"`.
 - remlax does not fit generalised linear mixed models. Non-Gaussian responses
   would need an IRLS or Laplace layer above the solver.
@@ -219,9 +232,9 @@ Environment variables:
 |---|---|---|
 | `RX_PY` | how to start Python, space-separated | `python3` |
 | `RX_CLI` | another solver entry point (a `cli.py` path, or `-m remlax.cli`) | the shipped copy |
-| `RX_ENGINE` | default `engine` of `rx_fit()` (`dense`, `mme`, `blocks`, `auto`) | `dense` |
-| `RX_OPTIMIZER` | default `optimizer` of `rx_fit()` (`lbfgsb`, `ai`, `ai_theta`, `auto`) | `lbfgsb` |
-| `RX_MEMORY` | default `memory` of `rx_fit()` (`standard`, `low`) | `standard` |
+| `RX_ENGINE` | default `engine` of `rx_reml()` and `rx_fit()` (`dense`, `mme`, `blocks`, `auto`) | `dense` |
+| `RX_OPTIMIZER` | default `optimizer` of `rx_reml()` and `rx_fit()` (`lbfgsb`, `ai`, `ai_theta`, `auto`) | `lbfgsb` |
+| `RX_MEMORY` | default `memory` of `rx_reml()` and `rx_fit()` (`standard`, `low`) | `standard` |
 | `REMLAX_JAX_CACHE` | folder of the persistent XLA compilation cache; `0` disables it | `<user cache>/remlax/jax` |
 | `REMLAX_BLAS_NUMPY` | `garder` keeps NumPy's OpenBLAS threads during mixed model equations fits | one thread |
 | `REMLAX_THREADS` | number of CPU cores the solver may use; `tous` disables the limit. Without it, `SLURM_CPUS_PER_TASK`, then `OMP_NUM_THREADS` | no limit |
@@ -362,11 +375,10 @@ Full definitions, positivity constraints and internal parametrisations:
 ## Validation
 
 remlax is checked against asreml, lme4, sommer, nlme and pbkrtest on the same
-models and the same data, against closed forms and an independent dense REML,
-and its RTMB engine against its dense engine: 399 checks in the campaign of
-2026-09-28, 387 passed, the 12 others being three models where asreml stops
-before the optimum, as shown by an independent computation. The results ship
-with the package:
+models and the same data, against closed forms and against an independent
+dense REML. The campaign of 2026-09-28 counts 353 checks, of which 341 passed.
+The 12 others concern three models where asreml stops before the optimum, as
+an independent computation shows. The results ship with the package:
 
 ```r
 vignette("validation", package = "remlax")   # tables, figure, the failures explained, speed
@@ -418,9 +430,7 @@ plant neighborhoods. bioRxiv. doi:10.64898/2026.05.27.728303.
 
 GNU General Public License, version 3 or later. See `LICENSE`.
 
-The choice follows the company remlax keeps: lme4, sommer, breedR and TMB are
-all GPL, and the sparse engine calls RTMB, so a permissive licence would have
-required keeping that engine at arm's length. It also matches the point of the
-project. A free alternative to a licensed solver stays free, and cannot be
+The choice follows the company remlax keeps: lme4, sommer and breedR are all
+GPL. It also matches the point of the project. A free alternative to a licensed solver stays free, and cannot be
 taken into a closed product. The corresponding cost is real and worth stating:
 a permissively licensed package cannot depend on remlax.

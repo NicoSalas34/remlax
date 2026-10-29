@@ -61,11 +61,10 @@ tab[order(-tab$checks), ]
 ```
 
 `r nrow(checks)` checks, `r sum(checks$verdict == "pass")` passed. The
-references called `internal`, `dense`, `independent` and `properties` are
-closed forms, the RTMB engine of the package compared with its dense
-engine at a common parameter, a REML written longhand in dense algebra, and
-properties that have no external reference (finite likelihood, positive
-definite covariance).
+references called `internal`, `independent` and `properties` are closed forms,
+a REML written longhand in dense algebra, and properties that have no external
+reference (finite likelihood, positive definite covariance). The checks of the
+former RTMB engine against the dense engine were removed with that engine.
 
 ## Largest gaps
 

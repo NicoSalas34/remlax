@@ -53,7 +53,7 @@
 #'   the same inversion. A fit that ends with a large relative gradient is
 #'   finished by the dense engine from the point reached, and `moteur` then
 #'   reads `"mme+dense"`.
-#' @seealso [rx_fit()], [rx_fit_sparse()]
+#' @seealso [rx_fit()]
 #' @examplesIf rx_python_check(quiet = TRUE)$ok
 #' \donttest{
 #' set.seed(1)

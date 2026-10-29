@@ -86,7 +86,7 @@ R-hat, nested R-hat and effective sample sizes, and sampler diagnostics
 (divergences, acceptance rate, step size, leapfrog steps).
 }
 \examples{
-\dontshow{if (rx_python_check(quiet = TRUE)$ok && rx_bayes_available()) (if (getRversion() >= "3.4") withAutoprint else force)(\{ # examplesIf}
+\dontshow{if (rx_python_check(quiet = TRUE)$ok && rx_bayes_available()) withAutoprint(\{ # examplesIf}
 \donttest{
 set.seed(1)
 d <- data.frame(gid = factor(rep(1:40, each = 4)))

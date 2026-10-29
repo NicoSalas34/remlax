@@ -17,7 +17,7 @@ term that carries the residual itself: incidences \verb{[I placed on trait t, W_
 columns, which holds the residual covariance, the indirect environmental
 effects and their covariance (the "joint plant term"). The solver checks
 \code{V} at the starting values and stops with an explicit message when it is
-not positive definite. Not available in \code{\link[=rx_fit_sparse]{rx_fit_sparse()}}. With a
+not positive definite. With a
 symmetric \code{W}, \code{Cov(res_t, IEE_u)} and \code{Cov(res_u, IEE_t)} enter \code{V} only
 through their sum: the \code{us} plant term has \code{q(q-1)/2} entries that are not
 identified on their own. The fit detects them, reports their sums with

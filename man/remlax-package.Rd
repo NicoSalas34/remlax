@@ -21,18 +21,18 @@ subprocess, and \code{\link[=rx_read_result]{rx_read_result()}} reads the result
 Python program shipped with the package under \verb{inst/python/}, so that the
 interface and the solver always come from the same version.
 }
-\section{Three engines}{
+\section{Engines}{
 
 \code{rx_fit(engine = "dense")}, the default, forms the marginal covariance \code{V}
 (\verb{n x n}) and differentiates the likelihood with JAX, on CPU or GPU; it
 covers every structure of the package. \code{rx_fit(engine = "mme")}, also
 reached by \code{\link[=rx_fit_mme]{rx_fit_mme()}}, works on Henderson's mixed model equations, with
 a dense or a sparse (selected) inversion of \code{C}; its cost follows the number
-of levels rather than \code{n}, and a model outside its scope falls back to the
-dense engine. \code{\link[=rx_fit_sparse]{rx_fit_sparse()}} is a separate engine built on RTMB, for the
-structures whose precision is sparse and known in closed form
-(\code{\link[=rx_sparse_scope]{rx_sparse_scope()}} says which). All three take the same \link{rx_model} object
-and maximise the same likelihood.
+of random-effect levels rather than \code{n}, and a model outside its scope falls
+back to the dense engine. \code{rx_fit(engine = "blocks")} writes \code{V} as a block
+diagonal matrix plus a low-rank part and processes the blocks in batches.
+All engines take the same \link{rx_model} object and maximise the same
+likelihood.
 }
 
 \section{Two optimisers}{

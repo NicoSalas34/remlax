@@ -1,5 +1,14 @@
 # remlax (development version)
 
+* The RTMB engine is removed: `rx_fit_sparse()`, `rx_sparse_scope()` and
+  `rx_tmb_available()` no longer exist, and RTMB and TMB leave Suggests. The
+  mixed model equations engine (`engine = "mme"`) covers its scope, sparse
+  `C` with a pedigree or a separable field, with more structures, the
+  average information optimiser, and the GPU. `rx_n_theta()` stays, now
+  defined with the other parameter counts. The 46 validation checks that
+  compared the RTMB engine with the dense engine are removed from the
+  shipped table, which now holds 353 checks.
+
 * Average information REML on a rank-deficient `us` block. The face of the
   positive semidefinite cone now includes the rotations of the eigenvectors of
   `Sigma`, with an exact retraction and its curvature term in the AI matrix.

@@ -43,9 +43,9 @@ reproduce \code{structures.py} on the Python side; any divergence would make the
 two sides read \code{theta} differently with no error.
 }
 \details{
-\code{rx_n_theta()} is what you need to impose a common \code{theta} on both engines:
-evaluated at different starting points, their log-likelihoods are not
-comparable and the gap looks like a formulation defect.
+\code{rx_n_theta()} is what you need to impose a common \code{theta} on two engines
+or two fits: evaluated at different starting points, their log-likelihoods
+are not comparable and the gap looks like a formulation defect.
 }
 \examples{
 rx_n_params("us", 3)

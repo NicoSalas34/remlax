@@ -41,8 +41,8 @@ the marginal covariance `V` and differentiates `-2 logL` with JAX. The mixed
 model equations engine (`mme.py`, `selinv.py`) works on `C`, an `m x m`
 matrix where `m` counts the fixed effects and the random levels. Both take the
 same terms and the same `theta`, and `fit.py` drives either of them with the
-same optimisers and diagnostics. A third engine, built on RTMB, lives on the R
-side (`rx_fit_sparse()`).
+same optimisers and diagnostics. The blocks engine (`blocs.py`) writes `V` as a
+block diagonal matrix plus a low-rank part.
 
 `import remlax` re-exports `STRUCTURES`, `n_params`, `build_sigma`,
 `chol_sigma`, `Bundle`, `assemble_V`, `neg2_reml`, `make_objective`,

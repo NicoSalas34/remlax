@@ -27,17 +27,17 @@
 #' Python program shipped with the package under `inst/python/`, so that the
 #' interface and the solver always come from the same version.
 #'
-#' @section Three engines:
+#' @section Engines:
 #' `rx_fit(engine = "dense")`, the default, forms the marginal covariance `V`
 #' (`n x n`) and differentiates the likelihood with JAX, on CPU or GPU; it
 #' covers every structure of the package. `rx_fit(engine = "mme")`, also
 #' reached by [rx_fit_mme()], works on Henderson's mixed model equations, with
 #' a dense or a sparse (selected) inversion of `C`; its cost follows the number
-#' of levels rather than `n`, and a model outside its scope falls back to the
-#' dense engine. [rx_fit_sparse()] is a separate engine built on RTMB, for the
-#' structures whose precision is sparse and known in closed form
-#' ([rx_sparse_scope()] says which). All three take the same [rx_model] object
-#' and maximise the same likelihood.
+#' of random-effect levels rather than `n`, and a model outside its scope falls
+#' back to the dense engine. `rx_fit(engine = "blocks")` writes `V` as a block
+#' diagonal matrix plus a low-rank part and processes the blocks in batches.
+#' All engines take the same [rx_model] object and maximise the same
+#' likelihood.
 #'
 #' @section Two optimisers:
 #' `optimizer = "lbfgsb"` (default) runs L-BFGS-B on the unconstrained
@@ -292,11 +292,11 @@ NULL
 #' @details A model containing a term declared by its precision (`Kinv`) without
 #'   a factor of `K` is refused by the dense engine, which needs `K` and would
 #'   otherwise treat the term as independent without a message. Fit such a term
-#'   with `engine = "mme"`, which uses `K^-1` directly, or with
-#'   [rx_fit_sparse()], or supply `K` to [rx_term()]. With a spatial lag,
+#'   with `engine = "mme"`, which uses `K^-1` directly, or supply `K` to
+#'   [rx_term()]. With a spatial lag,
 #'   `kenward_roger` and `predict` are refused: both assume `y` linear in `beta`
 #'   and `u` at given `V`, which only `y*` is.
-#' @seealso [rx_reml()], [rx_fit_mme()], [rx_fit_sparse()], [rx_read_result()], [rx_lag()]
+#' @seealso [rx_reml()], [rx_fit_mme()], [rx_read_result()], [rx_lag()]
 #' @examplesIf rx_python_check(quiet = TRUE)$ok
 #' \donttest{
 #' set.seed(1)
@@ -322,41 +322,6 @@ NULL
 #'        memory = getOption("remlax.memory", Sys.getenv("RX_MEMORY", "standard")),
 #'        finish = getOption("remlax.finish", Sys.getenv("RX_FINISH", "newton")))
 #' @name rx_fit
-NULL
-
-#' Fit an rx_model with the sparse engine (RTMB)
-#'
-#' The second engine. `beta` and `u` are both declared random and TMB's Laplace
-#' approximation, exact for a Gaussian linear model, integrates them out: this
-#' gives the restricted likelihood. The cost depends on the fill-in of the mixed
-#' model equations, not on `n`. Only structures whose precision is sparse and
-#' known in closed form are in scope; see [rx_sparse_scope()].
-#'
-#' @param model an [rx_model] object, the same one [rx_fit()] takes.
-#' @param theta_init warm start. With `maxiter = 0` the objective is evaluated
-#'   at `theta_init`, which is how the two engines are compared on the same
-#'   function rather than at their own stopping points.
-#' @param maxiter iteration cap. Keep it equal to that of [rx_fit()] when
-#'   comparing engines: a lower cap on one side turns a truncation into an
-#'   apparent convergence.
-#' @param verbose print progress.
-#' @param sdreport compute TMB's standard-error report. It forms the covariance
-#'   of all random effects, which is expensive as `q` grows. Set it to `FALSE`
-#'   for a fair timing against `rx_fit(hessian = FALSE, blups = FALSE)`.
-#' @return A list with the same main fields as an `rx_fit` object (`theta`,
-#'   `logLik`, `sigmas`, `sigma_res`, `beta`, `blups`), plus `engine = "sparse"`.
-#' @seealso [rx_fit()], [rx_sparse_scope()], [rx_tmb_available()]
-#' @examplesIf rx_tmb_available()
-#' set.seed(1)
-#' d <- data.frame(gid = factor(rep(1:30, each = 4)), x = rnorm(120))
-#' d$y <- 1 + 0.5 * d$x + rnorm(30)[d$gid] + rnorm(120)
-#' m <- rx_model(d$y, cbind(1, d$x), terms = list(rx_term("gid", d$gid)))
-#' f <- rx_fit_sparse(m, verbose = FALSE)
-#' f$logLik
-#' @usage
-#' rx_fit_sparse(model, theta_init = NULL, maxiter = 3000L, verbose = TRUE,
-#'               sdreport = TRUE)
-#' @name rx_fit_sparse
 NULL
 
 # ------------------------------------------------------------------------------
@@ -473,7 +438,7 @@ NULL
 #'   columns, which holds the residual covariance, the indirect environmental
 #'   effects and their covariance (the "joint plant term"). The solver checks
 #'   `V` at the starting values and stops with an explicit message when it is
-#'   not positive definite. Not available in [rx_fit_sparse()]. With a
+#'   not positive definite. With a
 #'   symmetric `W`, `Cov(res_t, IEE_u)` and `Cov(res_u, IEE_t)` enter `V` only
 #'   through their sum: the `us` plant term has `q(q-1)/2` entries that are not
 #'   identified on their own. The fit detects them, reports their sums with
@@ -1091,9 +1056,9 @@ NULL
 #' reproduce `structures.py` on the Python side; any divergence would make the
 #' two sides read `theta` differently with no error.
 #'
-#' `rx_n_theta()` is what you need to impose a common `theta` on both engines:
-#' evaluated at different starting points, their log-likelihoods are not
-#' comparable and the gap looks like a formulation defect.
+#' `rx_n_theta()` is what you need to impose a common `theta` on two engines
+#' or two fits: evaluated at different starting points, their log-likelihoods
+#' are not comparable and the gap looks like a formulation defect.
 #'
 #' @param struct structure name.
 #' @param t number of columns.
@@ -1117,30 +1082,6 @@ NULL
 #' rx_n_theta(model)
 #' @name rx_n_params
 #' @aliases rx_n_loadings rx_n_level rx_n_theta
-NULL
-
-#' Scope of the sparse engine
-#'
-#' `rx_sparse_scope()` says whether a set of terms and a residual are within
-#' the sparse engine's perimeter (`Sigma` in `iid`/`diag`/`us`; levels in
-#' `id`/`ar1`/`ar1ar1` or a supplied sparse precision `Kinv`; residual `iid` or
-#' `diag`, no sections), and why not otherwise. `rx_tmb_available()` says
-#' whether RTMB and Matrix can be loaded.
-#'
-#' @param terms list of [rx_term] objects.
-#' @param residual an [rx_residual] object.
-#' @return `rx_sparse_scope()`: `list(ok = , reason = )`.
-#'   `rx_tmb_available()`: logical.
-#' @seealso [rx_fit_sparse()]
-#' @examples
-#' d <- data.frame(gid = factor(rep(1:10, each = 3)))
-#' rx_sparse_scope(list(rx_term("gid", d$gid)))
-#' rx_tmb_available()
-#' @usage
-#' rx_sparse_scope(terms, residual = NULL)
-#' rx_tmb_available()
-#' @name rx_sparse_scope
-#' @aliases rx_tmb_available
 NULL
 
 #' Locating the Python solver

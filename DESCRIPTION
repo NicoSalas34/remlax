@@ -20,9 +20,8 @@ Description: Fits linear mixed models by restricted maximum likelihood
     arma, corb, corg, exp, gau, sph, cir, Matern, separable products). Helpers
     build weighted neighbourhood incidences for direct and indirect genetic
     effects in mixtures of two species, as in the model of Salas et al.
-    (2026) <doi:10.64898/2026.05.27.728303>. A further engine built on 'RTMB'
-    covers the structures whose precision matrix is sparse and known in closed
-    form. The 'Python' solver ships with the package; a 'Python' (>= 3.10)
+    (2026) <doi:10.64898/2026.05.27.728303>. The 'Python' solver ships with
+    the package; a 'Python' (>= 3.10)
     interpreter with 'jax', 'numpy' and 'scipy' must be available, and
     rx_install_python() creates one on request. The validation against
     'asreml', 'lme4', 'sommer' and 'nlme' is shipped as a vignette, and
@@ -44,8 +43,6 @@ Imports:
     tools,
     utils
 Suggests:
-    RTMB,
-    TMB,
     testthat (>= 3.0.0),
     lme4,
     nlme,
@@ -61,5 +58,4 @@ SystemRequirements: Python (>= 3.10) with jax (>= 0.4.30), numpy (>= 1.24)
 VignetteBuilder: knitr
 Config/testthat/edition: 3
 Roxygen: list(markdown = TRUE)
-Config/roxygen2/version: 8.1.0
-RoxygenNote: 7.3.1
+Config/roxygen2/version: 8.1.1

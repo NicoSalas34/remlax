@@ -2,7 +2,7 @@
 \chapter{Fitting}\label{ch:fitting}
 
 \section{Three engines}
-\pending{dense marginal engine (JAX), mixed model equations engine (Python), sparse RTMB engine; scope of each}
+\pending{dense marginal engine (JAX), mixed model equations engine, blocks engine; scope of each}
 
 \section{Inverting C}
 \pending{dense inversion and supernodal selected inversion; fill-in of the factor}

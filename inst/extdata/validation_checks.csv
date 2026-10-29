@@ -343,52 +343,6 @@ ige_model,,var_champ : accord avec asreml,asreml + known truth,pass,0.61009 vs 0
 ige_model,,rho_ligne : accord avec asreml,asreml + known truth,pass,0.53375 vs 0.53215 (SE 0.131)
 ige_model,,rho_colonne : accord avec asreml,asreml + known truth,pass,0.11931 vs 0.11850 (SE 0.111)
 ige_model,,pepite : accord avec asreml,asreml + known truth,pass,0.39824 vs 0.39694 (SE 0.156)
-sparse_parity,"1. Sigma(theta), entre caracteres","Sigma : iid, t = 1, 1 parametres",dense engine (same theta),pass,ecart 0.000e+00
-sparse_parity,"1. Sigma(theta), entre caracteres","Sigma : iid, t = 2, 1 parametres",dense engine (same theta),pass,ecart 0.000e+00
-sparse_parity,"1. Sigma(theta), entre caracteres","Sigma : iid, t = 3, 1 parametres",dense engine (same theta),pass,ecart 0.000e+00
-sparse_parity,"1. Sigma(theta), entre caracteres","Sigma : iid, t = 5, 1 parametres",dense engine (same theta),pass,ecart 0.000e+00
-sparse_parity,"1. Sigma(theta), entre caracteres","Sigma : diag, t = 1, 1 parametres",dense engine (same theta),pass,ecart 0.000e+00
-sparse_parity,"1. Sigma(theta), entre caracteres","Sigma : diag, t = 2, 2 parametres",dense engine (same theta),pass,ecart 0.000e+00
-sparse_parity,"1. Sigma(theta), entre caracteres","Sigma : diag, t = 3, 3 parametres",dense engine (same theta),pass,ecart 4.441e-16
-sparse_parity,"1. Sigma(theta), entre caracteres","Sigma : diag, t = 5, 5 parametres",dense engine (same theta),pass,ecart 5.551e-17
-sparse_parity,"1. Sigma(theta), entre caracteres","Sigma : us, t = 1, 1 parametres",dense engine (same theta),pass,ecart 2.220e-16
-sparse_parity,"1. Sigma(theta), entre caracteres","Sigma : us, t = 2, 3 parametres",dense engine (same theta),pass,ecart 0.000e+00
-sparse_parity,"1. Sigma(theta), entre caracteres","Sigma : us, t = 3, 6 parametres",dense engine (same theta),pass,ecart 0.000e+00
-sparse_parity,"1. Sigma(theta), entre caracteres","Sigma : us, t = 5, 15 parametres",dense engine (same theta),pass,ecart 0.000e+00
-sparse_parity,2. K^-1(theta) : forme close R contre inverse numerique Python,"ar1 : q = 5, phi = -0.0261 : K^-1 K = I",dense engine (same theta),pass,ecart 4.571e-18
-sparse_parity,2. K^-1(theta) : forme close R contre inverse numerique Python,ar1 : q = 5 : log|K| analytique contre numerique,dense engine (same theta),pass,ecart 0.000e+00
-sparse_parity,2. K^-1(theta) : forme close R contre inverse numerique Python,"ar1 : q = 12, phi = 0.5222 : K^-1 K = I",dense engine (same theta),pass,ecart 2.220e-16
-sparse_parity,2. K^-1(theta) : forme close R contre inverse numerique Python,ar1 : q = 12 : log|K| analytique contre numerique,dense engine (same theta),pass,ecart 8.882e-16
-sparse_parity,2. K^-1(theta) : forme close R contre inverse numerique Python,"ar1 : q = 40, phi = -0.4347 : K^-1 K = I",dense engine (same theta),pass,ecart 5.551e-17
-sparse_parity,2. K^-1(theta) : forme close R contre inverse numerique Python,ar1 : q = 40 : log|K| analytique contre numerique,dense engine (same theta),pass,ecart 5.329e-15
-sparse_parity,2. K^-1(theta) : forme close R contre inverse numerique Python,"ar1ar1 : 3x4, phi = (0.512, -0.049) : K^-1 K = I",dense engine (same theta),pass,ecart 7.772e-16
-sparse_parity,2. K^-1(theta) : forme close R contre inverse numerique Python,ar1ar1 : 3x4 : log|K| analytique contre numerique,dense engine (same theta),pass,ecart 3.997e-15
-sparse_parity,2. K^-1(theta) : forme close R contre inverse numerique Python,"ar1ar1 : 5x6, phi = (0.303, 0.748) : K^-1 K = I",dense engine (same theta),pass,ecart 1.554e-15
-sparse_parity,2. K^-1(theta) : forme close R contre inverse numerique Python,ar1ar1 : 5x6 : log|K| analytique contre numerique,dense engine (same theta),pass,ecart 2.487e-14
-sparse_parity,3. forme quadratique ecrite en vecteurs contre u' K^-1 u,ar1 : q = 6,dense engine (same theta),pass,ecart 2.665e-15
-sparse_parity,3. forme quadratique ecrite en vecteurs contre u' K^-1 u,ar1 : q = 25,dense engine (same theta),pass,ecart 3.553e-15
-sparse_parity,3. forme quadratique ecrite en vecteurs contre u' K^-1 u,ar1ar1 : 4x5,dense engine (same theta),pass,ecart 0.000e+00
-sparse_parity,3. forme quadratique ecrite en vecteurs contre u' K^-1 u,ar1ar1 : 7x3,dense engine (same theta),pass,ecart 0.000e+00
-sparse_parity,4. perimetre,refuse noyau metrique iexp,dense engine (same theta),pass,": terme 's' : structure entre niveaux 'iexp' a un inverse plein, le creux n'y ga"
-sparse_parity,4. perimetre,refuse parente dense LK,dense engine (same theta),pass,": terme 'g' : structure entre niveaux 'fixed' a un inverse plein, le creux n'y g"
-sparse_parity,4. perimetre,refuse fa entre caracteres,dense engine (same theta),pass,: terme 'g' : structure entre caracteres 'fa' hors perimetre creux (retenues : i
-sparse_parity,4. perimetre,accepte us(2) + ar1 + residuelle diag,dense engine (same theta),pass,
-sparse_vs_dense,,0 : dense reevalue a son propre theta,dense engine (warm start both ways),pass,ecart 0.000e+00
-sparse_vs_dense,,A : creux evalue au theta du dense,dense engine (warm start both ways),pass,ecart 2.274e-13
-sparse_vs_dense,,B : dense evalue au theta du creux,dense engine (warm start both ways),pass,ecart -2.274e-13
-sparse_vs_dense,,C : les deux optima a moins de 1e-4,dense engine (warm start both ways),pass,ecart -1.137e-13
-sparse_vs_dense,,0 : dense reevalue a son propre theta,dense engine (warm start both ways),pass,ecart 0.000e+00
-sparse_vs_dense,,A : creux evalue au theta du dense,dense engine (warm start both ways),pass,ecart 2.046e-12
-sparse_vs_dense,,B : dense evalue au theta du creux,dense engine (warm start both ways),pass,ecart 9.095e-13
-sparse_vs_dense,,C : les deux optima a moins de 1e-4,dense engine (warm start both ways),pass,ecart -2.559e-09
-sparse_vs_dense,,0 : dense reevalue a son propre theta,dense engine (warm start both ways),pass,ecart 0.000e+00
-sparse_vs_dense,,A : creux evalue au theta du dense,dense engine (warm start both ways),pass,ecart 1.819e-12
-sparse_vs_dense,,B : dense evalue au theta du creux,dense engine (warm start both ways),pass,ecart 5.684e-13
-sparse_vs_dense,,C : les deux optima a moins de 1e-4,dense engine (warm start both ways),pass,ecart -3.623e-10
-sparse_vs_dense,,0 : dense reevalue a son propre theta,dense engine (warm start both ways),pass,ecart 0.000e+00
-sparse_vs_dense,,A : creux evalue au theta du dense,dense engine (warm start both ways),pass,ecart 1.023e-12
-sparse_vs_dense,,B : dense evalue au theta du creux,dense engine (warm start both ways),pass,ecart 1.137e-13
-sparse_vs_dense,,C : les deux optima a moins de 1e-4,dense engine (warm start both ways),pass,ecart -6.118e-09
 sparse_prec,"1. la fente accepte une precision creuse, et refuse les melanges",Kinv portee par le terme,independent dense-algebra REML,pass,ecart +0.000e+00
 sparse_prec,"1. la fente accepte une precision creuse, et refuse les melanges",niveau resolu en 'prec',independent dense-algebra REML,pass,ecart +0.000e+00
 sparse_prec,"1. la fente accepte une precision creuse, et refuse les melanges",dans le perimetre creux,independent dense-algebra REML,pass,ecart +0.000e+00

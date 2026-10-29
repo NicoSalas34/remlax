@@ -8,7 +8,7 @@
 \pending{the simulation suite and its arbiter likelihood}
 
 \section{Engine agreement}
-\pending{dense, mixed model equations and sparse engines on the same data}
+\pending{dense, mixed model equations and blocks engines on the same data}
 
 \section{Rerunning the checks}
 \pending{rx_validate() and the validation repository}

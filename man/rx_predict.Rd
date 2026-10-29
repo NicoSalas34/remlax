@@ -53,7 +53,7 @@ Only single-trait random terms are covered. A \code{classify} on a
 multi-trait term is warned about and dropped from the random part.
 }
 \examples{
-\dontshow{if (rx_python_check(quiet = TRUE)$ok) (if (getRversion() >= "3.4") withAutoprint else force)(\{ # examplesIf}
+\dontshow{if (rx_python_check(quiet = TRUE)$ok) withAutoprint(\{ # examplesIf}
 \donttest{
 set.seed(2026)
 d <- expand.grid(gid = factor(1:60), bloc = factor(1:4))

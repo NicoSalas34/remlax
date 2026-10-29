@@ -59,7 +59,7 @@ rounding. A model outside the scope of the mixed model equations engine
 is fitted by the dense engine, with a message.
 }
 \examples{
-\dontshow{if (rx_python_check(quiet = TRUE)$ok) (if (getRversion() >= "3.4") withAutoprint else force)(\{ # examplesIf}
+\dontshow{if (rx_python_check(quiet = TRUE)$ok) withAutoprint(\{ # examplesIf}
 \donttest{
 set.seed(1)
 d <- data.frame(gid = factor(rep(1:30, each = 4)), x = rnorm(120))
@@ -71,5 +71,5 @@ f$logLik
 \dontshow{\}) # examplesIf}
 }
 \seealso{
-\code{\link[=rx_fit]{rx_fit()}}, \code{\link[=rx_fit_sparse]{rx_fit_sparse()}}
+\code{\link[=rx_fit]{rx_fit()}}
 }

@@ -67,7 +67,7 @@ of \code{X}; \code{k} is the number of degrees of freedom to use in a likelihood
 ratio test.
 }
 \examples{
-\dontshow{if (rx_python_check(quiet = TRUE)$ok) (if (getRversion() >= "3.4") withAutoprint else force)(\{ # examplesIf}
+\dontshow{if (rx_python_check(quiet = TRUE)$ok) withAutoprint(\{ # examplesIf}
 \donttest{
 set.seed(2026)
 d <- expand.grid(gid = factor(1:60), bloc = factor(1:4))
