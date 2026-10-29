@@ -1,0 +1,18 @@
+% Structure catalogue
+\chapter{Structure catalogue}\label{ch:catalogue}
+
+\section{Covariance structures for Sigma}
+\pending{id, diag, us, corh, corgh, fa, rr, chol, ante: formula, parameters, count, asreml equivalent, figures}
+
+\section{Correlation structures between levels}
+\pending{ar1, ar2, ar3, ma, arma, corb, corg, exp, gau, sph, cir, Matern: formula, parameters, figures}
+
+\section{Separable products}
+\pending{kron products of correlation structures, AR1 x AR1}
+
+\section{Residual structures}
+\pending{residual sections, units, separable residual fields}
+
+\section{Two-dimensional splines}
+\pending{spl2d and the PS-ANOVA decomposition}
+

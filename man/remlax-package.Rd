@@ -18,16 +18,30 @@ incidence, such as indirect genetic effects.
 The R side never imports Python. \code{\link[=rx_export]{rx_export()}} writes the design to a
 directory (raw binary plus \code{manifest.json}), \code{\link[=rx_fit]{rx_fit()}} runs the solver as a
 subprocess, and \code{\link[=rx_read_result]{rx_read_result()}} reads the result back. The solver is a
-JAX program shipped with the package under \verb{inst/python/}, so that the
-interface and the engine always come from the same version.
+Python program shipped with the package under \verb{inst/python/}, so that the
+interface and the solver always come from the same version.
 }
-\section{Two engines}{
+\section{Three engines}{
 
-\code{\link[=rx_fit]{rx_fit()}} is the dense engine: \code{V} is formed explicitly (\verb{n x n}) and
-differentiated, on CPU or GPU. \code{\link[=rx_fit_sparse]{rx_fit_sparse()}} is the sparse engine built
-on the mixed model equations and RTMB, for the structures whose precision is
-sparse and known in closed form (\code{\link[=rx_sparse_scope]{rx_sparse_scope()}} says which). Both take
-the same \link{rx_model} object and maximise the same likelihood.
+\code{rx_fit(engine = "dense")}, the default, forms the marginal covariance \code{V}
+(\verb{n x n}) and differentiates the likelihood with JAX, on CPU or GPU; it
+covers every structure of the package. \code{rx_fit(engine = "mme")}, also
+reached by \code{\link[=rx_fit_mme]{rx_fit_mme()}}, works on Henderson's mixed model equations, with
+a dense or a sparse (selected) inversion of \code{C}; its cost follows the number
+of levels rather than \code{n}, and a model outside its scope falls back to the
+dense engine. \code{\link[=rx_fit_sparse]{rx_fit_sparse()}} is a separate engine built on RTMB, for the
+structures whose precision is sparse and known in closed form
+(\code{\link[=rx_sparse_scope]{rx_sparse_scope()}} says which). All three take the same \link{rx_model} object
+and maximise the same likelihood.
+}
+
+\section{Two optimisers}{
+
+\code{optimizer = "lbfgsb"} (default) runs L-BFGS-B on the unconstrained
+parameters \code{theta}, then regularised Newton polishing. \code{optimizer = "ai"}
+runs average information REML with steps taken on the variance scale, as in
+ASReml; it hands over to L-BFGS-B when it cannot certify its optimum. Both
+report the same convergence diagnostics.
 }
 
 \section{Finding Python}{

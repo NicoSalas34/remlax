@@ -38,7 +38,12 @@ summary.rx_fit <- function(object, coef = FALSE, ...) {
   n <- as.integer(x$n_obs %||% NA)
   nedf <- n - p
   n_par <- as.integer(x$n_par %||% nrow(varcomp))
-  n_est <- n_par - as.integer(x$n_fixed %||% 0)
+  # PARAMETRES IDENTIFIES. Des entrees de Sigma de meme motif dans V (le bloc
+  # residuelle-IEE d'un terme de plante [I, W] avec W symetrique) n'entrent que
+  # par leur somme : q(q-1)/2 parametres de VP+ ne sont pas identifies. Ils ne
+  # comptent ni dans l'AIC ni dans le BIC, ni dans les ddl d'un LRT.
+  n_plat <- as.integer(x[["n_plat_attendu"]] %||% 0L)
+  n_est <- n_par - n_plat - as.integer(x$n_fixed %||% 0)
   m2l <- -2 * x$logLik
   info <- data.frame(
     criterion = c("logLik", "logLik (asreml)", "AIC", "BIC"),
@@ -73,7 +78,7 @@ summary.rx_fit <- function(object, coef = FALSE, ...) {
   conv <- c(decrement = x$conv_decrement, gradient = x$conv_grad_rel, hessian = x$conv_hessien_ok)
   structure(list(
     call = x$call, backend = x$backend, n_obs = n, nedf = nedf, n_par = n_par,
-    n_estimated = n_est, n_at_bound = as.integer(x$n_at_bound %||% NA),
+    n_estimated = n_est, n_not_identified = n_plat, n_at_bound = as.integer(x$n_at_bound %||% NA),
     loglik = x$logLik, loglik_asreml = x$logLik_asreml %||% NA,
     aic = info$value[3], bic = info$value[4], criteria = info,
     converged = length(conv) > 0 && all(as.logical(conv)),
@@ -81,6 +86,9 @@ summary.rx_fit <- function(object, coef = FALSE, ...) {
                        n_iter = x$n_iter %||% NA, n_neg_eig = x$n_neg_eig %||% NA,
                        seconds = x$secondes %||% NA),
     varcomp = varcomp, dimensions = dims, surfaces = .rx_noms_spats(x),
+    lag = if (!is.null(x[["lag"]])) x[["lag"]][c("criterion", "chemin", "logdet_A", "logdet_mean",
+                                                 "rayon_spectral", "admissible", "logLik_ystar",
+                                                 "logLik_jacobian", "Psi", "Psi_se")],
     coef.fixed = fixed, coef.random = random,
     vpredict = x$vpredict$predictions, wald = x$wald$tests),
     class = "summary.rx_fit")
@@ -90,8 +98,10 @@ print.summary.rx_fit <- function(x, digits = max(4L, getOption("digits") - 3L), 
   cat("Modele mixte ajuste par REML (remlax, ", x$backend %||% "?", ")\n", sep = "")
   if (!is.null(x$call)) cat("Appel : ", paste(deparse(x$call, width.cutoff = 70L), collapse = "\n  "),
                             "\n", sep = "")
-  cat(sprintf("\n%d observations, %d ddl residuels, %d parametre(s) de variance dont %d estime(s)%s\n",
+  cat(sprintf("\n%d observations, %d ddl residuels, %d parametre(s) de variance dont %d estime(s)%s%s\n",
               x$n_obs, x$nedf, x$n_par, x$n_estimated,
+              if (isTRUE(x$n_not_identified > 0))
+                sprintf(" et identifie(s) (%d non identifie(s) : entrees N)", x$n_not_identified) else "",
               if (isTRUE(x$n_at_bound > 0)) sprintf(", %d a une borne", x$n_at_bound) else ""))
   cat(sprintf("logLik %.4f (convention asreml : %.4f)   AIC %.2f   BIC %.2f\n",
               x$loglik, x$loglik_asreml, x$aic, x$bic))
@@ -108,8 +118,22 @@ print.summary.rx_fit <- function(x, digits = max(4L, getOption("digits") - 3L), 
   vc$component <- signif(vc$component, digits); vc$std.error <- signif(vc$std.error, digits)
   vc$z.ratio <- round(vc$z.ratio, 2)
   print(vc, na.print = "")
-  cat("  bound : P variance, U non contrainte, B a une borne, F fixee\n")
+  cat("  bound : P variance, U non contrainte, B a une borne, F fixee, N non identifiee seule",
+      "(sa somme \"a+b\" l'est)\n")
 
+  if (!is.null(x$lag)) {
+    Lg <- x$lag
+    cat(sprintf("\nDecalage spatial (Psi : receveur en ligne, emetteur en colonne, unites de W)\n"))
+    cat(sprintf("  critere %s | log|det(I - M)| %.6f | terme de moyenne %.6f | rayon spectral de M %.4f | chemin %s%s\n",
+                Lg$criterion, Lg$logdet_A, Lg$logdet_mean, Lg$rayon_spectral, Lg$chemin,
+                if (isFALSE(Lg$admissible)) " | HORS REGION ADMISSIBLE" else ""))
+    cat(sprintf("  logLik de y* seule %.4f ; avec le jacobien %.4f\n", Lg$logLik_ystar,
+                Lg$logLik_jacobian %||% NA_real_))
+    if (!is.null(Lg$Psi)) {
+      cat("  Psi :\n"); print(signif(Lg$Psi, digits))
+      if (!is.null(Lg$Psi_se)) { cat("  erreurs-types :\n"); print(signif(Lg$Psi_se, digits)) }
+    }
+  }
   if (!is.null(x$dimensions)) {
     cat("\nDimensions (a la maniere de SpATS) :\n")
     dd <- x$dimensions

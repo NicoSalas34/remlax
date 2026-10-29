@@ -1,0 +1,24 @@
+% Model specification
+\chapter{Model specification}\label{ch:spec}
+
+\section{Fixed effects}
+\pending{the fixed formula, aliasing and the QR reduction of X}
+
+\section{Random terms in a formula}
+\pending{the grammar of rx_reml(): variance and correlation functions, products, str()}
+
+\section{The residual}
+\pending{id, diag, us, separable spatial residuals, none}
+
+\section{Explicit terms}
+\pending{rx_term(), rx_model() and rx_residual() for incidences a formula cannot express}
+
+\section{Relationship matrices}
+\pending{K and its inverse, GRM and pedigree, scaling}
+
+\section{Fixed and constrained parameters}
+\pending{fixing a component, bounds, initial values}
+
+\section{Weights and missing values}
+\pending{how missing responses and unbalanced traits are handled}
+

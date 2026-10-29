@@ -57,7 +57,8 @@ describing a separable Kronecker product with any number of factors.}
 \item{Kinv}{sparse precision matrix of the levels, for the sparse engine
 only. A term declared by \code{Kinv} without \code{K} cannot be fitted by \code{\link[=rx_fit]{rx_fit()}}.}
 
-\item{Kinv_logdet}{log-determinant of \code{Kinv}, if already known; computed
+\item{Kinv_logdet}{log-determinant of \code{K}, that is \verb{-log|Kinv|}, if already
+known (Henderson's rules give it as a sum of local terms); computed
 otherwise.}
 
 \item{colnames}{names of the \code{t} columns of \code{Sigma}; by default the names of

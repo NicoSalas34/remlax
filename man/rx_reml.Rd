@@ -6,7 +6,7 @@
 \usage{
 rx_reml(fixed, random = NULL, residual = "units", data,
         trait = NULL, unit = NULL,
-        backend = c("auto", "gpu", "cpu"), ...)
+        backend = c("auto", "gpu", "cpu"), lag = NULL, ...)
 }
 \arguments{
 \item{fixed}{two-sided formula for the fixed effects, e.g. \code{y ~ 1 + trt}.}
@@ -34,7 +34,8 @@ surfaces to some levels. The null part of a level holds \code{x}, \code{y} and
 formula; a message says so when it is missing. The complete grammar is described in
 \code{vignette("r-interface", package = "remlax")}.}
 
-\item{residual}{\code{"units"}, \code{"diag"}, \code{"us"}, or a one-sided formula such as
+\item{residual}{\code{"units"}, \code{"diag"}, \code{"us"}, \code{"none"} (no residual, see
+\code{\link[=rx_residual]{rx_residual()}}), or a one-sided formula such as
 \code{~ ar1(row):ar1(col)} or \code{~ dsum(~ units | section)}.}
 
 \item{data}{a data frame.}
@@ -49,9 +50,13 @@ different traits are correlated under a \code{us} residual), or a vector.}
 rather than falling back, \code{"cpu"} forces the CPU. A machine choice, never a
 model choice: CPU and GPU agree to machine precision.}
 
-\item{...}{passed to \code{\link[=rx_fit]{rx_fit()}}: \code{vpredict}, \code{wald}, \code{kenward_roger},
-\code{predict}, \code{fixed_theta}, \code{theta_init}, \code{n_restarts}, \code{polish}, \code{maxiter},
-\code{hessian}, \code{blups}, \code{pev}, \code{verbose}, \code{keep}, \code{dir}.}
+\item{lag}{an \link{rx_lag} object: a spatial lag of the response, \verb{y = M y + ...} (the structural model). Its rows are those of \code{data}; a lag together
+with incomplete rows is refused rather than silently realigned.}
+
+\item{...}{passed to \code{\link[=rx_fit]{rx_fit()}}: \code{engine}, \code{inversion}, \code{optimizer}, \code{bayes},
+\code{vpredict}, \code{wald}, \code{kenward_roger}, \code{predict}, \code{fixed_theta},
+\code{theta_init}, \code{n_restarts}, \code{polish}, \code{maxiter}, \code{hessian}, \code{blups},
+\code{pev}, \code{verbose}, \code{keep}, \code{dir}.}
 }
 \value{
 An object of class \code{rx_fit} (see \code{\link[=rx_fit]{rx_fit()}}) carrying in addition
@@ -70,7 +75,7 @@ over the field. A \code{spl2d()} surface is available for a single trait only;
 for several traits, build it with \code{\link[=rx_spl2d]{rx_spl2d()}} and use \code{\link[=rx_model]{rx_model()}}.
 }
 \examples{
-\dontshow{if (rx_python_check(quiet = TRUE)$ok) withAutoprint(\{ # examplesIf}
+\dontshow{if (rx_python_check(quiet = TRUE)$ok) (if (getRversion() >= "3.4") withAutoprint else force)(\{ # examplesIf}
 \donttest{
 set.seed(2026)
 d <- expand.grid(gid = factor(1:30), bloc = factor(1:3))

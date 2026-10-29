@@ -57,7 +57,7 @@ n_loadings(w, k) = sum_{i=1..w} min(i, k)
 | `chol(k)` | `chol(k)` | `L D L'`, `L` unit lower triangular of band `k` | `(k+1)(w - k/2)` | band entries free, `D = diag(exp(2 th))` |
 | `ante(k)` | `ante(k)` | `Sigma^-1 = U D U'`, `U` unit upper triangular of band `k` | `(k+1)(w - k/2)` | band entries free, `D = diag(exp(2 th))` |
 | `corh` | `corh` | `D C D`, `C` uniform correlation | `w + 1` | `D = diag(exp(th))`, correlation bounded (below) |
-| `fixed` | — | supplied matrix | 0 | Cholesky of the given `Sigma` |
+| `fixed` | none | supplied matrix | 0 | Cholesky of the given `Sigma` |
 
 Counts, computed by `remlax.structures.n_params`:
 
@@ -111,7 +111,7 @@ Hessian that is singular in `w` directions.
 ### An aliasing that looks like a model comparison
 
 `us` and `rr(k)` differ by a diagonal. If the residual already carries a free
-diagonal — `residual = ~ diag(trait):units` — then that difference is
+diagonal, as in `residual = ~ diag(trait):units`, then that difference is
 absorbed, and the two models reach the **same** likelihood with different
 parameter counts. Measured on a four-trait design with 70 genotypes:
 
@@ -151,7 +151,7 @@ function `rho_0 .. rho_{q-1}` and expands `C[i,j] = rho_{|i-j|}`.
 
 | name | `C` or `rho_k` | parameters | parametrisation |
 |---|---|---|---|
-| `id` | `I` | 0 | — |
+| `id` | `I` | 0 | none |
 | `fixed` | supplied (GRM, pedigree, computed kernel) | 0 | Cholesky supplied by R |
 | `cor` | `C_ij = r` off-diagonal | 1 | `tanh` rescaled to `(-1/(q-1), 1)` |
 | `ar1` | `rho_k = phi^k` | 1 | `phi = tanh(th)` |
@@ -274,7 +274,7 @@ theta   1.0  phi rapporte  0.761594   C[0,1]  0.761594
 
 Bounding `|phi_i| < 1` is not enough. The stationarity region of an AR(2) is a
 triangle, not a square, and a `phi` outside it produces a "correlation" that
-is not positive definite — the fit then fails without saying why. remlax
+is not positive definite. The fit then fails without saying why. remlax
 parametrises the **partial autocorrelations**, each mapped into `(-1,1)` by
 `tanh`, and derives the `phi` by the Levinson-Durbin recursion. That bijection
 maps `(-1,1)^p` exactly onto the admissible region, so every point of the
@@ -300,8 +300,8 @@ the whole of `(-1,1)` and the fit would fail silently, so the map sends
 The formula printed in appendix C,
 `rho_1 = (th - ph)(1 - th ph)/(1 + th^2 - 2 th ph)`, produces sequences that
 are **not** positive definite over a large part of the square
-`|th| < 1, |ph| < 1` — 204 out of 300 random draws, including `rho_1 = -0.976`
-with `rho_2 = -0.944`, which is impossible. remlax uses the standard ARMA(1,1)
+`|th| < 1, |ph| < 1`. This was the case for 204 out of 300 random draws,
+including `rho_1 = -0.976` with `rho_2 = -0.944`, which is impossible. remlax uses the standard ARMA(1,1)
 autocorrelation, valid over the whole square. The fitted model is the same; the
 **sign** of the reported MA parameter may differ from asreml.
 
@@ -317,8 +317,8 @@ C_ij = max(0, 1 - d_ij / f)
 
 the linear-with-sill model of geostatistics. It is positive definite **in one
 dimension only**, being the autocorrelation of a rectangular pulse; there is
-no two-dimensional analogue. `f` is a range, hence `exp(theta)` — positive and
-unbounded — not a correlation in `tanh`.
+no two-dimensional analogue. `f` is a range, hence `exp(theta)`, not a
+correlation in `tanh`. A range is positive and unbounded.
 
 The likelihood in `f` is **not unimodal**: the support of the tent changes
 every time `f` crosses an integer, so an `optimize()`-style search is easily
@@ -375,7 +375,7 @@ Parameters, in this canonical order: `phi` (range `f`), `nu` (shape), `delta`
 are taken in `exp(theta)`; `alpha` is an angle and stays free.
 
 As in asreml, a parameter **absent from the call is held at its default** and
-only declared parameters are estimated — which prevents `nu`, `delta` and
+only declared parameters are estimated. This prevents `nu`, `delta` and
 `alpha` from being fitted by accident on a design that does not identify them.
 Defaults: `phi = 1` (estimated by default), `nu = 0.5`, `delta = 1`,
 `alpha = 0`, `lambda = 2`.
@@ -400,7 +400,7 @@ trapezoidal error decays like `exp(-pi^2/h)`. What is computed is
 
 asreml's `own(obj, fun)` calls an R function at each evaluation. That is not
 possible here: R and JAX do not share memory, and the **derivative** would be
-missing — an opaque R function has none. remlax takes an **expression**
+missing: an opaque R function has none. remlax takes an **expression**
 instead, which crosses the boundary as a string and is differentiated
 automatically.
 
@@ -410,7 +410,7 @@ random = ~ own(col, expr = "exp(-lag*exp(p1))", n_par = 1)
 
 Variables available in the expression: `d` (Euclidean distance), `dx`, `dy`,
 `lag` (`|i-j|`), `I`, `J`, `q`, and `p1..pk`, the **raw** unconstrained
-parameters — it is the expression's job to apply `exp` or `tanh` if it wants
+parameters. It is the expression's job to apply `exp` or `tanh` if it wants
 positivity or a bound. Functions available: `exp`, `log`, `sqrt`, `abs`,
 `tanh`, `sinh`, `cosh`, `sin`, `cos`, `minimum`, `maximum`, `where`, `pi`,
 `matern`.
@@ -435,9 +435,9 @@ ar1(col)                    : logLik -338.56966, phi = 0.90192
 ### ilv is not provided
 
 asreml has an `ilv`; its formula could not be recovered. None of nine
-candidate families reproduces its log-likelihood curve, and the natural
-candidate — a Euclidean tent — is not positive definite in two dimensions and
-returns NaN. An absent structure is preferable to a wrong one carrying an
+candidate families reproduces its log-likelihood curve. The natural
+candidate is a Euclidean tent. It is not positive definite in two dimensions
+and returns NaN. An absent structure is preferable to a wrong one carrying an
 asreml name. `ilv(x, y)` raises "terme aleatoire non reconnu".
 
 ### Separable products
@@ -507,7 +507,7 @@ caractere.
 PS-ANOVA decomposition of 'SpATS': five random blocks (`_fx`, `_fy`, `_fx_y`,
 `_x_fy`, `_fx_fy`), each with its own variance so the smoothing can be
 anisotropic, plus a null-space part that
-**must** go into the fixed effects. Nothing is added to the solver — a smooth
+**must** go into the fixed effects. Nothing is added to the solver. A smooth
 surface is a random effect with a known incidence, exactly as in sommer and
 asreml.
 
@@ -524,7 +524,7 @@ automatic here, since log standard deviations are what is parametrised, and
 A fixed parameter is **outside the free subspace without being at a bound**:
 it is pinned to its starting value, which has nothing to do with `floor` or
 `ceil`. Three separate counters say so, and they are deliberately not merged
-into one — they do not mean the same thing:
+into one. They do not mean the same thing:
 
 | counter | meaning |
 |---|---|
@@ -549,7 +549,7 @@ fixed_idx=[0]  n_par 3 | n_at_bound 0 | n_fixed 1 | n_fixed_out 1 | n_par_free 2
                max_grad 5.117183e+01 | newton_decrement 4.510e-14
 ```
 
-`max_grad` is 51.2 in the fixed case — the gradient along the pinned
-direction, which is large and irrelevant — while the Newton decrement stays at
+`max_grad` is 51.2 in the fixed case. It is the gradient along the pinned
+direction, which is large and irrelevant. Yet the Newton decrement stays at
 `4.5e-14`, correctly reporting that the two free parameters are at their
 optimum. This is one more reason to read the decrement and not the gradient.

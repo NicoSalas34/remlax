@@ -1,0 +1,27 @@
+% Output and inference
+\chapter{Output and inference}\label{ch:output}
+
+\section{The fitted object}
+\pending{fields of an rx_fit object and print/summary methods}
+
+\section{Variance components and their standard errors}
+\pending{Hessian, AI matrix, delta method}
+
+\section{Functions of variance components}
+\pending{ratios, heritability, correlations}
+
+\section{Random effects}
+\pending{BLUPs, prediction error variances, reliabilities}
+
+\section{Tests on fixed effects}
+\pending{Wald tests and Kenward-Roger}
+
+\section{Tests on variance components}
+\pending{likelihood ratio tests, interior and boundary nulls, information criteria}
+
+\section{Predictions}
+\pending{rx_predict() and averaging over terms}
+
+\section{Diagnostics}
+\pending{residuals, fitted values, spatial plots}
+

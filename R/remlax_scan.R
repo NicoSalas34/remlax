@@ -95,6 +95,9 @@ rx_scan <- function(fit, model, marqueurs, carte = NULL,
   backend <- match.arg(backend)
   codage  <- match.arg(codage)
   stopifnot(is.list(fit), !is.null(fit$theta), is.list(model))
+  if (!is.null(model$lag))
+    stop("rx_scan : non disponible avec un decalage spatial (rx_lag) ; le balayage suppose ",
+         "y lineaire a V donnee.", call. = FALSE)
 
   # ---- les incidences viennent des TERMES du modele ------------------------
   noms_termes <- vapply(model$terms, `[[`, "", "name")

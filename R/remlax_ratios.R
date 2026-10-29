@@ -134,6 +134,7 @@ rx_sigma_of <- function(th, struct, t, rank = 0L) {
   res <- model[["residual"]]
   secs <- res[["sections"]] %||% list(res)
   for (s in secs) {
+    if (identical(s[["struct"]], "none")) next
     ts <- if (is.null(s[["trait"]])) 1L else nlevels(factor(s[["trait"]]))
     ns <- rx_n_params(s[["struct"]], ts, s[["rank"]] %||% 0L)
     nl <- rx_n_level(s[["level"]] %||% "id", s[["order"]] %||% 0L, s[["opts"]])
@@ -144,7 +145,9 @@ rx_sigma_of <- function(th, struct, t, rank = 0L) {
                       idx_level = o + ns + seq_len(nl), labels = lab)
     o <- o + ns + nl
   }
-  attr(out, "n_theta") <- o
+  # Les entrees libres de Psi (rx_lag) terminent theta ; elles ne sont pas une
+  # Sigma, mais comptent dans sa longueur.
+  attr(out, "n_theta") <- o + (if (is.null(model[["lag"]])) 0L else model[["lag"]][["n_free"]])
   out
 }
 

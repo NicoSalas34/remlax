@@ -1,0 +1,15 @@
+% Validation
+\chapter{Validation}\label{ch:validation}
+
+\section{Agreement with other software}
+\pending{asreml, lme4, sommer and nlme on shared models}
+
+\section{Recovery of simulated parameters}
+\pending{the simulation suite and its arbiter likelihood}
+
+\section{Engine agreement}
+\pending{dense, mixed model equations and sparse engines on the same data}
+
+\section{Rerunning the checks}
+\pending{rx_validate() and the validation repository}
+

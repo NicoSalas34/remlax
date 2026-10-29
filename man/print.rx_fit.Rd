@@ -3,6 +3,7 @@
 \name{print.rx_fit}
 \alias{print.rx_fit}
 \alias{print.rx_model}
+\alias{print.rx_lag}
 \alias{print.rx_predict}
 \alias{print.rx_neighbourhood}
 \alias{print.rx_ratios}
@@ -11,6 +12,7 @@
 \usage{
 \method{print}{rx_fit}(x, ...)
 \method{print}{rx_model}(x, ...)
+\method{print}{rx_lag}(x, ...)
 \method{print}{rx_predict}(x, ...)
 \method{print}{rx_neighbourhood}(x, ...)
 \method{print}{rx_ratios}(x, ...)
@@ -29,6 +31,9 @@
 \code{q}, relationship and parameter count. \code{print.rx_fit()} prints the
 log-likelihood, the convergence diagnostics (\verb{max|grad|}, Newton decrement,
 number of negative eigenvalues), every \code{Sigma}, the residual, and the
-\code{vpredict} table when present. \code{print.rx_predict()} prints the prediction
+\code{vpredict} table when present, and, with a spatial lag, \code{Psi} with its
+standard errors, the criterion, \verb{log|det(I - M)|} and the spectral radius of
+\code{M}. \code{print.rx_lag()} prints the free and fixed entries of \code{Psi}.
+\code{print.rx_predict()} prints the prediction
 table and the mean standard error of differences when \code{sed = TRUE}.
 }

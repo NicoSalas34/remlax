@@ -10,7 +10,21 @@ rx_residual(struct = "iid", trait = NULL, unit = NULL, rank = 0L,
             rows = NULL, name = NULL)
 }
 \arguments{
-\item{struct}{\code{"iid"}, \code{"diag"}, \code{"us"} or \code{"fa"} over traits.}
+\item{struct}{\code{"iid"}, \code{"diag"}, \code{"us"} or \code{"fa"} over traits, or \code{"none"}:
+no residual term at all (\code{R = 0}, no parameter). \code{V} must then be positive
+definite from the random terms alone. The intended use is a plant-level
+term that carries the residual itself: incidences \verb{[I placed on trait t, W_t placed on trait t]} (one pair per trait), structure \code{us} over the \verb{2q}
+columns, which holds the residual covariance, the indirect environmental
+effects and their covariance (the "joint plant term"). The solver checks
+\code{V} at the starting values and stops with an explicit message when it is
+not positive definite. Not available in \code{\link[=rx_fit_sparse]{rx_fit_sparse()}}. With a
+symmetric \code{W}, \code{Cov(res_t, IEE_u)} and \code{Cov(res_u, IEE_t)} enter \code{V} only
+through their sum: the \code{us} plant term has \code{q(q-1)/2} entries that are not
+identified on their own. The fit detects them, reports their sums with
+standard errors and counts \code{q(q-1)/2} fewer parameters (see \code{\link[=rx_fit]{rx_fit()}}).
+They are not removed from the parametrisation: a positive definite plant
+covariance with a SYMMETRIC residual-IEE block is a strictly smaller model
+(a structural truth such as \verb{C = Psi R_e} is not symmetric).}
 
 \item{trait}{trait factor of length \code{n}; \code{NULL} means a single trait.}
 
@@ -36,7 +50,8 @@ Declare the residual structure
 \examples{
 r <- rx_residual()
 r$struct
+rx_residual("none")$struct
 }
 \seealso{
-\code{\link[=rx_model]{rx_model()}}, \code{\link[=rx_term]{rx_term()}}
+\code{\link[=rx_model]{rx_model()}}, \code{\link[=rx_term]{rx_term()}}, \code{\link[=rx_lag]{rx_lag()}}
 }

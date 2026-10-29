@@ -219,3 +219,19 @@ test_that("dsum, produit separable, spline 2D, pev, multi-caractere", {
   expect_identical(f0[["theta"]], th)
   expect_true(f0[["logLik"]] < fe[["logLik"]])
 })
+
+test_that("engine = 'auto' choisit le MME et l'AI, meme vraisemblance que le dense", {
+  skip_si_pas_de_jax()
+  set.seed(11)
+  q <- 40
+  g <- factor(sample(q, 400, TRUE))
+  y <- rnorm(q)[g] + rnorm(400)
+  Z <- Matrix::sparseMatrix(i = seq_along(g), j = as.integer(g), x = 1)
+  m <- rx_model(y, matrix(1, 400, 1), list(rx_term("g", Z, t = 1L)), rx_residual("iid"))
+  a <- rx_fit(m, engine = "auto", optimizer = "auto", backend = "cpu", verbose = FALSE)
+  d <- rx_fit(m, backend = "cpu", verbose = FALSE)
+  expect_identical(a$moteur, "mme")
+  expect_identical(a$optimiseur, "ai")
+  expect_equal(a$logLik, d$logLik, tolerance = 1e-7)
+  expect_true(all(c("preparation", "optimisation", "solveur_total") %in% names(a$chrono)))
+})

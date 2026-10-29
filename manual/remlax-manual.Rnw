@@ -1,0 +1,61 @@
+\documentclass[11pt,a4paper,twoside,openright]{scrbook}
+\input{preamble}
+
+\begin{document}
+
+<<setup, include=FALSE, cache=FALSE>>=
+source("R/setup.R")
+@
+
+\frontmatter
+\begin{titlepage}
+  \centering
+  \vspace*{40mm}
+  {\Huge\bfseries\color{rxblue} remlax\par}
+  \vspace{6mm}
+  {\Large Reference Manual\par}
+  \vspace{4mm}
+  {\large Restricted maximum likelihood for linear mixed models,\\ on CPU and GPU\par}
+  \vfill
+  {\large Nicolas Salas\par}
+  \vspace{3mm}
+  {Version \Sexpr{rx_version} \quad \Sexpr{format(Sys.Date(), "%d %B %Y")}\par}
+  \vspace{20mm}
+\end{titlepage}
+
+\tableofcontents
+
+\mainmatter
+<<child="chapters/01-introduction.Rnw">>=
+@
+<<child="chapters/02-installation.Rnw">>=
+@
+<<child="chapters/03-tour.Rnw">>=
+@
+<<child="chapters/04-specification.Rnw">>=
+@
+<<child="chapters/05-structures.Rnw">>=
+@
+<<child="chapters/06-fitting.Rnw">>=
+@
+<<child="chapters/07-output.Rnw">>=
+@
+<<child="chapters/08-special.Rnw">>=
+@
+<<child="chapters/09-validation.Rnw">>=
+@
+
+\appendix
+<<child="chapters/A-catalogue.Rnw">>=
+@
+<<child="chapters/B-asreml.Rnw">>=
+@
+<<child="chapters/C-solver.Rnw">>=
+@
+<<child="chapters/D-functions.Rnw">>=
+@
+
+\backmatter
+\printbibliography[heading=bibintoc]
+
+\end{document}

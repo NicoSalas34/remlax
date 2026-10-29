@@ -1,0 +1,12 @@
+% From asreml to remlax
+\chapter{From asreml to remlax}\label{ch:asreml}
+
+\section{Syntax correspondence}
+\pending{asreml calls and their remlax equivalent}
+
+\section{Component names}
+\pending{how components are named in both packages}
+
+\section{Differences in behaviour}
+\pending{boundaries, constraints, likelihood constants}
+

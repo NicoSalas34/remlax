@@ -1,8 +1,8 @@
 ---
-title: "The Python engine"
+title: "The Python solver"
 output: rmarkdown::html_vignette
 vignette: >
-  %\VignetteIndexEntry{The Python engine}
+  %\VignetteIndexEntry{The Python solver}
   %\VignetteEngine{knitr::rmarkdown}
   %\VignetteEncoding{UTF-8}
 ---
@@ -24,11 +24,25 @@ remlax/
   bessel.py      Matern kernel for arbitrary nu
   model.py       assembly of V and of the objective
   fit.py         optimisation, BLUPs, diagnostics
+  ai.py          average information REML (optimizer = "ai")
+  mme.py         mixed model equations engine (moteur = "mme")
+  selinv.py      sparse factorisation and selected inversion of C
+  selinv_c.c     C kernel of the selected inversion, compiled at first use
+  lag.py         spatial lag of the response
   inference.py   vpredict, Wald, Kenward-Roger, predict
   bundle.py      reader for the serialised design
   device.py      CPU/GPU selection
   cli.py         command-line entry point
+  scan.py        genome-wide scans at fixed covariance
 ```
+
+The solver holds two engines. The dense engine (`model.py`, `core.py`) forms
+the marginal covariance `V` and differentiates `-2 logL` with JAX. The mixed
+model equations engine (`mme.py`, `selinv.py`) works on `C`, an `m x m`
+matrix where `m` counts the fixed effects and the random levels. Both take the
+same terms and the same `theta`, and `fit.py` drives either of them with the
+same optimisers and diagnostics. A third engine, built on RTMB, lives on the R
+side (`rx_fit_sparse()`).
 
 `import remlax` re-exports `STRUCTURES`, `n_params`, `build_sigma`,
 `chol_sigma`, `Bundle`, `assemble_V`, `neg2_reml`, `make_objective`,
@@ -86,8 +100,8 @@ Only the first nine are mandatory.
 | `lvl_expr` | str | expression for `own` |
 
 A supplied `K` without an explicit `lvl` key defaults to `"fixed"`, never to
-`"id"`. Falling back to `"id"` would silently ignore the relationship matrix —
-that is a failure that actually happened, producing two runs labelled "kinship"
+`"id"`. Falling back to `"id"` would silently ignore the relationship matrix.
+That is a failure that actually happened, producing two runs labelled "kinship"
 that were exact duplicates of the runs without.
 
 The residual dictionary uses the same keys plus `trait` (0-based trait index
@@ -105,7 +119,7 @@ Tuple of accepted `Sigma` structures:
 
 ### `n_loadings(t, r)`
 
-`sum_{i=1..t} min(i, r)` — the number of free entries of a `t x r` lower
+`sum_{i=1..t} min(i, r)`: the number of free entries of a `t x r` lower
 trapezoidal matrix. Used by `fa` and `rr`.
 
 ### `n_params(struct, t, rank=0)`
@@ -190,7 +204,7 @@ Names that require a `coord` argument:
 
 ### `MTRN_PARAMS`, `MTRN_DEFAUT`
 
-`("phi", "nu", "delta", "alpha")` — the **canonical order** of the Matern
+`("phi", "nu", "delta", "alpha")`: the **canonical order** of the Matern
 parameters, which fixes their place in `theta` and in every output. Changing
 it would invalidate any fit already recorded. `MTRN_DEFAUT` is
 `{"phi": 1.0, "nu": 0.5, "delta": 1.0, "alpha": 0.0, "lambda": 2.0}`.
@@ -215,7 +229,7 @@ of the four are estimated (only `phi` defaults to estimated); for `own`,
 
 ### `level_corr(theta_lv, kind, q, order=0, coord=None, C_fixed=None, parts=None, dims=None, opts=None, expr=None)`
 
-The `q x q` correlation matrix. Unit diagonal by contract — the variance lives
+The `q x q` correlation matrix. Unit diagonal by contract: the variance lives
 in `Sigma`.
 
 ```python
@@ -230,7 +244,7 @@ array([[1.   , 0.7  , 0.49 , 0.343],
 ### `level_chol(theta_lv, kind, q, dims=None, LK_fixed=None, order=0, coord=None, parts=None, jitter=1e-10, opts=None, expr=None)`
 
 Factor `L` with `L L' = C`. Returns **`None` for `kind="id"`**, meaning "no
-product to perform" — callers must handle that. Three cases are kept in closed
+product to perform". Callers must handle that. Three cases are kept in closed
 form: `id` (`None`), `fixed` (the factor already computed on the R side, no
 refactorisation) and `ar1`. Everything else goes through a numerical Cholesky
 with a small jitter, because a banded correlation (`ma1`, `corb`) can be
@@ -358,12 +372,12 @@ far from the optimum.
 
 Returns `(fun_jac_scaled, fun_jac, sc, Zs)`.
 
-- `fun_jac_scaled(theta) -> (float, ndarray)` — objective and gradient
+- `fun_jac_scaled(theta) -> (float, ndarray)`: objective and gradient
   **divided by n**. This is what the optimiser sees.
-- `fun_jac(theta) -> (float, ndarray)` — the same on the natural `-2 logL`
+- `fun_jac(theta) -> (float, ndarray)`: the same on the natural `-2 logL`
   scale, for diagnostics and outputs.
-- `sc` — the scale factor used (`n` unless `scale` is given).
-- `Zs` — the dense incidences, reusable.
+- `sc`: the scale factor used (`n` unless `scale` is given).
+- `Zs`: the dense incidences, reusable.
 
 The scaling is load-bearing, not cosmetic. `-2 logL` is of order `n` and so is
 its gradient; L-BFGS-B starts with an approximate Hessian equal to the
@@ -390,14 +404,14 @@ of the coordinate span, where the likelihood still has slope.
 Raises `ValueError` on designs that would make `V` singular. Returns `None`
 when everything is fine. The checks are:
 
-- duplicated `(unit, trait)` pairs under any structured residual — the two
+- duplicated `(unit, trait)` pairs under any structured residual: the two
   rows would be perfectly correlated, `R` singular, `-2 logL` NaN;
 - a trait index outside the declared residual `t`;
 - an entirely null incidence for a term;
 - non-finite values in `y` or `X`;
 - `X` not of full column rank.
 
-### `fit_reml(terms, res, y, X, theta_init=None, maxiter=3000, floor=-12.0, ceil=12.0, verbose=True, hessian=True, blups=True, tol=1e-14, polish=25, check=True, n_restarts=0, restart_sd=0.5, seed=0, fixed_idx=None)`
+### `fit_reml(terms, res, y, X, theta_init=None, maxiter=3000, floor=-12.0, ceil=12.0, verbose=True, hessian=True, blups=True, pev=False, tol=1e-14, polish=25, check=True, n_restarts=0, restart_sd=0.5, seed=0, fixed_idx=None, lag=None, optimizer="lbfgsb", moteur="dense", inversion="auto")`
 
 The fit. Arguments:
 
@@ -405,11 +419,12 @@ The fit. Arguments:
 |---|---|
 | `terms`, `res`, `y`, `X` | the model |
 | `theta_init` | starting vector; `initial_theta` if `None` |
-| `maxiter` | L-BFGS-B iteration cap (`maxfun = 10 * maxiter`) |
-| `floor`, `ceil` | wide bounds on every `theta`. Not needed for positivity — they only stop a variance escaping to `exp(-inf)`, where the gradient vanishes exponentially and the point becomes indistinguishable from an optimum |
+| `maxiter` | optimiser iteration cap (L-BFGS-B: `maxfun = 10 * maxiter`) |
+| `floor`, `ceil` | wide bounds on every `theta`. Positivity holds without them. They stop a variance escaping to `exp(-inf)`, where the gradient vanishes exponentially and the point becomes indistinguishable from an optimum |
 | `verbose` | progress every 25 iterations, and warnings |
 | `hessian` | compute the finite-difference Hessian and the diagnostic |
 | `blups` | compute `beta`, `vbeta`, `Vi`, `Py` and the BLUPs |
+| `pev` | prediction error variances of the BLUPs, `True` or a list of term names |
 | `tol` | `ftol` of L-BFGS-B |
 | `polish` | maximum number of regularised Newton steps after L-BFGS-B |
 | `check` | run `validate` first |
@@ -417,6 +432,10 @@ The fit. Arguments:
 | `restart_sd` | standard deviation of the perturbation |
 | `seed` | RNG seed for the restarts |
 | `fixed_idx` | 0-based indices held at their starting value |
+| `lag` | spatial lag of the response (`remlax.lag`), dense engine only |
+| `optimizer` | `"lbfgsb"`, `"ai"` (average information on the variance scale, `remlax.ai.ai_reml_var`) or `"ai_theta"` (steps on `theta`) |
+| `moteur` | `"dense"` (marginal `V`) or `"mme"` (mixed model equations, `remlax.mme`); a model outside the scope of `"mme"` falls back to `"dense"` |
+| `inversion` | with `moteur="mme"`: `"auto"`, `"dense"` or `"creuse"` (sparse selected inversion, `remlax.selinv`) |
 
 Returns a `dict`. Keys, on a two-term model:
 
@@ -427,7 +446,7 @@ Returns a `dict`. Keys, on a two-term model:
 | `logLik_asreml`, `const_2pi` | asreml convention (constant removed) and the constant |
 | `n_par`, `n_obs` | counts |
 | `max_grad` | `max |grad|` on the natural scale |
-| `newton_decrement` | `g' H^+ g`, the ascent still available — the stopping criterion that matters |
+| `newton_decrement` | `g' H^+ g`, the ascent still available. It is the stopping criterion that matters |
 | `leak` | gradient component in the null space of `H` |
 | `n_neg_eig`, `n_null_dir`, `lambda_min`, `lambda_max`, `cond` | spectrum of the free-subspace Hessian |
 | `n_at_bound` | parameters at `floor`/`ceil`, **excluding** fixed ones |
@@ -435,6 +454,7 @@ Returns a `dict`. Keys, on a two-term model:
 | `n_par_free` | dimension of the actual free subspace |
 | `composantes_degenerees` | names of terms with a parameter at the floor |
 | `n_polish`, `n_iter`, `scipy_success`, `scipy_message`, `secondes` | optimiser trace |
+| `moteur`, `inversion` | engine actually used, and the inversion of `C` with `moteur="mme"` |
 | `sigmas` | dict name -> `Sigma` matrix |
 | `sigmas_res`, `sigma_res` | per-section residual matrices, and the first one |
 | `rho` | dict of between-level parameters on the asreml scale |
@@ -778,23 +798,27 @@ R needs no Python dependency and Python needs no R dependency.
 | option | default | meaning |
 |---|---|---|
 | `--backend auto\|gpu\|cpu` | `auto` | device; `gpu` refuses if none is visible |
-| `--maxiter N` | 3000 | L-BFGS-B cap |
+| `--maxiter N` | 3000 | optimiser iteration cap |
+| `--optimiseur lbfgsb\|ai\|ai_theta` | `lbfgsb` | optimiser |
+| `--moteur dense\|mme` | `dense` | engine |
+| `--inversion auto\|dense\|creuse` | `auto` | inversion of `C` with `--moteur mme` |
 | `--polish N` | 25 | Newton polishing steps |
 | `--restarts N` | 0 | perturbed restarts |
 | `--restart-sd X` | 0.5 | perturbation size |
 | `--floor X`, `--ceil X` | -12, 12 | bounds on `theta` |
 | `--no-hessian` | off | skip the Hessian and the diagnostic |
 | `--no-blups` | off | skip `beta`, BLUPs and `Vi` |
+| `--pev`, `--pev-termes a,b` | off | prediction error variances, for all terms or the named ones |
 | `--quiet` | off | no progress output |
-| `--vpredict "n1=e1;n2=e2"` | — | expressions on the components |
+| `--vpredict "n1=e1;n2=e2"` | none | expressions on the components |
 | `--wald` | off | Wald tests on the fixed effects |
 | `--kenward-roger` | off | KR degrees of freedom and adjusted covariance |
 | `--predict` | off | read `pred_L.bin` (and `pred_M_<term>.bin`) and predict |
 | `--only-predict` | off | **no fit**: read `in_theta.bin` and predict only |
-| `--fixed-theta i,j` | — | 1-based indices held at their starting value |
+| `--fixed-theta i,j` | none | 1-based indices held at their starting value |
 
 `--only-predict` exists so that `rx_predict()` does not relaunch the whole
-optimisation to recover a `theta` that is already known — and so that nothing
+optimisation to recover a `theta` that is already known, and so that nothing
 depends on the optimiser landing on the same optimum twice.
 
 ```
@@ -816,4 +840,245 @@ Files written:
 
 Non-finite floats are written as JSON `null`, which R reads as `NA`. JSON has
 no `NaN`, and a conforming reader such as jsonlite rejects the **whole** file
-if one appears — an unavailable diagnostic would otherwise lose the entire fit.
+if one appears. An unavailable diagnostic would otherwise lose the entire fit.
+
+## 11. `remlax.ai`
+
+Average information REML. The AI matrix of `-2 logL` is
+`AI_ij = y'P V_i P V_j P y`, with `V_i = dV/dtheta_i`; it is the expected
+information evaluated at the data, cheap to form from the columns `V_i P y`.
+
+### `make_fga(terms, res, y, X)`
+
+Returns a jitted function of `theta` giving `-2 logL`, its gradient and the AI
+matrix together, on the dense engine. The incidences are passed as arguments
+of the jitted function, so XLA does not fold them into constants.
+
+### `ai_reml_var(fga, th0, bornes, terms, res, maxiter=200, tol_dec=1e-6, verbose=True, compteur=None, plancher_us=1e-10)`
+
+The optimiser behind `optimizer = "ai"`. The step is taken on the variance
+scale `phi`: the entries of each `Sigma` for `iid`, `diag` and `us` blocks,
+while `fa` loadings and between-level parameters stay on the `theta` scale.
+The gradient and the AI matrix are carried from `theta` to `phi` by the
+Jacobian of the change of variable. Each iteration then proceeds as follows.
+
+- Parameters at a bound whose gradient points outwards leave the step (active
+  set). A `us` block with an eigenvalue at the floor whose gradient points out
+  of the positive semidefinite cone is restricted to its face
+  `Sigma = U S U'`. The face keeps the rotations of the eigenvectors,
+  `U B V0' + V0 B' U'`, where `V0` spans the null space. A step along a
+  rotation follows the exact retraction `(U S + V0 B') S^-1 (S U' + B V0')`,
+  and the AI of the face carries the curvature term `2 kron(S^-1, V0' G V0)`.
+  Only the null directions whose gradient points out of the cone stay blocked
+  (partial face). The face threshold is `max(1e-8, 100 x floor)`.
+- The Newton step `-AI^-1 g` is projected back onto the cone and onto the
+  bounds. It is accepted when `-2 logL` does not increase. It is halved up to
+  `N_DEMI_PAS = 6` times.
+- When no halving is accepted, the step is damped in the manner of Levenberg
+  and Marquardt: `-(AI + mu I)^-1 g`, with `mu` growing by factors of ten from
+  `1e-6` times the largest eigenvalue of `AI`. A large `mu` turns the step
+  towards the gradient.
+
+The loop stops when the AI decrement `g' AI^-1 g / 2` falls below `tol_dec`.
+A point on a face of the cone is then a KKT point: it is stationary on the
+manifold of rank `r`, rotations included, and the gradient pushes out of the
+cone in the blocked directions. It is declared converged. Before the rotations
+were added, such a point was only stationary at fixed `U`, and L-BFGS-B had to
+rotate `U` in hundreds of small steps. The loop declares a failure, which
+`fit_reml` turns into an L-BFGS-B run from the point reached, in two cases:
+three gains in a row below `1e-6` with a decrement above
+`SEUIL_SUCCES = 1e-4`, or no admissible step.
+
+### `ai_reml_fga(...)`
+
+The earlier variant behind `optimizer = "ai_theta"`, with steps on `theta`.
+
+## 12. `remlax.mme`
+
+The mixed model equations engine, selected by `moteur = "mme"`.
+
+### `hors_perimetre(terms, res, lag=None)`
+
+Returns the reason why a model is outside the scope of the engine, or `None`.
+Out of scope: a spatial lag, a residual `"none"`, an `rr` structure, and the
+Gaussian metric kernels (`gau`, `igau`, `agau`, including inside separable
+products and residuals). `fit_reml` then fits the model with the dense engine
+and prints the reason.
+
+### `class MME(terms, res, y, X, inversion, verbose)`
+
+Builds `C = W'R^-1W + diag(0, G^-1)`, with `W = [X, Z]`, as a sum of
+components. Fixed components are computed once: cross-products `W_a'W_b` for
+each residual motif, the closed-form inverse of AR1 and separable AR1 x AR1
+correlations (`A^-1 = c0 I + c1 D + c2 T` with `rho = tanh(theta)`), and a
+supplied `K^-1`. Components recomputed at each evaluation are a dense `K(theta)`
+and a structured residual block. `X` is replaced by the orthonormal factor of
+its QR decomposition, as in the dense engine.
+
+`evaluer(theta, complet=True)` returns `-2 logL`, its gradient and the AI
+matrix. The traces of the gradient read the selected entries of `C^-1` on the
+union of the patterns of all components. `sorties(theta)` returns `beta`,
+`vbeta`, the BLUPs and, for the terms named in `pev`, the prediction error
+variances, read on the diagonal of `C^-1`.
+
+A residual section that is iid on one trait, with an `ar1`, `ar1 x ar1` or
+separable `id`/`ar1` correlation between units, is handled on its grid. Each
+observation goes to its cell and each empty cell receives an indicator fixed
+effect; the restricted likelihood of this augmented model equals that of the
+observed data (Schur complement: `log|V_F| + log|M'V_F^-1 M| = log|V_O|`).
+`R^-1 = sigma^-2 (x)_f A_f^-1` is then sparse and known in closed form, and
+`W'R^-1W` enters `C` as fixed sparse components weighted by coefficients in
+`rho`. At n = 8000, a genotype term with an `ar1 x ar1` residual takes 5 s
+with the sparse inversion, against 80 s when `R` was formed and inverted.
+
+The choice of inversion with `inversion="auto"`: dense when `m <= 1000`, or
+when the pattern of `C` fills more than 30 % of its lower triangle; otherwise
+the symbolic factorisation is computed, and the dense route is kept when the
+factor fills more than half of the triangle.
+
+Dense blocks. A component `(a, b)` of a term whose `K^-1` is dense (genomic
+relationship matrix, dense kernel) carries `q^2` entries. In the dense
+inversion it enters `C` in one piece, `C[A, B] += Sigma^-1[a, b] K^-1`, and its
+trace in the gradient is the sum of the elementwise product of the block of
+`C^-1` with `K^-1`. The other components keep the sparse pattern, restricted
+to their own entries. These blocks enter the sparse pattern of `C` only if a
+sparse or hybrid inversion is chosen; the automatic choice counts their
+entries without building them. On CPU, `C` is factorised by LAPACK (`dpotrf`)
+and `C^-1` is read from the factor (`dpotri`); on GPU, `C` is assembled on the
+host, factorised by XLA and `C^-1` is brought back for the traces. On 5
+treatments x 3768 genotypes the blocks hold 178 million entries: the
+preparation no longer builds them, and an evaluation no longer gathers them.
+
+Threads. The wheels of NumPy and SciPy each ship an OpenBLAS whose threads
+wait actively. During a fit of this engine, NumPy's OpenBLAS runs on one
+thread (`device.BlasNumpyUnFil`), while the LAPACK calls of SciPy keep theirs.
+
+### `make_fga_mme(terms, res, y, X, inversion="auto", verbose=True)`
+
+Returns `(fga, fun_jac, M)`: the function of `theta` giving `-2 logL`, the
+gradient and the AI matrix; the function giving the value and the gradient
+for L-BFGS-B; and the `MME` object, used after the fit for the BLUPs.
+
+## 13. `remlax.selinv`
+
+Sparse Cholesky factorisation of `C` and selected inversion.
+
+### `class FacteurCreux(motif, ii, jj, ordre="auto", moteur="auto")`
+
+Built once from the pattern of `C`. The elimination order is the nested
+dissection of METIS when `pymetis` is installed (`ordre="metis"`), else the
+minimum degree of SuperLU (`MMD_AT_PLUS_A`, `ordre="mmd"`). Nested dissection
+cuts the graph of `C` into two halves along a small separator, numbers the
+separator last and recurses on each half. On a `C` that is locally dense, as
+with the IGE terms of mvD7, minimum degree gives an almost dense factor and
+nested dissection a much smaller one.
+
+The numeric factorisation uses CHOLMOD, through `cvxopt`, when it is installed
+(`moteur="cholmod"`), else SuperLU (`moteur="superlu"`). CHOLMOD computes a
+supernodal Cholesky factor `C_p = L L'`, half the memory of an LU, and has no
+internal size limit. SuperLU factorises `C_p = L D L'` without pivoting and
+refuses factors above about 2 GB: on mvD7 it runs out of memory even with the
+METIS order. CHOLMOD runs in our order (identity permutation, no postorder, a single
+ordering method: `nmethods = 1`, without which CHOLMOD compares our order with
+AMD and may keep its own), so the supernodes of the selected inversion are the
+same with both engines. A check of `L L' v = A v` on a random vector guards the
+analysis; SuperLU takes over if it fails.
+`cvxopt.cholmod.getfactor` leaves the factor symbolic, so the symbolic analysis
+is redone at each factorisation; it is linear in `nnz(C)` in a fixed order.
+The values of `L` are placed on the pattern of the analysis by their column x
+row key, because the conversion drops exact zeros. Solves then run over
+the supernodes of `L`, one `trsm` and one `gemm` (BLAS) per block. Both
+packages are optional, and every combination of order and engine gives the
+dense values to 1e-14.
+
+Fundamental supernodes are merged when the extra zeros stay small (relaxed
+amalgamation). `factoriser(C)` returns `log|C|`; `resoudre(B)` solves
+`C x = B`; `inverse_selective()` returns the entries of `C^-1` on the pattern
+of the factor, by the supernodal Takahashi recurrence
+
+```
+Z_RJ = - Z_RR L_RJ L_JJ^-1
+Z_JJ = (L_JJ L_JJ')^-1 - (L_RJ L_JJ^-1)' Z_RJ
+```
+
+### `_noyau_c()`
+
+The recurrence runs in a C kernel, `selinv_c.c`, compiled at first use with the
+system C compiler into a cache (`REMLAX_CACHE`, else `~/.cache/remlax`, else
+`$TMPDIR/remlax_cache`) and loaded with `ctypes`. It links to nothing: the BLAS
+and LAPACK routines (`dgemm`, `dtrsm`, `dpotri`) are those of SciPy, passed as
+function pointers. Without a compiler, a NumPy loop gives the same result 5 to
+15 times more slowly. On a pedigree with `m = 20031`, the selected inversion
+takes 0.3 s with the kernel and 3.9 s with the NumPy loop.
+
+
+## 14. `remlax.econome`
+
+The dense engine with a smaller device footprint, selected by
+`memoire = "econome"` (`memory = "low"` in R). It computes the same
+likelihood, gradient and AI matrix as the standard dense engine; only the way
+they are computed changes. The standard mode stays the default and is not
+modified.
+
+The standard mode keeps on the device the full-height incidences of all terms
+(`n x sum(t q)`, 3.35 GB on a model with n = 12 760 and 51 terms), forms a
+residual without structure between units as a dense `n_s x n_s` matrix, keeps
+the factors `B_k` between the forward and backward passes, and gathers a copy
+of `dV` on the support of every group. The econome mode avoids each of these.
+
+### `class PlanEconome(terms, res, y, X)`
+
+Everything that does not depend on `theta`, computed once. Each residual
+section gets a mode:
+
+- `"paires"` for a section without structure between units (`lvl = "id"`):
+  `R` is scattered entry by entry over the pairs of rows of a same unit, and
+  the backward pass reads only these entries. The values are `E vec(Sigma)`,
+  with `E` the indicator matrix of the pairs, so the backward pass is a
+  product and stays deterministic.
+- `"plein"` for a structured section covering all rows, `"bloc"` for a
+  structured section covering part of them; both form `R_s` as before.
+
+Each group of terms with the same support gets a mode: `"plein"` when the
+support is all rows, `"haut"` when it covers at least half of them (the
+factor is then extended to the full height, so the backward pass computes
+`dV B` without copying a block of `dV`), `"bloc"` otherwise. The contribution
+`B B'` of every group is computed under `jax.checkpoint`: `B` is recomputed in
+the backward pass instead of being kept.
+
+### `make_objective_econome(plan)`, `make_fga_econome(plan)`
+
+Same contracts as `model.make_objective` and `ai.make_fga`. In the AI
+function, `P Q` is obtained by triangular solves before the adjoint
+`V^-1 - ...` is formed, so the Cholesky factor dies before the adjoint is
+born.
+
+### `adjoint_choisi()`
+
+The backward pass needs `V^-1`. Two ways give the same matrix: `L^-1` then
+`L^-T L^-1` (3 n^3 operations), or `cho_solve` (2 n^3). On the GPU, XLA does
+not run the two solves of `cho_solve` in place, which costs one more `n x n`
+matrix: on the model above the temporaries rise from 3.8 to 5.0 GiB and no
+longer fit a 10 GB slice. The first way is therefore used on the GPU, the
+second on the CPU, where memory is plentiful and the objective is 34 % faster
+than in the standard mode. `REMLAX_ADJOINT=inv` or `cho` forces either.
+
+### `V_hote(plan, theta)`, `z_hote(term, n)`
+
+At the end of a fit, `V` is assembled on the device and brought back to the
+host, and the full-height incidence of a term is built on the host only when
+its BLUPs are computed (`fit.effets_denses` with `V` and `z_de`).
+
+### Allocator ceiling
+
+JAX caps its memory pool at 75 % of the device by default, even without
+preallocation. On a 10 GB MIG slice the cap is 7.65 GB: the autotuning of the
+compilation peaks at 6.1 GB and fragments the pool, after which the 4.1 GB of
+temporaries of one evaluation no longer find a contiguous block. With
+`--memoire econome` the command line sets `XLA_PYTHON_CLIENT_MEM_FRACTION` to
+0.95 unless the caller set it, and the R server does the same.
+
+On the model above, on a 10 GB slice, one evaluation of value and gradient
+peaks at 4.9 GB and takes 4.9 s; the standard mode does not fit. On CPU, the
+two modes return the same log-likelihood to the last printed digit, and the
+peak resident memory falls from 16.7 to 8.6 GB.

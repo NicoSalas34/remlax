@@ -36,7 +36,7 @@ model equations, not on \code{n}. Only structures whose precision is sparse and
 known in closed form are in scope; see \code{\link[=rx_sparse_scope]{rx_sparse_scope()}}.
 }
 \examples{
-\dontshow{if (rx_tmb_available()) withAutoprint(\{ # examplesIf}
+\dontshow{if (rx_tmb_available()) (if (getRversion() >= "3.4") withAutoprint else force)(\{ # examplesIf}
 set.seed(1)
 d <- data.frame(gid = factor(rep(1:30, each = 4)), x = rnorm(120))
 d$y <- 1 + 0.5 * d$x + rnorm(30)[d$gid] + rnorm(120)

@@ -25,20 +25,188 @@ from scipy.optimize import minimize
 
 try:
     from .model import (make_objective, assemble_V, split_theta, n_theta, dense_Z,
-                        term_factor, term_n_params, res_sections, sec_n_params)
+                        term_factor, term_n_params, res_sections, sec_n_params,
+                        alias_entrees)
     from .structures import build_sigma, n_params, theta0 as struct_theta0
     from .levels import n_level_params, level_params_report, level_chol
-    from .structures import sigma_loadings
+    from .structures import sigma_loadings, n_loadings
+    from .lag import (prepare_lag, lag_n_params, ystar as lag_ystar, lag_terms,
+                      lag_report, theta_from_psi)
 except ImportError:
     from model import (make_objective, assemble_V, split_theta, n_theta, dense_Z,
-                       term_factor, term_n_params, res_sections, sec_n_params)
+                       term_factor, term_n_params, res_sections, sec_n_params,
+                       alias_entrees)
     from structures import build_sigma, n_params, theta0 as struct_theta0
     from levels import n_level_params, level_params_report, level_chol
-    from structures import sigma_loadings
+    from structures import sigma_loadings, n_loadings
+    from lag import (prepare_lag, lag_n_params, ystar as lag_ystar, lag_terms,
+                     lag_report, theta_from_psi)
 
 
-def initial_theta(terms, res, y):
-    """Depart : variance phenotypique repartie a parts egales entre termes.
+def _chrono(nom):
+    """Marque d'etape (chrono.py) ; sans effet si le module est absent."""
+    try:
+        from . import chrono
+    except ImportError:
+        try:
+            import chrono
+        except ImportError:
+            return
+    chrono.marque(nom)
+
+
+def _somme_diag_ZKZ(Z, LK):
+    """Somme des (Z K Z')_ii, K = LK LK', Z creuse (CSR).
+
+    Deux voies de meme resultat. Par Z LK : nnz(Z) x q operations. Par Z'Z :
+    trace(Z K Z') = somme des G_jl K_jl, G = Z'Z, avec K_jl = LK_j . LK_l
+    calcule aux seuls non-zeros de G, soit nnz(G) x q operations. Avec des
+    repetitions, nnz(G) est bien plus petit que nnz(Z) : MESURE sur une GBLUP
+    a 128 000 observations et 2000 genotypes, nnz(Z) = 128 000 contre
+    nnz(G) = 2000, et 4 s par appel par la premiere voie."""
+    q = LK.shape[0]
+    G = (Z.T @ Z).tocoo()
+    pas = max(1, int(2 ** 25 // max(LK.shape[1], 1)))
+    if G.nnz < Z.nnz:
+        tot = 0.0
+        for a in range(0, G.nnz, pas):
+            r, c = G.row[a:a + pas], G.col[a:a + pas]
+            tot += float(np.dot(G.data[a:a + pas], np.einsum("ij,ij->i", LK[r], LK[c])))
+        return tot
+    tot = 0.0
+    for a in range(0, Z.shape[0], pas):
+        ZL = Z[a:a + pas] @ LK
+        tot += float(np.sum(ZL * ZL))
+    return tot
+
+
+def _exposition(tm, n):
+    """k = moyenne des (Z K Z')_ii par colonne : facteur par lequel la variance
+    d'un terme entre dans le phenotype (voir initial_theta)."""
+    # Z en CREUX, lignes (observation, composante) : la version dense formait
+    # Z (n x tq) puis Z LK par einsum, sans BLAS. MESURE sur une GBLUP a 3768
+    # genotypes : 45 s sur les 100 de l'ajustement, pour un simple point de
+    # depart. Le produit creux x dense coute nnz(Z) x q et se fait par paquets
+    # de lignes pour borner la memoire.
+    # garde dans le terme : initial_theta et bornes_loadings l'appellent
+    # plusieurs fois par ajustement, sur le meme terme
+    cle = ("_expo", n)
+    if cle in tm:
+        return tm[cle]
+    import scipy.sparse as sp
+    t, q = int(tm["t"]), int(tm["q"])
+    zi = np.asarray(tm["zi"], dtype=np.int64); zj = np.asarray(tm["zj"], dtype=np.int64)
+    Zs = sp.csr_matrix((np.asarray(tm["zx"], dtype=np.float64), (zi * t + zj // q, zj % q)),
+                       shape=(n * t, q))
+    if tm["LK"] is None:
+        tot = float(Zs.multiply(Zs).sum())
+    else:
+        tot = _somme_diag_ZKZ(Zs, np.asarray(tm["LK"], dtype=np.float64))
+    # MOYENNE SUR LES COUPLES (observation, composante) CHARGES, et non sur
+    # n x t. En format long chaque ligne ne charge que SA composante (son
+    # environnement, son caractere) : diviser par n x t sous-estimait
+    # l'exposition d'un facteur t, et chaque variance de depart etait t fois
+    # trop grande. MESURE sur un fa1 a 28 environnements (drops2) : variances
+    # specifiques de depart 39 contre 0,03 a 0,7 a l'optimum, -2logL 10136
+    # contre 5595, et 13 iterations AI amorties avant le premier pas plein.
+    # Quand chaque ligne charge toutes les composantes, le compte vaut n x t et
+    # rien ne change.
+    n_charges = int(np.count_nonzero(np.diff(Zs.indptr)))
+    k = tot / max(n_charges, 1)
+    tm[cle] = k if k > 1e-12 else 1.0
+    return tm[cle]
+
+
+# BORNE DES LOADINGS fa ET rr, en multiples de l'ecart-type de depart du terme.
+# Les loadings sont des parametres LINEAIRES, sur l'echelle des ecarts-types :
+# la borne commune de theta (12, faite pour des log-ecarts-types) les laissait
+# partir a 12 en quelques pas d'AI, ou Sigma = Lambda Lambda' + psi^2 devient de
+# rang deficient et ou le moteur MME n'evalue plus rien (banc 2026-10-22, fa a 5
+# caracteres : valeurs propres 0, 0, 0, 261, 759 pour des variances vraies
+# d'ordre 1). Cent ecarts-types ne genent aucun optimum reel.
+BORNE_LOADINGS_SD = 100.0
+
+
+def bornes_loadings(terms, res, y):
+    """[(debut, longueur, borne)] des loadings fa/rr dans theta."""
+    vy = float(np.var(np.asarray(y))) or 1.0
+    part = vy / (len(terms) + 1.0)
+    out, o = [], 0
+    for tm in terms:
+        ns = n_params(tm["struct"], tm["t"], tm["rank"])
+        if tm["struct"] in ("fa", "rr"):
+            nl = n_loadings(tm["t"], tm["rank"]) if tm["struct"] == "fa" else ns
+            B = BORNE_LOADINGS_SD * float(np.sqrt(part / _exposition(tm, len(y))))
+            out.append((o, nl, B))
+        o += term_n_params(tm)
+    for sec in res_sections(res, len(y)):
+        ns = n_params(sec["struct"], sec["t"], sec["rank"])
+        if sec["struct"] in ("fa", "rr"):
+            nl = n_loadings(sec["t"], sec["rank"]) if sec["struct"] == "fa" else ns
+            out.append((o, nl, BORNE_LOADINGS_SD * float(np.sqrt(part))))
+        o += sec_n_params(sec)
+    return out
+
+
+def _expo_composantes(tm, n, e):
+    """Par composante c d'un terme : exposition k_c (moyenne des (Z_c K Z_c')_ii
+    sur les lignes qui chargent c) et variance moyenne v_c des residus e sur
+    ces lignes. Rend (k, v), deux vecteurs de longueur t ; NaN ou aucune ligne :
+    la composante prend la moyenne des autres."""
+    import scipy.sparse as sp
+    t, q = int(tm["t"]), int(tm["q"])
+    zi = np.asarray(tm["zi"], dtype=np.int64); zj = np.asarray(tm["zj"], dtype=np.int64)
+    zx = np.asarray(tm["zx"], dtype=np.float64)
+    comp = zj // q
+    k = np.full(t, np.nan); v = np.full(t, np.nan)
+    LK = None if tm.get("LK") is None else np.asarray(tm["LK"], dtype=np.float64)
+    for c in range(t):
+        m = comp == c
+        if not m.any():
+            continue
+        lignes, inv = np.unique(zi[m], return_inverse=True)
+        Zc = sp.csr_matrix((zx[m], (inv, zj[m] % q)), shape=(len(lignes), q))
+        tot = float(Zc.multiply(Zc).sum()) if LK is None else _somme_diag_ZKZ(Zc, LK)
+        k[c] = tot / len(lignes)
+        v[c] = float(np.mean(e[lignes] ** 2))
+    for x in (k, v):
+        ok = np.isfinite(x) & (x > 1e-12)
+        x[~ok] = np.mean(x[ok]) if ok.any() else 1.0
+    return k, v
+
+
+def _theta0_composantes(struct, t, rank, var):
+    """Depart d'une Sigma diagonale de variances `var` (une par composante) ;
+    les structures sans variance par composante prennent leur moyenne."""
+    var = np.maximum(np.asarray(var, dtype=np.float64), 1e-8)
+    sd = np.sqrt(var)
+    if struct == "diag":
+        return np.log(sd)
+    if struct == "us":
+        ii, jj = np.tril_indices(t)
+        th = np.zeros(len(ii))
+        th[ii == jj] = np.log(sd)
+        return th
+    if struct == "fa":
+        lam = [0.1 * sd[i] for i in range(t) for j in range(min(i + 1, rank))]
+        return np.concatenate([np.asarray(lam), np.log(sd)])
+    return struct_theta0(struct, t, rank, var=float(np.mean(var)))
+
+
+def initial_theta(terms, res, y, X=None):
+    """Depart : variance repartie a parts egales entre termes.
+
+    VARIANCE DES RESIDUS DES EFFETS FIXES quand X est fourni, et non celle de y
+    brut : en plusieurs environnements ou traitements, y porte les ecarts de
+    moyenne entre eux, et les variances de depart en etaient gonflees. MESURE
+    sur 5 traitements x 3768 genotypes (Krause) : -2logL de depart 49 000 contre
+    20 311 a l'optimum, et 7 iterations AI amorties (920 s sur 1216) avant le
+    premier pas plein.
+
+    PAR COMPOSANTE ET PAR SECTION. Un terme a plusieurs composantes (G x E en
+    format long) part d'une Sigma diagonale dont chaque variance vient des
+    residus des lignes de sa composante ; une residuelle a plusieurs sections
+    part de la variance des residus de chaque section.
 
     L'EXPOSITION EST PRISE EN COMPTE. Une composante de voisinage entre dans le
     phenotype par sigma^2 * k avec k = moyenne des (Z K Z')_ii, qui vaut 15 a 40
@@ -46,20 +214,26 @@ def initial_theta(terms, res, y):
     plusieurs fois la variance phenotypique dans CHAQUE terme, et V demarrerait
     des ordres de grandeur trop grande. On divise par k.
     """
-    vy = float(np.var(np.asarray(y))) or 1.0
-    part = vy / (len(terms) + 1.0)
+    y = np.asarray(y, dtype=np.float64)
+    n = len(y)
+    if X is not None and np.size(X):
+        X = np.asarray(X, dtype=np.float64)
+        e = y - X @ np.linalg.lstsq(X, y, rcond=None)[0]
+        ddl = max(n - int(np.linalg.matrix_rank(X)), 1)
+        e = e * np.sqrt(n / ddl)                   # variance sans biais
+    else:
+        e = y - float(np.mean(y))
+    vy = float(np.mean(e ** 2)) or 1.0
+    nt = len(terms) + 1.0
     th = []
     for tm in terms:
-        Z = np.zeros((len(y), tm["t"] * tm["q"]))
-        Z[tm["zi"], tm["zj"]] += tm["zx"]
-        Zb = Z.reshape(len(y), tm["t"], tm["q"])
-        if tm["LK"] is None:
-            k = float(np.mean(np.sum(Zb ** 2, axis=(1, 2)))) / max(tm["t"], 1)
+        t = int(tm["t"])
+        if X is not None and t > 1 and tm["struct"] in ("diag", "us", "fa"):
+            k_c, v_c = _expo_composantes(tm, n, e)
+            th.append(_theta0_composantes(tm["struct"], t, tm["rank"], v_c / nt / k_c))
         else:
-            ZL = np.einsum("ntq,qp->ntp", Zb, tm["LK"])
-            k = float(np.mean(np.sum(ZL ** 2, axis=(1, 2)))) / max(tm["t"], 1)
-        k = k if k > 1e-12 else 1.0
-        th.append(struct_theta0(tm["struct"], tm["t"], tm["rank"], var=part / k))
+            k = _exposition(tm, n)
+            th.append(struct_theta0(tm["struct"], tm["t"], tm["rank"], var=vy / nt / k))
         # rho de depart a 0 (tanh(0)) : champ non structure. Partir d'un rho
         # eleve fait demarrer dans un regime ou la vraisemblance est plate.
         kind = tm.get("lvl") or ("fixed" if tm.get("LK") is not None else "id")
@@ -67,8 +241,20 @@ def initial_theta(terms, res, y):
                             opts=tm.get("lvl_opts"))
         if nl:
             th.append(_theta0_niveaux(kind, nl, tm.get("lvl_opts"), tm.get("coord")))
-    for sec in res_sections(res, len(y)):
-        th.append(struct_theta0(sec["struct"], sec["t"], sec["rank"], var=part))
+    for sec in res_sections(res, n):
+        rows = np.asarray(sec.get("rows", np.arange(n)), dtype=np.int64)
+        ts = int(sec["t"])
+        if X is not None and len(rows):
+            if ts > 1 and sec["struct"] in ("diag", "us", "fa") and sec.get("trait") is not None:
+                tr = np.asarray(sec["trait"], dtype=np.int64)
+                v_c = np.array([float(np.mean(e[rows[tr == c]] ** 2)) if np.any(tr == c) else vy
+                                for c in range(ts)])
+                th.append(_theta0_composantes(sec["struct"], ts, sec["rank"], v_c / nt))
+            else:
+                th.append(struct_theta0(sec["struct"], ts, sec["rank"],
+                                        var=float(np.mean(e[rows] ** 2)) / nt))
+        else:
+            th.append(struct_theta0(sec["struct"], ts, sec["rank"], var=vy / nt))
         nlr = n_level_params(sec.get("lvl", "id"), sec.get("lvl_order", 0),
                              sec.get("lvl_parts"), opts=sec.get("lvl_opts"))
         if nlr:
@@ -352,10 +538,18 @@ def _valider_section(res, n):
 
 def _valide_reste(terms, y, X, n):
     for tm in terms:
-        Zc = np.zeros((n, tm["t"] * tm["q"]))
-        Zc[tm["zi"], tm["zj"]] += tm["zx"]
-        vide = int((np.abs(Zc).sum(axis=0) == 0).sum())
-        if vide == Zc.shape[1]:
+        # somme des |z| par colonne sur les triplets : la version precedente
+        # formait Z dense (n x tq), 2 Go et 4 s a n = 128 000, q = 2000. Les
+        # doublons de triplets s'additionnent, comme dans Zc[zi, zj] += zx.
+        ncol = tm["t"] * tm["q"]
+        zj = np.asarray(tm["zj"], dtype=np.int64); zx = np.asarray(tm["zx"], dtype=np.float64)
+        if zj.size == 0:
+            raise ValueError("terme '%s' : incidence entierement nulle." % tm["name"])
+        zi = np.asarray(tm["zi"], dtype=np.int64)
+        cle = zi * ncol + zj
+        u, inv = np.unique(cle, return_inverse=True)
+        par_cellule = np.abs(np.bincount(inv, weights=zx, minlength=len(u)))
+        if not np.any(par_cellule > 0):
             raise ValueError("terme '%s' : incidence entierement nulle." % tm["name"])
     if not np.all(np.isfinite(y)):
         raise ValueError("y contient des valeurs non finies.")
@@ -366,11 +560,238 @@ def _valide_reste(terms, y, X, n):
                          % (np.linalg.matrix_rank(X), X.shape[1]))
 
 
-def fit_reml(terms, res, y, X, theta_init=None, maxiter=3000,
+# gradient relatif au-dela duquel un ajustement MME est repris par le moteur
+# dense (les ajustements convergés sont sous 1e-6, SEUIL_GRAD_REL). 1e-3 etait
+# trop laxiste : sur mtigee8 (208 parametres, bloc us(16) de rang incomplet), les
+# trois voies MME s'arretaient a 2-5e-4, 0,13 a 0,20 unite de logL sous
+# l'optimum, sans declencher la reprise (banc IEE, 2026-10-23).
+GRAD_REL_REPLI_DENSE = 1e-5
+N_MAX_REPLI_DENSE = 20000
+
+
+def effets_denses(theta, terms, Zs, res, y_fit, X, blups=True, pev=False,
+                  V=None, z_de=None):
+    """beta, vbeta, Vi, P y, BLUP et PEV a theta donne, sur le moteur dense.
+
+    Extrait de fit_reml pour servir aussi a chaque tirage de l'echantillonneur
+    bayesien (bayes.py), qui en tire les moments a posteriori de beta et des
+    effets aleatoires. Rend un dict avec les memes cles que fit_reml.
+
+    V et z_de servent au mode econome (econome.py) : V deja assemblee (sur
+    l'hote), et z_de(k) qui rend l'incidence pleine hauteur du terme k a la
+    demande, au lieu de la liste Zs gardee sur le peripherique.
+    """
+    n = len(y_fit)
+    th_terms, _, _ = split_theta(jnp.asarray(theta), terms, res)
+    out = {}
+    if V is None:
+        V = np.asarray(assemble_V(jnp.asarray(theta), terms, Zs, res, n))
+    else:
+        V = np.asarray(V)
+    # inv() leve "Singular matrix" des que V est numeriquement singuliere,
+    # ce qui detruirait un ajustement par ailleurs valide (une variance a
+    # zero suffit). On resout, et on retombe sur la pseudo-inverse en
+    # signalant que beta et les BLUPs sont alors conditionnels.
+    try:
+        Vi = np.linalg.solve(V, np.eye(n))
+        out["V_singuliere"] = False
+    except np.linalg.LinAlgError:
+        Vi = np.linalg.pinv(V, rcond=1e-12)
+        out["V_singuliere"] = True
+    XtVi = X.T @ Vi
+    A = XtVi @ X
+    try:
+        beta = np.linalg.solve(A, XtVi @ y_fit)
+    except np.linalg.LinAlgError:
+        beta = np.linalg.pinv(A) @ (XtVi @ y_fit)
+    out["beta"] = beta
+    # (X'V^-1X)^-1 : matrice de covariance des effets fixes A V CONNUE.
+    # Necessaire a predict() et point de depart de l'ajustement de
+    # Kenward-Roger ; la recalculer plus tard exigerait de refaire V.
+    out["vbeta"] = np.linalg.pinv(A)
+    out["Vi"] = Vi
+    resid = y_fit - X @ beta
+    Py = Vi @ resid - Vi @ X @ (np.linalg.pinv(A) @ (XtVi @ resid))
+    out["Py"] = Py
+    # QUELS TERMES. `pev=True` la calcule pour TOUS les termes, ce qui est
+    # une mauvaise valeur par defaut sur un modele reel : le modele IGE
+    # complet a 23 termes dont 21 sont des nuisances — effets spatiaux de
+    # bloc et effets environnementaux indirects — et personne ne veut la
+    # variance d'erreur de prediction d'un effet de bloc. Chacun coute
+    # pourtant une matrice (t*q) x n, et le total a tue le processus par
+    # manque de memoire lors du premier essai reel. `pev` accepte donc une
+    # LISTE DE NOMS, et le pipeline ne demande que les termes genetiques.
+    pev_noms = ([tm["name"] for tm in terms] if pev is True
+                else ([] if not pev else list(pev)))
+    inconnus = set(pev_noms) - {tm["name"] for tm in terms}
+    if inconnus:
+        raise ValueError("pev : terme(s) inconnu(s) %s ; termes du modele : %s"
+                         % (sorted(inconnus), [tm["name"] for tm in terms]))
+    if blups and pev_noms:
+        # P, formee UNE fois : elle ne depend pas du terme. C'est la matrice
+        # dont depend toute la PEV, et la former dans la boucle la
+        # recalculerait pour chaque terme.
+        Pmat = Vi - (Vi @ X) @ out["vbeta"] @ (X.T @ Vi)
+    if blups:
+        # u_k = (Sigma_k (x) K_k) Z_k' P y = B_k B_k' P y au facteur pres :
+        # on passe par B pour ne jamais former Sigma (x) K.
+        out["blups"] = {}
+        for k, tm in enumerate(terms):
+            Zk = Zs[k] if z_de is None else z_de(k)
+            B = np.asarray(term_factor(jnp.asarray(th_terms[k]), tm, Zk))  # noqa: F841
+            # u = (Sigma (x) K) Z' Py ; avec B = Z (L (x) L_K) on a
+            # (Sigma (x) K) Z' = (L (x) L_K) B'
+            bt = B.T @ Py
+            ns = n_params(tm["struct"], tm["t"], tm["rank"])
+            Ls = np.asarray(build_sigma(jnp.asarray(th_terms[k][:ns]), tm["struct"],
+                                        tm["t"], tm["rank"]))
+            # K effective : peut dependre de theta (AR1), d'ou la
+            # reconstruction plutot qu'un simple tm["LK"].
+            kind_ = tm.get("lvl") or ("fixed" if tm.get("LK") is not None else "id")
+            from_lvl = (jnp.asarray(tm["LK"]) if kind_ == "fixed" and tm["LK"] is not None
+                        else level_chol(jnp.asarray(th_terms[k][ns:]), kind_,
+                                        tm["q"], dims=tm.get("dims"),
+                                        LK_fixed=tm.get("LK"),
+                                        order=tm.get("lvl_order", 0),
+                                        coord=tm.get("coord"),
+                                        parts=tm.get("lvl_parts"),
+                                        opts=tm.get("lvl_opts"),
+                                        expr=tm.get("lvl_expr")))
+            Kq = (np.eye(tm["q"]) if from_lvl is None
+                  else np.asarray(from_lvl) @ np.asarray(from_lvl).T)
+            Zd = np.asarray(Zk)
+            G = np.kron(Ls, Kq)
+            u = G @ (Zd.T @ Py)
+            out["blups"][tm["name"]] = u.reshape(tm["t"], tm["q"]).T
+            if tm["name"] in pev_noms:
+                # VARIANCE D'ERREUR DE PREDICTION, diagonale seulement.
+                #
+                #     var(u - u_chapeau) = G - G Z' P Z G
+                #
+                # avec P = V^-1 - V^-1 X (X'V^-1X)^-1 X'V^-1, deja formable
+                # ici puisque Vi et vbeta sont sous la main. On ne rend que
+                # la DIAGONALE : c'est tout ce que demande une fiabilite ou
+                # une heritabilite de Cullis, et la matrice pleine pese
+                # (t*q)^2.
+                #
+                # POURQUOI CETTE SORTIE EXISTE. Sans elle H2_Cullis n'est
+                # pas calculable, et la suite de validation contre asreml
+                # l'avait releve comme la seule sortie que le logiciel de
+                # reference donne et que remlax ne donnait pas.
+                M = G @ Zd.T                      # (t*q) x n
+                d_ = np.diag(G) - np.einsum("ij,ij->i", M @ Pmat, M)
+                out.setdefault("pev", {})[tm["name"]] = \
+                    np.maximum(d_, 0.0).reshape(tm["t"], tm["q"]).T
+    return out
+
+
+_BLAS_REGLE = [False]        # contexte BlasNumpyUnFil deja ouvert
+
+
+def fit_reml(terms, res, y, X, *args, poids=None, **kwargs):
+    """Ajustement REML (voir _fit_reml_coeur pour les options).
+
+    poids : poids a priori w_i > 0 des observations (None : aucun). La residuelle
+      devient R = W^-1/2 R0 W^-1/2, W = diag(w), R0 la residuelle declaree. Avec
+      une residuelle iid dont la variance est fixee a 1 (fixed_idx), R = diag(1/w) :
+      variances residuelles connues, comme dans une analyse en deux etapes.
+
+    COMMENT. Multiplier les lignes de y, X et Z par sqrt(w_i) ramene exactement a
+    la residuelle R0, et aucun moteur n'a a connaitre les poids. Seule la
+    vraisemblance change, d'une constante : -2logL(y) = -2logL(y*) - somme log w_i.
+    beta, BLUP, PEV et Hessien sont inchanges ; P y et V^-1 sont ramenes a
+    l'echelle d'origine (P y = W^1/2 P* y*, V^-1 = W^1/2 V*^-1 W^1/2).
+    """
+    # CHOIX AUTOMATIQUE (moteur = "auto", optimizer = "auto") : moteur MME et
+    # AI-REML quand le modele est dans le perimetre du MME, sinon moteur dense
+    # et L-BFGS-B (econome au-dela de n = 5000). C'est la combinaison la plus
+    # rapide au banc (DROPS, Krause) et celle d'asreml.
+    if kwargs.get("moteur") == "auto" or kwargs.get("optimizer") == "auto":
+        kwargs = dict(kwargs)
+        try:
+            from .mme import hors_perimetre as _hp
+        except ImportError:
+            from mme import hors_perimetre as _hp
+        dans_mme = _hp(terms, res, kwargs.get("lag")) is None
+        if kwargs.get("moteur") == "auto":
+            kwargs["moteur"] = "mme" if dans_mme else "dense"
+            if kwargs["moteur"] == "dense" and len(y) > 5000 and kwargs.get("memoire", "standard") == "standard":
+                kwargs["memoire"] = "econome"
+        if kwargs.get("optimizer") == "auto":
+            kwargs["optimizer"] = "ai" if kwargs["moteur"] == "mme" else "lbfgsb"
+    if kwargs.get("moteur") == "mme" and not _BLAS_REGLE[0]:
+        # moteur MME : produits NumPy minces, gros calcul en LAPACK (SciPy) ;
+        # les deux OpenBLAS ne doivent pas se disputer les coeurs (device.py)
+        try:
+            from .device import BlasNumpyUnFil
+        except ImportError:
+            from device import BlasNumpyUnFil
+        _BLAS_REGLE[0] = True
+        try:
+            with BlasNumpyUnFil():
+                return fit_reml(terms, res, y, X, *args, poids=poids, **kwargs)
+        finally:
+            _BLAS_REGLE[0] = False
+    if poids is None:
+        return _fit_reml_coeur(terms, res, y, X, *args, **kwargs)
+    w = np.asarray(poids, dtype=np.float64).ravel()
+    if w.shape[0] != len(y) or not np.all(np.isfinite(w)) or np.any(w <= 0):
+        raise ValueError("poids : %d valeurs finies et > 0 attendues" % len(y))
+    sw = np.sqrt(w)
+    y2 = np.asarray(y, dtype=np.float64) * sw
+    X2 = np.asarray(X, dtype=np.float64) * sw[:, None]
+    terms2 = [dict(tm, zx=np.asarray(tm["zx"], dtype=np.float64)
+                   * sw[np.asarray(tm["zi"], dtype=np.int64)]) for tm in terms]
+    out = _fit_reml_coeur(terms2, res, y2, X2, *args, **kwargs)
+    c = -float(np.sum(np.log(w)))                  # constante de -2logL
+    for k in ("neg2_reml",):
+        if k in out:
+            out[k] = out[k] + c
+    for k in ("logLik", "logLik_asreml"):
+        if k in out:
+            out[k] = out[k] - 0.5 * c
+    if "Py" in out:
+        out["Py"] = np.asarray(out["Py"]) * sw
+    if "Vi" in out:
+        out["Vi"] = np.asarray(out["Vi"]) * sw[:, None] * sw[None, :]
+    out["poids"] = True
+    return out
+
+
+def _fit_reml_coeur(terms, res, y, X, theta_init=None, maxiter=3000,
              floor=-12.0, ceil=12.0, verbose=True, hessian=True,
              blups=True, pev=False, tol=1e-14, polish=25, check=True,
-             n_restarts=0, restart_sd=0.5, seed=0, fixed_idx=None):
+             n_restarts=0, restart_sd=0.5, seed=0, fixed_idx=None, lag=None,
+             optimizer="lbfgsb", moteur="dense", inversion="auto",
+             memoire="standard", finition="newton", arret_lent=(100, 0.05)):
     """Ajustement REML.
+
+    finition : "newton" (defaut : L-BFGS-B jusqu'a sa tolerance, puis polissage
+      de Newton) ou "rc" (module finition.py) : L-BFGS-B s'arrete des que son
+      gain sur les arret_lent[0] dernieres iterations tombe sous arret_lent[1]
+      (unites de -2logL), puis un Newton a region de confiance finit, en
+      traitant directions plates et variances qui s'eteignent.
+
+    memoire : "standard" (defaut) ou "econome" (moteur dense seulement, module
+      econome.py). Meme vraisemblance, meme gradient, meme matrice AI ; le mode
+      econome garde moins de matrices n x n et aucune incidence pleine hauteur
+      sur le peripherique. Sans effet sur le moteur MME.
+
+    optimizer : "lbfgsb" (defaut) ou "ai" (AI-REML amorti, module ai.py). Le
+      polissage de Newton, les diagnostics et les sorties sont les memes.
+
+    moteur : "dense" (V formee, defaut) ou "mme" (equations du modele mixte,
+      module mme.py ; inversion "auto", "dense" ou "creuse"). Les deux rendent
+      la meme vraisemblance en theta ; un modele hors du perimetre du moteur MME
+      (residuelle none, rr, decalage) bascule vers le dense avec un message.
+      "blocs" (module blocs.py) : decoupage automatique en blocs relies par des
+      termes globaux, V = A + U U' traitee bloc par bloc (vmap) ; meme
+      vraisemblance. Sans decoupage, ou hors perimetre, bascule vers le moteur
+      dense econome avec un message. Optimiseur L-BFGS-B seulement.
+
+    lag : decalage spatial (lag.py). theta porte alors en queue les entrees
+      libres de Psi, l'objectif est le critere structurel, et beta, les BLUP et
+      les tests portent sur y* = (I - M) y au point final.
 
     n_restarts : redemarrages depuis un point perturbe, le meilleur optimum est
       conserve. C'est le SEUL moyen de detecter un optimum local : le decrement
@@ -382,11 +803,13 @@ def fit_reml(terms, res, y, X, theta_init=None, maxiter=3000,
     n = len(y)
     if check:
         validate(terms, res, y, X)
+    lag = prepare_lag(lag, y, X)
     if n_restarts > 0:
         base = fit_reml(terms, res, y, X, theta_init=theta_init, maxiter=maxiter,
                         floor=floor, ceil=ceil, verbose=verbose, hessian=hessian,
                         blups=blups, pev=pev, tol=tol, polish=polish, check=False,
-                        fixed_idx=fixed_idx)
+                        moteur=moteur, inversion=inversion, memoire=memoire, finition=finition, arret_lent=arret_lent,
+                        fixed_idx=fixed_idx, lag=lag, optimizer=optimizer)
         rng = np.random.default_rng(seed)
         best, n_better = base, 0
         for i in range(int(n_restarts)):
@@ -398,7 +821,8 @@ def fit_reml(terms, res, y, X, theta_init=None, maxiter=3000,
                 cand = fit_reml(terms, res, y, X, theta_init=th, maxiter=maxiter,
                                 floor=floor, ceil=ceil, verbose=False, hessian=hessian,
                                 blups=blups, pev=pev, tol=tol, polish=polish, check=False,
-                                fixed_idx=fixed_idx)
+                                moteur=moteur, inversion=inversion, memoire=memoire, finition=finition, arret_lent=arret_lent,
+                                fixed_idx=fixed_idx, lag=lag, optimizer=optimizer)
             except Exception:
                 continue
             if np.isfinite(cand["neg2_reml"]) and cand["neg2_reml"] < best["neg2_reml"] - 1e-8:
@@ -410,12 +834,131 @@ def fit_reml(terms, res, y, X, theta_init=None, maxiter=3000,
             print("  [restarts] %d redemarrage(s) ont trouve mieux : gain %.4g en -2logL"
                   % (n_better, best["restart_gain"]), flush=True)
         return best
-    fun_sc, fun_jac, sc, Zs = make_objective(terms, res, y, X)
-    th0 = np.asarray(theta_init if theta_init is not None
-                     else initial_theta(terms, res, y), dtype=np.float64)
-    p = n_theta(terms, res)
+    M_mme = None
+    if moteur == "mme" and lag is None and res.get("struct") != "none":
+        # PLANCHER DES VARIANCES. Le moteur MME utilise Sigma^-1 : une variance a
+        # exp(2 x -12) = 4e-11 rendrait C trop mal conditionnee pour que log|C|
+        # garde ses chiffres. Plancher a 1e-8 fois la variance residuelle des
+        # moindres carres.
+        _res = y - X @ np.linalg.lstsq(X, y, rcond=None)[0]
+        _vy = float(_res @ _res) / max(n - X.shape[1], 1)
+        floor = max(floor, 0.5 * float(np.log(1e-8 * _vy)))
+    if moteur == "mme":
+        try:
+            from .mme import make_fga_mme, hors_perimetre
+        except ImportError:
+            from mme import make_fga_mme, hors_perimetre
+        raison = hors_perimetre(terms, res, lag)
+        if raison:
+            if any(tm.get("Kinv") is not None and tm.get("LK") is None for tm in terms):
+                raise ValueError("moteur MME hors perimetre (%s), et le moteur dense ne sait pas "
+                                 "utiliser une precision Kinv sans facteur de K : il ignorerait la "
+                                 "parente. Fournir K." % raison)
+            if verbose:
+                print("  [moteur] MME hors perimetre (%s) -> moteur dense" % raison, flush=True)
+            moteur = "dense"
+    if moteur == "blocs":
+        try:
+            from .blocs import hors_perimetre as hp_blocs, PlanBlocs, make_objective_blocs
+        except ImportError:
+            from blocs import hors_perimetre as hp_blocs, PlanBlocs, make_objective_blocs
+        raison = hp_blocs(terms, res, lag)
+        plan_blocs = None
+        if raison is None:
+            plan_blocs = PlanBlocs(terms, res, y, X, verbose=verbose)
+            if plan_blocs.n_blocs < 2:
+                raison = "aucun decoupage en blocs (un seul bloc)"
+        if raison is None and optimizer in ("ai", "ai_theta"):
+            raison = "optimiseur AI non pris en charge par le moteur par blocs"
+        if raison:
+            if verbose:
+                print("  [moteur] blocs : %s -> moteur dense econome" % raison, flush=True)
+            moteur, memoire = "dense", "econome"
+    if moteur == "mme":
+        fga_mme, fun_jac, M_mme = make_fga_mme(terms, res, y, X, inversion=inversion,
+                                               verbose=verbose)
+        sc = float(n)
+        Zs = None
+
+        def fun_sc(theta, _fj=fun_jac, _sc=sc):
+            v_, g_ = _fj(theta)
+            return v_ / _sc, g_ / _sc
+    elif moteur == "blocs":
+        fun_sc, fun_jac, sc = make_objective_blocs(plan_blocs)
+        Zs = None
+    else:
+        if memoire == "econome" and lag is not None:
+            if verbose:
+                print("  [memoire] mode econome sans decalage spatial -> mode standard",
+                      flush=True)
+            memoire = "standard"
+        if memoire == "econome":
+            try:
+                from .econome import PlanEconome, make_objective_econome
+            except ImportError:
+                from econome import PlanEconome, make_objective_econome
+            plan_eco = PlanEconome(terms, res, y, X)
+            fun_sc, fun_jac, sc = make_objective_econome(plan_eco)
+            Zs = None
+            if verbose:
+                print("  [memoire] econome : %s" % plan_eco.resume(), flush=True)
+        elif memoire == "standard":
+            fun_sc, fun_jac, sc, Zs = make_objective(terms, res, y, X, lag=lag)
+        else:
+            raise ValueError("memoire : 'standard' ou 'econome', pas %r" % (memoire,))
+    p_cov = n_theta(terms, res)
+    if theta_init is not None:
+        th0 = np.array(theta_init, dtype=np.float64)
+        # ENTREES MANQUANTES (NaN) : depart automatique pour celles-la. Fixer un
+        # seul parametre (la residuelle a 1 d'un modele pondere) n'oblige plus
+        # a un premier appel du solveur pour connaitre les autres valeurs.
+        if np.isnan(th0).any():
+            _ti = initial_theta(terms, res, y, X)
+            if th0.shape[0] == _ti.shape[0]:
+                th0 = np.where(np.isnan(th0), _ti, th0)
+    else:
+        th0 = initial_theta(terms, res, y, X)
+        if lag is not None:
+            # Psi part de `init` (unites de W) quand il est fourni, de 0 sinon :
+            # 0 est toujours dans la region admissible (A = I).
+            ini = np.asarray(lag.get("init", np.zeros((lag["q"], lag["q"]))),
+                             dtype=np.float64).reshape(lag["q"], lag["q"])
+            ini = np.where(np.isfinite(ini), ini, 0.0)
+            th0 = np.concatenate([th0, theta_from_psi(ini, lag)])
+    p = p_cov + lag_n_params(lag)
     if th0.shape[0] != p:
         raise ValueError("theta initial de longueur %d, attendu %d" % (th0.shape[0], p))
+    if lag is not None:
+        _ok = bool(lag_terms(jnp.asarray(th0[p_cov:]), lag, X)[2])
+        if not _ok:
+            raise ValueError(
+                "Psi initial hors de la region admissible : I - M est singuliere ou de "
+                "determinant negatif (pas d'equilibre). Partir de Psi = 0 ou d'une valeur "
+                "plus petite.")
+    if res.get("struct") == "none" and moteur == "dense":
+        # SANS RESIDUELLE, V n'est definie positive que si les termes couvrent
+        # chaque observation d'une variance propre. Le dire ici, en clair,
+        # plutot que de laisser la Cholesky rendre NaN et l'optimiseur refuser
+        # un point de depart "non fini".
+        if memoire == "econome":
+            try:
+                from .econome import V_hote
+            except ImportError:
+                from econome import V_hote
+            V0 = V_hote(plan_eco, th0)
+        else:
+            V0 = np.asarray(assemble_V(jnp.asarray(th0), terms, Zs, res, n))
+        try:
+            np.linalg.cholesky(V0)
+        except np.linalg.LinAlgError:
+            w = np.linalg.eigvalsh(0.5 * (V0 + V0.T))
+            raise ValueError(
+                "residuelle 'none' : V n'est pas definie positive au point de depart "
+                "(plus petite valeur propre %.3g, %d valeur(s) propre(s) <= 0 sur %d). "
+                "Sans residuelle, les termes doivent donner a CHAQUE observation une "
+                "variance propre : par exemple un terme de plante dont les incidences "
+                "sont [I place sur le caractere t, W_t place sur le caractere t], "
+                "structure us sur 2q colonnes." % (w.min(), int((w <= 0).sum()), n))
 
     # ------------------------------------------------------------------
     # COMBIEN COUTE LA COMPILATION, ET COMBIEN UNE EVALUATION
@@ -432,6 +975,14 @@ def fit_reml(terms, res, y, X, theta_init=None, maxiter=3000,
     # surtout du temps de compilation. Mesure sur parente dense, elle valait
     # jusqu'a 66 % du temps total. Le surcout est d'une evaluation sur plusieurs
     # dizaines a plusieurs centaines.
+    #
+    # UNE SEULE EVALUATION DE MESURE, ET ELLE SERT. La version precedente en
+    # faisait une seconde en un point perturbe, pour la seule mesure : une
+    # evaluation perdue par ajustement (60 s sur mvD7 en MME creux). Le temps
+    # d'une evaluation est maintenant lu sur la deuxieme evaluation de
+    # l'optimiseur, et la premiere, au point de depart, est gardee en memoire :
+    # L-BFGS-B commence par ce meme point et la retrouve sans la recalculer.
+    _chrono("preparation")
     _t = time.time()
     _v0 = fun_jac(th0)
     try:
@@ -440,14 +991,8 @@ def fit_reml(terms, res, y, X, theta_init=None, maxiter=3000,
     except Exception:
         pass
     _t_premier = time.time() - _t
-    _t = time.time()
-    _v1 = fun_jac(th0 * 1.0001 + 1e-6)
-    try:
-        _jax.block_until_ready(_v1[0])
-    except Exception:
-        pass
-    _t_eval = time.time() - _t
-    _t_compil = max(_t_premier - _t_eval, 0.0)
+    _memo = {"fj": (np.array(th0, dtype=np.float64).tobytes(), _v0)}
+    _chrono("compilation")
 
     # ANNONCER LA COMPILATION DES QU'ELLE EST FINIE. Sur le modele multivarie
     # complet de Salas et al. (2026), XLA compile un programme portant 5,47 Go de
@@ -455,8 +1000,8 @@ def fit_reml(terms, res, y, X, theta_init=None, maxiter=3000,
     # journal muet ne permet pas de distinguer "il compile" de "il est bloque".
     # Cette ligne est le premier signe de vie du solveur.
     if verbose:
-        print("  [compilation] %.1f s | une evaluation : %.3f s | %d parametres"
-              % (_t_compil, _t_eval, p), flush=True)
+        print("  [compilation] premier appel (compilation + une evaluation) %.1f s | %d parametres"
+              % (_t_premier, p), flush=True)
 
     hist = {"n": 0, "t0": time.time(), "n_eval": 0,
             # DERNIERE VALEUR VUE, pour que le rapport soit GRATUIT. La version
@@ -472,18 +1017,35 @@ def fit_reml(terms, res, y, X, theta_init=None, maxiter=3000,
     # complet, soit 2p de plus. Le compte reel est la seule facon honnete de
     # fermer le bilan : un facteur d'ajustement masquerait le poste manquant.
     _fun_jac_brut = fun_jac
+    hist["t_eval"] = []                 # durees des evaluations (hors la premiere)
+
+    def _evaluer_memo(cle_memo, th, brut, facteur):
+        cle = np.asarray(th, dtype=np.float64).tobytes()
+        m_ = _memo.get(cle_memo)
+        if m_ is not None and m_[0] == cle:
+            return m_[1]
+        if cle_memo == "sc":
+            m_ = _memo.get("fj")
+            if m_ is not None and m_[0] == cle:
+                v_, g_ = m_[1]
+                return float(v_) / facteur, np.asarray(g_, dtype=np.float64) / facteur
+        t_ = time.time()
+        hist["n_eval"] += 1
+        r_ = brut(th)
+        if len(hist["t_eval"]) < 50:
+            hist["t_eval"].append(time.time() - t_)
+        _memo[cle_memo] = (cle, r_)
+        return r_
 
     def fun_jac(th):
-        hist["n_eval"] += 1
-        v, g = _fun_jac_brut(th)
+        v, g = _evaluer_memo("fj", th, _fun_jac_brut, 1.0)
         hist["v"], hist["gmax"] = float(v), float(np.max(np.abs(g)))
         return v, g
 
     _fun_sc_brut = fun_sc
 
     def fun_sc(th):
-        hist["n_eval"] += 1
-        v, g = _fun_sc_brut(th)
+        v, g = _evaluer_memo("sc", th, _fun_sc_brut, sc)
         # REMISE A L'ECHELLE. L-BFGS-B minimise -2logL / sc (cf. make_objective) ;
         # imprimer sa valeur brute donnerait un nombre sans signification pour le
         # lecteur. C'est fun_sc que l'optimiseur appelle, donc c'est ici qu'il
@@ -491,16 +1053,27 @@ def fit_reml(terms, res, y, X, theta_init=None, maxiter=3000,
         hist["v"], hist["gmax"] = float(v) * sc, float(np.max(np.abs(g))) * sc
         return v, g
 
+    lent = dict(actif=(finition == "rc" and optimizer == "lbfgsb"), f=[])
+
     def cb(_):
         hist["n"] += 1
+        # ARRET SUR PROGRES LENT (finition "rc") : la longue traine de L-BFGS-B
+        # est laissee au Newton a region de confiance (finition.py).
+        if lent["actif"]:
+            lent["f"].append(hist["v"])
+            k_, seuil_ = arret_lent
+            if len(lent["f"]) > k_ and lent["f"][-k_ - 1] - lent["f"][-1] < seuil_:
+                hist["arret_lent"] = True
+                raise StopIteration
         # LE PAS D'IMPRESSION S'ADAPTE AU COUT MESURE D'UNE ITERATION. Un pas
         # fixe de 25 rendait le journal MUET sur le modele reel, ou une
         # evaluation coute plusieurs secondes : 52 minutes sans une ligne, et
         # aucun moyen de distinguer la progression d'un blocage. Le seuil porte
-        # sur _t_eval, qui est MESURE juste au-dessus, et non suppose.
+        # sur le temps MESURE des evaluations deja faites, et non suppose.
         if not verbose:
             return
-        pas = 1 if _t_eval > 0.25 else (10 if _t_eval > 0.02 else 50)
+        te_ = float(np.median(hist["t_eval"])) if hist["t_eval"] else _t_premier
+        pas = 1 if te_ > 0.25 else (10 if te_ > 0.02 else 50)
         if hist["n"] == 1 or hist["n"] % pas == 0:
             print("  iter %4d | -2logL %14.6f | max|grad| %.3e | %6.1f s | %d eval"
                   % (hist["n"], hist["v"], hist["gmax"],
@@ -513,6 +1086,11 @@ def fit_reml(terms, res, y, X, theta_init=None, maxiter=3000,
     # exclura du sous-espace libre, ce qui est exactement le comportement
     # voulu pour les degres de liberte.
     bornes = [(floor, ceil)] * p
+    th0 = np.array(th0, dtype=np.float64)          # copie : th0 peut etre theta_init de l'appelant
+    for (o_, ln_, B_) in bornes_loadings(terms, res, y):
+        for j in range(o_, o_ + ln_):
+            bornes[j] = (-B_, B_)
+            th0[j] = float(np.clip(th0[j], -B_, B_))
     if fixed_idx:
         for j in fixed_idx:
             bornes[j] = (float(th0[j]), float(th0[j]))
@@ -553,11 +1131,154 @@ def fit_reml(terms, res, y, X, theta_init=None, maxiter=3000,
         # l'air de rapporter la progression, et n'a jamais ete passe ici — d'ou
         # 52 minutes d'ajustement sans une ligne sur le modele reel, et aucun
         # moyen de distinguer la progression d'un blocage.
-        r = minimize(fun_sc, th0, jac=True, method="L-BFGS-B",
-                     bounds=bornes, callback=cb,
-                     options=dict(maxiter=maxiter, maxfun=10 * maxiter,
-                                  ftol=tol, gtol=1e-10))
+        if optimizer in ("ai", "ai_theta"):
+            # AI-REML : meme objectif et meme gradient, courbure par l'information
+            # moyenne (ai.py). Le modele structurel n'est pas couvert.
+            if lag is not None:
+                raise ValueError("optimizer='ai' : modele structurel (lag) non pris en charge.")
+            try:
+                from .ai import make_fga, ai_reml_fga
+            except ImportError:
+                from ai import make_fga, ai_reml_fga
+            from types import SimpleNamespace
+            # UNE factorisation par point : valeur, gradient et matrice AI ensemble.
+            if moteur == "mme":
+                fga = fga_mme
+            elif memoire == "econome":
+                try:
+                    from .econome import make_fga_econome
+                except ImportError:
+                    from econome import make_fga_econome
+                fga = make_fga_econome(plan_eco)
+            else:
+                fga = make_fga(terms, res, y, X)
+            if optimizer == "ai":
+                try:
+                    from .ai import ai_reml_var
+                except ImportError:
+                    from ai import ai_reml_var
+                # valeur seule pour les essais de pas : MME sans derivees ; ailleurs
+                # valeur et gradient (sans la matrice AI)
+                if moteur == "mme":
+                    f_seul = lambda th_: M_mme.evaluer(np.asarray(th_), complet=False)["f"]
+                else:
+                    f_seul = lambda th_: float(fun_jac(th_)[0])
+                th_ai, info = ai_reml_var(fga, th0, bornes, terms, res, maxiter=maxiter,
+                                          verbose=verbose, compteur=hist,
+                                          plancher_us=1e-8 if moteur == "mme" else 1e-10,
+                                          fun_sc=fun_sc, f_seul=f_seul)
+                if not info["success"]:
+                    # REPLI : L-BFGS-B repris du point atteint. AI en echelle des
+                    # variances cale quand l'optimum est de rang incomplet (bord
+                    # du cone d'une Sigma us) ; L-BFGS-B, en theta de Cholesky,
+                    # y glisse a un gradient par iteration. MESURE sur us9 a
+                    # n = 500 : le polissage de Newton y arrivait aussi, mais en
+                    # 4665 evaluations (Hessien par differences finies).
+                    if verbose:
+                        print("  [ai] %s -> L-BFGS-B depuis ce point" % info["message"],
+                              flush=True)
+                    r2 = minimize(fun_sc, th_ai, jac=True, method="L-BFGS-B",
+                                  bounds=bornes, callback=cb,
+                                  options=dict(maxiter=maxiter, maxfun=10 * maxiter,
+                                               ftol=tol, gtol=1e-10))
+                    th_ai = np.asarray(r2.x, dtype=np.float64)
+                    info = dict(nit=info["nit"] + int(r2.nit), success=False,
+                                message="%s ; repli L-BFGS-B : %s" % (info["message"], r2.message))
+            else:
+                # "ai_theta" : le pas en theta de Cholesky, variante anterieure,
+                # gardee pour comparaison.
+                th_ai, info = ai_reml_fga(fga, th0, bornes, maxiter=maxiter,
+                                          verbose=verbose, compteur=hist)
+            r = SimpleNamespace(x=th_ai, **info)
+            # SORTIE DU PLANCHER apres l'AI aussi (cf. _evasion_plancher)
+            if optimizer == "ai":
+                th_ref = np.array(th0, dtype=np.float64)
+                _ti = initial_theta(terms, res, y, X)
+                th_ref[:len(_ti)] = np.maximum(th_ref[:len(_ti)], _ti)
+                for _tour in range(2):
+                    th_ev = _evasion_plancher(fun_jac, np.asarray(r.x, dtype=np.float64), th_ref,
+                                              bornes, terms, res, floor, verbose=verbose)
+                    if th_ev is None:
+                        break
+                    th_ai, info2 = ai_reml_var(fga, th_ev, bornes, terms, res, maxiter=maxiter,
+                                               verbose=verbose, compteur=hist,
+                                               plancher_us=1e-8 if moteur == "mme" else 1e-10,
+                                               fun_sc=fun_sc, f_seul=f_seul)
+                    r = SimpleNamespace(x=th_ai, nit=int(getattr(r, "nit", 0)) + int(info2["nit"]),
+                                        success=info2["success"],
+                                        message="%s ; apres sortie du plancher : %s"
+                                        % (getattr(r, "message", ""), info2["message"]))
+        elif optimizer == "lbfgsb":
+            r = minimize(fun_sc, th0, jac=True, method="L-BFGS-B",
+                         bounds=bornes, callback=cb,
+                         options=dict(maxiter=maxiter, maxfun=10 * maxiter,
+                                      ftol=tol, gtol=1e-10))
+            if hist.get("arret_lent") and verbose:
+                print("  [finition] L-BFGS-B arrete a l'iteration %d : gain < %g sur %d iterations"
+                      % (hist["n"], arret_lent[1], arret_lent[0]), flush=True)
+            # SORTIE DU PLANCHER (cf. _evasion_plancher) : une variance poussee
+            # pres du plancher en log n'en remonte pas, son gradient y est nul.
+            # Reference de remontee : le depart fourni, ou le depart automatique
+            # s'il est plus haut (un theta_init lui-meme au plancher ne dit rien).
+            th_ref = np.array(th0, dtype=np.float64)
+            _ti = initial_theta(terms, res, y, X)
+            th_ref[:len(_ti)] = np.maximum(th_ref[:len(_ti)], _ti)
+            for _tour in range(3):
+                th_ev = _evasion_plancher(fun_jac, np.asarray(r.x, dtype=np.float64), th_ref,
+                                          bornes, terms, res, floor, verbose=verbose)
+                if th_ev is None:
+                    break
+                nit_av = int(r.nit)
+                r = minimize(fun_sc, th_ev, jac=True, method="L-BFGS-B",
+                             bounds=bornes, callback=cb,
+                             options=dict(maxiter=maxiter, maxfun=10 * maxiter,
+                                          ftol=tol, gtol=1e-10))
+                r.nit = nit_av + int(r.nit)
+        else:
+            raise ValueError("optimizer inconnu : %r (lbfgsb, ai, ai_theta)" % (optimizer,))
         theta = np.asarray(r.x, dtype=np.float64)
+    t_optim = time.time() - hist["t0"]
+    _chrono("optimisation")
+    # APRES UN AI-REML CONVERGE, PAS DE POLISSAGE. AI s'arrete sur un decrement
+    # de 1e-6 en -2logL : le polissage de Newton n'a plus rien a gagner, et chaque
+    # pas coute un Hessien par differences finies (2p gradients). Mesure sur la
+    # luzerne : 25 pas pour des gains de 1e-8, le temps total multiplie par 4 a 5.
+    # Le Hessien des diagnostics (hessian=True) reste calcule, une seule fois.
+    # Si AI echoue, le polissage est garde : il sert alors de repli.
+    polish_eff = int(polish)
+    H_cache = None
+    if int(maxiter) > 0 and optimizer.startswith("ai") and bool(getattr(r, "success", False)):
+        polish_eff = 0
+        # POINT SELLE. La matrice AI est semi-definie positive par construction :
+        # elle ne voit pas une courbure negative, et la boucle AI peut s'arreter
+        # sur un point stationnaire qui n'est pas un minimum. Verifie par
+        # simulation (fa de rang 2, 5 caracteres) : decrement AI sous 1e-6,
+        # Hessien a une valeur propre negative, logLik 1,6e-2 sous l'optimum.
+        # Un Hessien par differences finies (2p gradients) tranche ; sur le
+        # sous-espace libre, une valeur propre negative renvoie a L-BFGS-B puis
+        # au polissage.
+        # Le controle n'est fait qu'avec hessian=True : le Hessien est alors
+        # calcule de toute facon pour les diagnostics, et il est reutilise. Avec
+        # hessian=False, 2p gradients de plus seraient un cout que l'appelant a
+        # refuse (400 gradients a 200 parametres).
+        lo_ = np.array([b[0] for b in bornes]); hi_ = np.array([b[1] for b in bornes])
+        libre_ = (theta > lo_ + 1e-9) & (theta < hi_ - 1e-9)
+        if hessian and libre_.any():
+            H_ai = _hessian_fd(fun_jac, theta, floor=floor, ceil=ceil)
+            H_cache = (theta.copy(), H_ai)
+            w_ai = np.linalg.eigvalsh(H_ai[np.ix_(libre_, libre_)])
+            if w_ai.min() < -1e-6 * max(1.0, np.abs(w_ai).max()):
+                if verbose:
+                    print("  [ai] point selle (valeur propre du Hessien %.2e) -> L-BFGS-B depuis ce point"
+                          % w_ai.min(), flush=True)
+                r2 = minimize(fun_sc, theta, jac=True, method="L-BFGS-B", bounds=bornes,
+                              callback=cb, options=dict(maxiter=maxiter, maxfun=10 * maxiter,
+                                                        ftol=tol, gtol=1e-10))
+                theta = np.asarray(r2.x, dtype=np.float64)
+                r = SimpleNamespace(x=theta, nit=int(getattr(r, "nit", 0)) + int(r2.nit), success=False,
+                                    message="%s ; point selle, repli L-BFGS-B : %s"
+                                    % (getattr(r, "message", ""), r2.message))
+                polish_eff = int(polish)
 
     # --- polissage de Newton -------------------------------------------------
     # L-BFGS-B s'arrete sur une tolerance RELATIVE de l'objectif : il rend un
@@ -575,6 +1296,18 @@ def fit_reml(terms, res, y, X, theta_init=None, maxiter=3000,
     # Le polissage tourne jusqu'a ce que le decrement de Newton soit negligeable
     # devant le seuil d'un LRT (3.84), pas un nombre fixe de fois : c'est le
     # critere qui a un sens, et il coute deux gradients par parametre et par pas.
+    if finition == "rc" and int(maxiter) > 0 and polish_eff > 0:
+        try:
+            from .finition import finir
+        except ImportError:
+            from finition import finir
+        lo_ = np.array([b_[0] for b_ in bornes], dtype=np.float64)
+        hi_ = np.array([b_[1] for b_ in bornes], dtype=np.float64)
+        theta, info_fin = finir(fun_jac, theta, lo_, hi_,
+                                hessien=lambda th: _hessian_fd(fun_jac, th, floor=lo_, ceil=hi_),
+                                verbose=verbose, compteur=hist)
+        hist["finition"] = info_fin
+        polish_eff = 0
     n_polish = 0
     # LE POLISSAGE PARLE, COMME L-BFGS-B. Il etait muet : sur un modele a 198
     # parametres il a dure 61,5 h et 9 979 evaluations APRES la derniere ligne
@@ -582,11 +1315,11 @@ def fit_reml(terms, res, y, X, theta_init=None, maxiter=3000,
     # un blocage la ou l'ajustement travaillait. Chaque pas coute 2p gradients
     # (Hessien par differences finies) : une ligne par pas est bon marche et
     # suffit a distinguer la progression d'un arret.
-    if polish > 0:
+    if polish_eff > 0:
         if verbose:
             print("  polissage de Newton : jusqu'a %d pas, %d gradients par pas"
-                  % (int(polish), 2 * p), flush=True)
-        for _ in range(int(polish)):
+                  % (polish_eff, 2 * p), flush=True)
+        for _ in range(polish_eff):
             t_pas = time.time()
             f_cur, g_cur = fun_jac(theta)
             H = _hessian_fd(fun_jac, theta, floor=floor, ceil=ceil)
@@ -630,6 +1363,13 @@ def fit_reml(terms, res, y, X, theta_init=None, maxiter=3000,
                 break
 
     f_end, g_end = fun_jac(theta)
+    _chrono("finition")
+    # temps d'une evaluation : mediane des evaluations de l'optimiseur ; la
+    # compilation est l'exces du premier appel sur cette mediane
+    _t_eval = float(np.median(hist["t_eval"])) if hist["t_eval"] else float(_t_premier)
+    if moteur == "mme" and getattr(M_mme, "_durees", None):
+        _t_eval = float(np.median(M_mme._durees))         # evaluations completes calculees
+    _t_compil = max(_t_premier - _t_eval, 0.0)
     # DEUX CONVENTIONS DE LOG-VRAISEMBLANCE, et il faut les deux.
     # remlax et lme4 incluent la constante (n-p)/2 * log(2*pi) ; asreml et
     # sommer l'omettent. Comparer les deux nombres sans le savoir donne un ecart
@@ -658,9 +1398,39 @@ def fit_reml(terms, res, y, X, theta_init=None, maxiter=3000,
                # evaluation autant de fois qu'il y a d'iterations. Les melanger
                # attribue a l'algebre du temps de compilateur.
                compile_s=_t_compil, eval_s=_t_eval, first_call_s=_t_premier,
-               n_eval=int(hist["n_eval"]))
+               n_eval=int(hist["n_eval"]),
+               # Optimiseur et temps de sa seule phase (avant polissage) : c'est
+               # ce que compare un banc d'essai entre L-BFGS-B et AI-REML.
+               optimiseur=str(optimizer), secondes_optim=float(t_optim))
 
     th_terms, th_res, _ = split_theta(theta, terms, res)
+    # ENTREES NON IDENTIFIEES SEPAREMENT (alias_entrees) : motifs de V egaux.
+    # Elles laissent autant de directions plates, attendues, dans le Hessien ;
+    # le nombre de parametres identifies (ddl d'un LRT, AIC) en tient compte.
+    alias = alias_entrees(terms, n)
+    n_plat = int(sum(len(g["entrees"]) - 1 for g in alias))
+    _chrono("alias")
+    out["alias"] = [dict(terme=g["terme"], entrees=[[int(i), int(j)] for i, j in g["entrees"]])
+                    for g in alias]
+    out["n_plat_attendu"] = n_plat
+    out["n_par_identifies"] = int(p - n_plat)
+    if n_plat and verbose:
+        print("  [identification] %d direction(s) plate(s) par construction : %s"
+              % (n_plat, "; ".join("%s %s" % (g["terme"], " = ".join(
+                  "[%d,%d]" % (i + 1, j + 1) for i, j in g["entrees"])) for g in alias)),
+              flush=True)
+    # REPONSE ANALYSEE. Sans decalage, y ; avec, y* = (I - M) y au point final :
+    # beta, les BLUP et P y sont ceux du modele ordinaire de y*.
+    y_fit = (np.asarray(y, dtype=np.float64) if lag is None
+             else np.asarray(lag_ystar(jnp.asarray(theta[p_cov:]), lag, y)))
+    if lag is not None:
+        out["lag"] = lag_report(theta[p_cov:], lag, X, f_end)
+        out["ystar"] = y_fit
+        if verbose:
+            Lr = out["lag"]
+            print("  [decalage] critere %s | chemin %s | log|det A| %.6f | rayon spectral de M %.4f"
+                  % (Lr["criterion"], Lr["chemin"], Lr["logdet_A"], Lr["rayon_spectral"]),
+                  flush=True)
 
     # --- composantes degenerees -----------------------------------------------
     # Une variance qui part au plancher n'est pas "estimee a zero" : elle est
@@ -678,7 +1448,7 @@ def fit_reml(terms, res, y, X, theta_init=None, maxiter=3000,
         if np.any(theta[o:o + p_k] <= seuil):
             degen.append(tm["name"])
         o += p_k
-    if np.any(theta[o:] <= seuil):
+    if np.any(theta[o:p_cov] <= seuil):
         degen.append("residuelle")
     out_degen = degen
     out["composantes_degenerees"] = out_degen
@@ -726,108 +1496,50 @@ def fit_reml(terms, res, y, X, theta_init=None, maxiter=3000,
                                     parts=sec.get("lvl_parts"))
         _ranger_niveaux(out, nom, sec.get("lvl", "id"), r_res)
         o_s += p_s
-    out["sigma_res"] = out["sigmas_res"][list(out["sigmas_res"])[0]]
+    # Residuelle "none" : aucune section, donc pas de sigma_res (et non une
+    # matrice nulle, qui se lirait comme une variance estimee a zero).
+    if out["sigmas_res"]:
+        out["sigma_res"] = out["sigmas_res"][list(out["sigmas_res"])[0]]
 
-    V = np.asarray(assemble_V(jnp.asarray(theta), terms, Zs, res, n))
-    if blups or hessian:
-        # inv() leve "Singular matrix" des que V est numeriquement singuliere,
-        # ce qui detruirait un ajustement par ailleurs valide (une variance a
-        # zero suffit). On resout, et on retombe sur la pseudo-inverse en
-        # signalant que beta et les BLUPs sont alors conditionnels.
-        try:
-            Vi = np.linalg.solve(V, np.eye(n))
-            out["V_singuliere"] = False
-        except np.linalg.LinAlgError:
-            Vi = np.linalg.pinv(V, rcond=1e-12)
-            out["V_singuliere"] = True
-        XtVi = X.T @ Vi
-        A = XtVi @ X
-        try:
-            beta = np.linalg.solve(A, XtVi @ y)
-        except np.linalg.LinAlgError:
-            beta = np.linalg.pinv(A) @ (XtVi @ y)
-        out["beta"] = beta
-        # (X'V^-1X)^-1 : matrice de covariance des effets fixes A V CONNUE.
-        # Necessaire a predict() et point de depart de l'ajustement de
-        # Kenward-Roger ; la recalculer plus tard exigerait de refaire V.
-        out["vbeta"] = np.linalg.pinv(A)
-        out["Vi"] = Vi
-        resid = y - X @ beta
-        Py = Vi @ resid - Vi @ X @ (np.linalg.pinv(A) @ (XtVi @ resid))
-        out["Py"] = Py
-        # QUELS TERMES. `pev=True` la calcule pour TOUS les termes, ce qui est
-        # une mauvaise valeur par defaut sur un modele reel : le modele IGE
-        # complet a 23 termes dont 21 sont des nuisances — effets spatiaux de
-        # bloc et effets environnementaux indirects — et personne ne veut la
-        # variance d'erreur de prediction d'un effet de bloc. Chacun coute
-        # pourtant une matrice (t*q) x n, et le total a tue le processus par
-        # manque de memoire lors du premier essai reel. `pev` accepte donc une
-        # LISTE DE NOMS, et le pipeline ne demande que les termes genetiques.
-        pev_noms = ([tm["name"] for tm in terms] if pev is True
-                    else ([] if not pev else list(pev)))
-        inconnus = set(pev_noms) - {tm["name"] for tm in terms}
-        if inconnus:
-            raise ValueError("pev : terme(s) inconnu(s) %s ; termes du modele : %s"
-                             % (sorted(inconnus), [tm["name"] for tm in terms]))
-        if blups and pev_noms:
-            # P, formee UNE fois : elle ne depend pas du terme. C'est la matrice
-            # dont depend toute la PEV, et la former dans la boucle la
-            # recalculerait pour chaque terme.
-            Pmat = Vi - (Vi @ X) @ out["vbeta"] @ (X.T @ Vi)
+    out["moteur"] = moteur
+    out["memoire"] = memoire if moteur == "dense" else "standard"
+    if moteur == "blocs":
+        out["blocs"] = plan_blocs.resume()
+    if moteur == "mme":
+        # beta, vbeta et BLUP lus dans les equations du modele mixte : V n'est
+        # jamais formee (elle serait n x n, ce que ce moteur evite).
+        so = M_mme.sorties(theta, pev=(pev if blups else ()))
+        out["beta"], out["vbeta"], out["V_singuliere"] = so["beta"], so["vbeta"], False
         if blups:
-            # u_k = (Sigma_k (x) K_k) Z_k' P y = B_k B_k' P y au facteur pres :
-            # on passe par B pour ne jamais former Sigma (x) K.
-            out["blups"] = {}
-            for k, tm in enumerate(terms):
-                B = np.asarray(term_factor(jnp.asarray(th_terms[k]), tm, Zs[k]))  # noqa: F841
-                # u = (Sigma (x) K) Z' Py ; avec B = Z (L (x) L_K) on a
-                # (Sigma (x) K) Z' = (L (x) L_K) B'
-                bt = B.T @ Py
-                ns = n_params(tm["struct"], tm["t"], tm["rank"])
-                Ls = np.asarray(build_sigma(jnp.asarray(th_terms[k][:ns]), tm["struct"],
-                                            tm["t"], tm["rank"]))
-                # K effective : peut dependre de theta (AR1), d'ou la
-                # reconstruction plutot qu'un simple tm["LK"].
-                kind_ = tm.get("lvl") or ("fixed" if tm.get("LK") is not None else "id")
-                from_lvl = (jnp.asarray(tm["LK"]) if kind_ == "fixed" and tm["LK"] is not None
-                            else level_chol(jnp.asarray(th_terms[k][ns:]), kind_,
-                                            tm["q"], dims=tm.get("dims"),
-                                            LK_fixed=tm.get("LK"),
-                                            order=tm.get("lvl_order", 0),
-                                            coord=tm.get("coord"),
-                                            parts=tm.get("lvl_parts"),
-                                            opts=tm.get("lvl_opts"),
-                                            expr=tm.get("lvl_expr")))
-                Kq = (np.eye(tm["q"]) if from_lvl is None
-                      else np.asarray(from_lvl) @ np.asarray(from_lvl).T)
-                Zd = np.asarray(Zs[k])
-                G = np.kron(Ls, Kq)
-                u = G @ (Zd.T @ Py)
-                out["blups"][tm["name"]] = u.reshape(tm["t"], tm["q"]).T
-                if tm["name"] in pev_noms:
-                    # VARIANCE D'ERREUR DE PREDICTION, diagonale seulement.
-                    #
-                    #     var(u - u_chapeau) = G - G Z' P Z G
-                    #
-                    # avec P = V^-1 - V^-1 X (X'V^-1X)^-1 X'V^-1, deja formable
-                    # ici puisque Vi et vbeta sont sous la main. On ne rend que
-                    # la DIAGONALE : c'est tout ce que demande une fiabilite ou
-                    # une heritabilite de Cullis, et la matrice pleine pese
-                    # (t*q)^2.
-                    #
-                    # POURQUOI CETTE SORTIE EXISTE. Sans elle H2_Cullis n'est
-                    # pas calculable, et la suite de validation contre asreml
-                    # l'avait releve comme la seule sortie que le logiciel de
-                    # reference donne et que remlax ne donnait pas.
-                    M = G @ Zd.T                      # (t*q) x n
-                    d_ = np.diag(G) - np.einsum("ij,ij->i", M @ Pmat, M)
-                    out.setdefault("pev", {})[tm["name"]] = \
-                        np.maximum(d_, 0.0).reshape(tm["t"], tm["q"]).T
+            out["blups"] = so["blups"]
+            if "pev" in so:
+                out["pev"] = so["pev"]
+        out["inversion"] = M_mme.inversion
+    if moteur in ("dense", "blocs") and (blups or hessian) and (memoire == "econome"
+                                                                 or moteur == "blocs"):
+        # Moteur par blocs : les sorties (beta, BLUP, PEV) passent par la voie
+        # econome, qui forme V une fois sur le peripherique puis la ramene sur
+        # l'hote. Version 1 : une sortie par blocs reste a ecrire.
+        try:
+            from .econome import V_hote, z_hote, PlanEconome
+        except ImportError:
+            from econome import V_hote, z_hote, PlanEconome
+        if moteur == "blocs":
+            plan_eco = PlanEconome(terms, res, y, X)
+        out.update(effets_denses(theta, terms, None, res, y_fit, X, blups=blups, pev=pev,
+                                 V=V_hote(plan_eco, theta),
+                                 z_de=lambda k: z_hote(terms[k], n)))
+    elif moteur == "dense" and (blups or hessian):
+        out.update(effets_denses(theta, terms, Zs, res, y_fit, X, blups=blups, pev=pev))
+    _chrono("effets")
     if hessian:
-        H = _hessian_fd(fun_jac, theta, floor=floor, ceil=ceil)
+        if H_cache is not None and np.array_equal(H_cache[0], theta):
+            H = H_cache[1]                      # celui du controle de point selle
+        else:
+            H = _hessian_fd(fun_jac, theta, floor=floor, ceil=ceil)
         out["hessian"] = H
         out.update(_diagnostic(H, g_end, theta, floor, ceil, fixed_idx=fixed_idx,
-                               f_obj=out.get("neg2_reml")))
+                               f_obj=out.get("neg2_reml"), n_plat_attendu=n_plat))
     else:
         # SANS HESSIEN, CE QUI RESTE DISPONIBLE L'EST GRATUITEMENT. g_end est
         # deja en memoire : supprimer le gradient projete avec le reste laissait
@@ -840,6 +1552,44 @@ def fit_reml(terms, res, y, X, theta_init=None, maxiter=3000,
                                         f_obj=out.get("neg2_reml")))
         out.update(dict(newton_decrement=np.nan, conv_decrement=None,
                         conv_hessien_ok=None, n_neg_eig=None, cond=np.nan))
+    _chrono("hessien")
+    # FIN PAR LE MOTEUR DENSE. Un ajustement MME qui s'arrete avec un gradient
+    # relatif encore grand est repris par le moteur dense depuis le point
+    # atteint : le moteur MME doit inverser Sigma et K, ce que le moteur dense
+    # ne fait jamais, et il peut s'enfermer pres d'une Sigma de rang deficient
+    # (fa a 5 caracteres, banc 2026-10-22). Le champ `moteur` le dit.
+    gr_ = out.get("grad_rel")
+    # Le moteur dense ne sait pas representer un terme donne par sa seule
+    # precision K^-1 (pedigree) : il le traiterait comme independant, et la
+    # reprise rendrait un AUTRE modele (verif_simulations, parente_pedigree_kinv :
+    # logLik -684,65 au lieu de -657,59). Pas de reprise dans ce cas.
+    kinv_seul = any(tm.get("Kinv") is not None and tm.get("LK") is None for tm in terms)
+    echec_opt = not bool(out.get("scipy_success", False))
+    if (moteur == "mme" and int(maxiter) > 0 and kinv_seul and verbose and echec_opt
+            and not (gr_ is not None and gr_ <= GRAD_REL_REPLI_DENSE)):
+        print("  [moteur] MME non converge (gradient relatif %s), sans reprise dense : un terme "
+              "n'a que sa precision K^-1" % ("%.2e" % gr_ if gr_ is not None else "n.d."), flush=True)
+    # La reprise ne vise que les ajustements que l'optimiseur n'a PAS declares
+    # convergés (AI bloquee, repli L-BFGS-B) : un ajustement AI convergé par son
+    # decrement peut garder un gradient relatif de quelques 1e-5 (pedigree a
+    # 500 individus : decrement < 1e-6, a 5e-7 de l'optimum). Et pas au-dela de
+    # n = 20000, ou le moteur dense ne tient plus en memoire.
+    if (moteur == "mme" and int(maxiter) > 0 and not kinv_seul and echec_opt
+            and len(y) <= N_MAX_REPLI_DENSE
+            and not (gr_ is not None and gr_ <= GRAD_REL_REPLI_DENSE)):
+        if verbose:
+            print("  [moteur] MME non converge (gradient relatif %s) : fin par le moteur dense "
+                  "depuis ce point" % ("%.2e" % gr_ if gr_ is not None else "n.d."), flush=True)
+        out_d = fit_reml(terms, res, y, X, theta_init=out["theta"], maxiter=maxiter,
+                         floor=floor, ceil=ceil, verbose=verbose, hessian=hessian, blups=blups,
+                         pev=pev, tol=tol, polish=polish, check=False, n_restarts=0,
+                         fixed_idx=fixed_idx, lag=lag, optimizer=optimizer, moteur="dense",
+                         inversion=inversion, memoire=memoire, finition=finition,
+                         arret_lent=arret_lent)
+        out_d["moteur"] = "mme+dense"
+        out_d["inversion"] = out.get("inversion")
+        out_d["secondes"] = float(out_d.get("secondes", 0.0)) + float(out.get("secondes", 0.0))
+        return out_d
     return out
 
 
@@ -859,6 +1609,53 @@ def _ranger_niveaux(out, nom, kind, rapport):
             out["rho"][nom] = v
         else:
             out["rho"]["%s!%s" % (nom, cle)] = v
+
+
+def _evasion_plancher(fun_jac, theta, th0, bornes, terms, res, floor, marge=3.0,
+                      verbose=True):
+    """Fait sortir du plancher les variances qui n'y ont rien a faire.
+
+    Une variance parametree en log (iid, diag, variances specifiques d'un fa)
+    a un gradient en theta egal a 2 psi dF/dpsi : pres du plancher il est nul,
+    quel que soit dF/dpsi, et L-BFGS-B s'y declare converge. MESURE sur un fa1
+    a 28 environnements pondere (drops2) : les 28 variances specifiques a
+    exp(2 x -11,4), -2logL 5469 contre 3507 a l'optimum, ou elles valent 0,03 a
+    0,8. Le SIGNE du gradient reste lisible : negatif, monter la variance fait
+    baisser -2logL. Ces variances sont remontees ensemble vers leur valeur de
+    depart (psi0 e^-2, puis e^-6, puis e^-10) ; le point est retenu des que
+    -2logL baisse, et None est rendu sinon (rien a faire ou aucun gain).
+    """
+    try:
+        from .ai import _blocs_echelle
+    except ImportError:
+        from ai import _blocs_echelle
+    blocs, p = _blocs_echelle(terms, res)
+    if p != len(theta):
+        return None
+    log_var = np.zeros(p, dtype=bool)
+    for (o, ln, nat, t) in blocs:
+        if nat in ("iid", "diag"):
+            log_var[o:o + ln] = True
+    lo = np.array([b[0] for b in bornes]); hi = np.array([b[1] for b in bornes])
+    libre = hi > lo
+    bas = log_var & libre & (theta <= floor + marge)
+    if not bas.any():
+        return None
+    f0, g0 = fun_jac(theta)
+    g0 = np.asarray(g0, dtype=np.float64)
+    cand = bas & (g0 < 0)
+    if not cand.any() or not np.isfinite(float(f0)):
+        return None
+    for recul in (1.0, 3.0, 5.0):
+        th = theta.copy()
+        th[cand] = np.clip(np.maximum(th0[cand] - recul, theta[cand]), lo[cand], hi[cand])
+        f1, _ = fun_jac(th)
+        if np.isfinite(float(f1)) and float(f1) < float(f0) - 1e-8 * max(1.0, abs(float(f0))):
+            if verbose:
+                print("  [plancher] %d variance(s) remontee(s) (log psi0 - %g) : -2logL %.6f -> %.6f"
+                      % (int(cand.sum()), recul, float(f0), float(f1)), flush=True)
+            return th
+    return None
 
 
 def _hessian_fd(fun_jac, theta, eps=1e-5, floor=None, ceil=None):
@@ -982,7 +1779,8 @@ def _diagnostic_gradient(g, theta, floor, ceil, tol_bound=1e-7, fixed_idx=None,
                 conv_grad_rel=(None if not np.isfinite(grad_rel) else bool(grad_rel < 1e-6)))
 
 
-def _diagnostic(H, g, theta, floor, ceil, tol_bound=1e-7, fixed_idx=None, f_obj=None):
+def _diagnostic(H, g, theta, floor, ceil, tol_bound=1e-7, fixed_idx=None, f_obj=None,
+                n_plat_attendu=0):
     """Trois questions distinctes, jamais fusionnees en un booleen.
 
       1. suis-je au sommet ?   decrement de Newton g' H^+ g, en unites de logLik
@@ -1027,7 +1825,16 @@ def _diagnostic(H, g, theta, floor, ceil, tol_bound=1e-7, fixed_idx=None, f_obj=
                     n_null_dir=-1, cond=np.nan,
                     diag_note="decomposition spectrale echouee (%s)" % e)
     tol = 1e-8 * max(abs(w).max(), 1.0)
-    keep = w > tol
+    # DIRECTIONS PLATES ATTENDUES (alias_entrees) : les n plus petites valeurs
+    # propres en module sont celles de la vraisemblance constante le long d'une
+    # difference d'entrees non identifiee. Elles ne disent rien de la
+    # convergence : on les met de cote pour compter valeurs propres negatives et
+    # nulles, sans quoi un VP+ a W symetrique serait declare non converge a
+    # chaque fois. Le decrement de Newton les exclut deja (pseudo-inverse).
+    attendu = np.zeros(len(w), dtype=bool)
+    if n_plat_attendu:
+        attendu[np.argsort(np.abs(w))[:min(int(n_plat_attendu), len(w))]] = True
+    keep = (w > tol) & ~attendu
     dec = float(gf @ (Vv[:, keep] @ ((Vv[:, keep].T @ gf) / w[keep]))) if keep.any() else np.nan
     leak = float(np.max(np.abs(Vv[:, ~keep].T @ gf))) if (~keep).any() else 0.0
 
@@ -1072,8 +1879,12 @@ def _diagnostic(H, g, theta, floor, ceil, tol_bound=1e-7, fixed_idx=None, f_obj=
 
     res = dict(out, newton_decrement=dec, leak=leak,
                 grad_proj_max=gpm, grad_rel=grad_rel,
-                n_neg_eig=int((w < -tol).sum()), n_null_dir=int((np.abs(w) <= tol).sum()),
-                lambda_min=float(w.min()), lambda_max=float(w.max()),
-                cond=float(abs(w).max() / max(abs(w).min(), 1e-300)),
+                n_neg_eig=int(((w < -tol) & ~attendu).sum()),
+                n_null_dir=int(((np.abs(w) <= tol) & ~attendu).sum()),
+                n_plat_exclues=int(attendu.sum()),
+                lambda_min=float(w[~attendu].min()) if (~attendu).any() else np.nan,
+                lambda_max=float(w.max()),
+                cond=(float(abs(w[~attendu]).max() / max(abs(w[~attendu]).min(), 1e-300))
+                      if (~attendu).any() else np.nan),
                 k_eff=int(keep.sum()) + int(at_bound.sum() == 0) * 0)
     return dict(res, **_verdict(res))

@@ -47,6 +47,7 @@ try:
     from . import _x64  # noqa: F401
 except ImportError:
     import _x64          # noqa: F401
+import numpy as np
 import jax.numpy as jnp
 from jax.scipy.special import gammaln
 
@@ -54,8 +55,11 @@ U_MAX = 30.0     # borne superieure de la quadrature
 H_PAS = 0.15     # pas du trapeze : erreur ~ exp(-pi^2/h) = exp(-66)
 Z_MIN = 1e-12    # plancher sur z (cf. en-tete)
 
-_U = jnp.arange(0.0, U_MAX + 0.5 * H_PAS, H_PAS)
-_W = jnp.where(jnp.arange(_U.shape[0]) == 0, 0.5 * H_PAS, H_PAS)  # trapeze
+# Noeuds et poids en NumPy : un tableau JAX cree a l'import initialisait le
+# backend XLA des le chargement du module (2 s sur CPU, chargement du greffon
+# CUDA compris), avant meme que le solveur ait choisi son peripherique.
+_U = np.arange(0.0, U_MAX + 0.5 * H_PAS, H_PAS)
+_W = np.where(np.arange(_U.shape[0]) == 0, 0.5 * H_PAS, H_PAS)  # trapeze
 
 
 def z_nu_kv(z, nu):

@@ -1,0 +1,15 @@
+% Variance structures
+\chapter{Variance structures}\label{ch:structures}
+
+\section{The covariance of a random term}
+\pending{Sigma kron K, levels, traits, and the size of each block}
+
+\section{Parametrisation}
+\pending{theta, Cholesky factors, log variances, bounds; the variance scale of the AI step}
+
+\section{Counting parameters}
+\pending{rx_n_params() and the identified parameters}
+
+\section{Choosing a structure}
+\pending{from iid to us, fa and rr; correlation structures between levels; pointer to Appendix A}
+

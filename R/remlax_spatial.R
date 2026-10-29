@@ -32,9 +32,11 @@ fitted.rx_fit <- function(object, ...) {
   f
 }
 
+# Avec un decalage spatial, les valeurs ajustees sont celles de y* = (I - M) y
+# (le modele lineaire en beta et u), et les residus y* - ajustees.
 residuals.rx_fit <- function(object, ...) {
   if (is.null(object$model$y)) stop("residuals : l'ajustement ne porte pas son modele.", call. = FALSE)
-  as.numeric(object$model$y) - fitted.rx_fit(object)
+  as.numeric(object[["ystar"]] %||% object$model$y) - fitted.rx_fit(object)
 }
 
 # Noms des surfaces demandees : NULL = la premiere, "all" = toutes.

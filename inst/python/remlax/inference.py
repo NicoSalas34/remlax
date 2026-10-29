@@ -31,13 +31,17 @@ import jax.numpy as jnp
 import numpy as np
 
 
-def component_names(terms, res):
+def component_names(terms, res, lag=None):
     """Noms des composantes, dans l'ordre ou vpredict les numerote (V1, V2, ...).
 
     L'ordre est celui des termes puis de la residuelle, et pour une structure
     matricielle celui du triangle inferieur ligne par ligne. Il est FIXE et
     documente : une sortie qui renumerote silencieusement rendrait toute
     expression vpredict fausse a la prochaine execution.
+
+    Avec un decalage spatial, les entrees LIBRES de Psi viennent en dernier
+    (Psi[receveur<-emetteur], receveur par receveur) : les numeros des
+    composantes de variance ne bougent donc pas quand on ajoute un decalage.
     """
     try:
         from .structures import n_params
@@ -74,6 +78,12 @@ def component_names(terms, res):
         kind = sec.get("lvl", "id")
         for k in range(nl):
             noms.append("%s!%s%s" % (pre, kind, "" if nl == 1 else str(k + 1)))
+    if lag is not None:
+        try:
+            from .lag import lag_component_names
+        except ImportError:
+            from lag import lag_component_names
+        noms.extend(lag_component_names(lag))
     return noms
 
 
@@ -134,7 +144,7 @@ def _niv_naturel(th_niv, tm):
     return [th_niv[j] for j in range(nl)]      # corg, own : parametres bruts
 
 
-def components_from_theta(theta, terms, res):
+def components_from_theta(theta, terms, res, lag=None):
     """Vecteur des composantes (variances et covariances) a partir de theta.
 
     C'est la fonction que la delta method differentie. Elle doit donc etre
@@ -156,12 +166,16 @@ def components_from_theta(theta, terms, res):
         S = build_sigma(th_terms[k][:ns], tm["struct"], tm["t"], tm["rank"])
         t = tm["t"]
         if t == 1:
-            out.append(S[0, 0])
+            out.append(jnp.atleast_1d(S[0, 0]))
         else:
-            for i in range(t):
-                for j in range(i + 1):
-                    out.append(S[i, j])
-        out.extend(_niv_naturel(th_terms[k][ns:], tm))
+            # triangle inferieur ligne par ligne, (i, j <= i) : l'ordre de
+            # component_names, en UNE extraction (une operation par entree
+            # coutait 1,7 s de jacobienne a t = 28)
+            ii, jj = np.tril_indices(t)
+            out.append(S[ii, jj])
+        _nv = _niv_naturel(th_terms[k][ns:], tm)
+        if len(_nv):
+            out.append(jnp.stack([jnp.asarray(v_) for v_ in _nv]))
     try:
         from .model import res_sections, sec_n_params
     except ImportError:
@@ -175,17 +189,26 @@ def components_from_theta(theta, terms, res):
             if sec["struct"] != "iid" else jnp.exp(2 * th_s[0]) * jnp.eye(sec["t"])
         t = sec["t"]
         if t == 1:
-            out.append(R[0, 0])
+            out.append(jnp.atleast_1d(R[0, 0]))
         else:
-            for i in range(t):
-                for j in range(i + 1):
-                    out.append(R[i, j])
-        out.extend(_niv_naturel(th_s[ns:], sec))
+            ii, jj = np.tril_indices(t)
+            out.append(R[ii, jj])
+        _nv = _niv_naturel(th_s[ns:], sec)
+        if len(_nv):
+            out.append(jnp.stack([jnp.asarray(v_) for v_ in _nv]))
         o += p_s
-    return jnp.stack(out)
+    if lag is not None:
+        # Psi en unites de W : theta_lag / s (lag.py). Lineaire, donc la methode
+        # delta est exacte pour ces composantes.
+        nl = int(np.asarray(lag["mask"], dtype=bool).sum())
+        if nl:
+            th_lag = theta[len(theta) - nl:]
+            out.append(jnp.asarray(th_lag[:nl]) / float(lag["scale"]))
+    return jnp.concatenate(out) if out else jnp.zeros(0)
 
 
-def varcomp_table(theta, H, terms, res, floor=-12.0, ceil=12.0, fixed_idx=None, tol=1e-7):
+def varcomp_table(theta, H, terms, res, floor=-12.0, ceil=12.0, fixed_idx=None, tol=1e-7,
+                  lag=None, alias=None):
     """Table des composantes de variance, a la maniere de summary.asreml.
 
     Pour chaque composante (dans l'ordre V1, V2, ... de vpredict) : sa valeur,
@@ -193,7 +216,10 @@ def varcomp_table(theta, H, terms, res, floor=-12.0, ceil=12.0, fixed_idx=None, 
       F  ne depend que de parametres fixes ;
       B  depend d'un parametre a une borne (plancher ou plafond de theta) ;
       P  variance (diagonale d'une Sigma, ou terme a un caractere) ;
-      U  covariance ou parametre de niveau (correlation, portee...).
+      U  covariance ou parametre de niveau (correlation, portee...) ;
+      N  entree NON IDENTIFIEE separement (alias, cf. model.alias_entrees) :
+         seule sa somme avec les entrees de meme motif l'est. Ces sommes sont
+         ajoutees en fin de table, nommees "a+b", avec leur erreur-type.
     La jacobienne est exacte (JAX), la covariance de theta vaut 2 H^-1 sur le
     sous-espace libre. Une erreur-type est NaN pour F et B, et partout si le
     Hessien libre n'est pas defini positif.
@@ -201,10 +227,13 @@ def varcomp_table(theta, H, terms, res, floor=-12.0, ceil=12.0, fixed_idx=None, 
     import re
     theta = np.asarray(theta, dtype=float)
     p = len(theta)
-    comp_fn = lambda th: components_from_theta(th, terms, res)  # noqa: E731
-    vals = np.asarray(comp_fn(jnp.asarray(theta)))
-    J = np.asarray(jax.jacfwd(comp_fn)(jnp.asarray(theta))).reshape(len(vals), p)
-    noms = component_names(terms, res)
+    comp_fn = lambda th: components_from_theta(th, terms, res, lag=lag)  # noqa: E731
+    # COMPILEE : en mode immediat, la jacobienne enchainait des centaines de
+    # petites operations JAX (une par entree de Sigma) ; 1,7 s sur un fa1 a 28
+    # environnements, pour une table dont l'ajustement durait 3 s.
+    vals = np.asarray(jax.jit(comp_fn)(jnp.asarray(theta)))
+    J = np.asarray(jax.jit(jax.jacfwd(comp_fn))(jnp.asarray(theta))).reshape(len(vals), p)
+    noms = component_names(terms, res, lag=lag)
     fixe = np.zeros(p, dtype=bool)
     if fixed_idx:
         fixe[np.asarray(fixed_idx, dtype=int)] = True
@@ -221,6 +250,12 @@ def varcomp_table(theta, H, terms, res, floor=-12.0, ceil=12.0, fixed_idx=None, 
         try:
             w, U = np.linalg.eigh(0.5 * (Hf + Hf.T))
             garde = w > 1e-8 * max(abs(w).max(), 1.0)
+            # Directions plates connues (entrees aliasees) : exclues meme si le
+            # bruit des differences finies les met juste au-dessus du seuil, ce
+            # qui rendrait 1/w enorme et contaminerait les autres erreurs-types.
+            n_plat = int(sum(len(g["entrees"]) - 1 for g in (alias or [])))
+            if n_plat:
+                garde[np.argsort(np.abs(w))[:min(n_plat, len(w))]] = False
             if garde.any():
                 Vth = np.zeros((p, p))
                 Up = U[:, garde]
@@ -242,18 +277,37 @@ def varcomp_table(theta, H, terms, res, floor=-12.0, ceil=12.0, fixed_idx=None, 
             code = "B"
         else:
             m = re.search(r"\[(\d+),(\d+)\]$", noms[k])
-            code = "U" if ("!" in noms[k] or (m and m.group(1) != m.group(2))) else "P"
+            # Une entree de Psi n'est pas une variance : non contrainte (U).
+            code = "U" if ("!" in noms[k] or noms[k].startswith("Psi[")
+                           or (m and m.group(1) != m.group(2))) else "P"
         se = float("nan")
         if Vth is not None and code not in ("F", "B"):
             se = float(np.sqrt(max(J[k] @ Vth @ J[k], 0.0)))
         out.append(dict(i=k + 1, nom=noms[k], valeur=float(vals[k]), se=se, contrainte=code))
+    # --- entrees aliasees : code N, puis la somme identifiee de chaque groupe ---
+    pos = {d["nom"]: k for k, d in enumerate(out)}
+    for g in (alias or []):
+        idx = [pos.get("%s[%d,%d]" % (g["terme"], i + 1, j + 1)) for i, j in g["entrees"]]
+        if any(k is None for k in idx):
+            continue
+        for k in idx:
+            out[k]["contrainte"] = "N"
+            out[k]["se"] = float("nan")
+        Js = np.sum(J[idx], axis=0)
+        dep = np.abs(Js) > 1e-12 * max(1.0, np.abs(Js).max())
+        code = ("F" if dep.any() and np.all(fixe[dep]) else
+                "B" if np.any(borne[dep]) else "U")
+        se = (float(np.sqrt(max(Js @ Vth @ Js, 0.0)))
+              if Vth is not None and code == "U" else float("nan"))
+        out.append(dict(i=len(out) + 1, nom="+".join(noms[k] for k in idx),
+                        valeur=float(np.sum(vals[idx])), se=se, contrainte=code))
     return out
 
 
 VPREDICT_FONCTIONS = ("sqrt", "log", "exp", "abs")
 
 
-def check_vpredict(expressions, terms, res):
+def check_vpredict(expressions, terms, res, lag=None):
     """Verifie les expressions vpredict AVANT l'ajustement.
 
     Sans ce controle, une expression citant une composante absente (V3 dans un
@@ -262,7 +316,7 @@ def check_vpredict(expressions, terms, res):
     Leve ValueError avec la liste V1 = nom, V2 = nom, ...
     """
     import ast
-    noms = component_names(terms, res)
+    noms = component_names(terms, res, lag=lag)
     permis = {"V%d" % (i + 1) for i in range(len(noms))} | set(VPREDICT_FONCTIONS)
     liste = ", ".join("V%d = %s" % (i + 1, n) for i, n in enumerate(noms))
     for nom, expr in expressions:
@@ -279,7 +333,7 @@ def check_vpredict(expressions, terms, res):
                                 ", ".join(VPREDICT_FONCTIONS)))
 
 
-def vpredict(theta, H, terms, res, expressions, free=None):
+def vpredict(theta, H, terms, res, expressions, free=None, lag=None, alias=None):
     """Fonctions des composantes et leurs erreurs-types.
 
     expressions : liste de (nom, chaine) ou la chaine utilise V1, V2, ... et les
@@ -289,9 +343,9 @@ def vpredict(theta, H, terms, res, expressions, free=None):
     2 H^-1, et var(g) = J' (2 H^-1) J avec J = dg/dtheta.
     """
     theta = np.asarray(theta, dtype=float)
-    comp_fn = lambda th: components_from_theta(th, terms, res)  # noqa: E731
+    comp_fn = lambda th: components_from_theta(th, terms, res, lag=lag)  # noqa: E731
     comps = np.asarray(comp_fn(jnp.asarray(theta)))
-    noms = component_names(terms, res)
+    noms = component_names(terms, res, lag=lag)
 
     if free is None:
         free = np.ones(len(theta), dtype=bool)
@@ -302,8 +356,17 @@ def vpredict(theta, H, terms, res, expressions, free=None):
         try:
             w, U = np.linalg.eigh(Hf)
             tol = 1e-8 * max(abs(w).max(), 1.0)
-            if np.all(w > tol):
-                Vth_f = 2.0 * (U @ np.diag(1.0 / w) @ U.T)
+            # Directions plates connues (entrees aliasees, varcomp_table) : on
+            # inverse sur les autres. Une expression qui depend d'une entree
+            # aliasee seule recoit alors une erreur-type sans objet ; une
+            # expression de composantes identifiees garde la sienne.
+            garde = np.ones(len(w), dtype=bool)
+            n_plat = int(sum(len(g["entrees"]) - 1 for g in (alias or [])))
+            if n_plat:
+                garde[np.argsort(np.abs(w))[:min(n_plat, len(w))]] = False
+            if np.all(w[garde] > tol):
+                Ug, wg = U[:, garde], w[garde]
+                Vth_f = 2.0 * (Ug @ np.diag(1.0 / wg) @ Ug.T)
                 Vth = np.zeros((len(theta), len(theta)))
                 Vth[np.ix_(free, free)] = Vth_f
         except np.linalg.LinAlgError:

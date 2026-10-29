@@ -88,8 +88,8 @@ exposition moyenne sum_g W[i,g] = 7.9298
 
 Mean exposure is 7.93: the neighbourhood component enters the phenotype as
 `sigma2_IGE * k` with `k` of that order, not as `sigma2_IGE`. That is why
-`initial_theta` divides the starting variance by the mean of `(Z K Z')_ii` —
-without it `V` starts orders of magnitude too large and the optimiser spends
+`initial_theta` divides the starting variance by the mean of `(Z K Z')_ii`.
+Without it `V` starts orders of magnitude too large and the optimiser spends
 its budget getting back.
 
 ```r
@@ -136,15 +136,15 @@ Modele REML 'modele' : 240 observations, 1 effets fixes
 
 The whole idea is in the first line: **one** term with `t = 2` columns sharing
 the same 60 levels, and a free `2 x 2` covariance between those columns. The
-two columns have different incidences — `Zd` and `W` — which no formula can
-say.
+two columns have different incidences, `Zd` and `W`. No formula can
+say that.
 
 `levels =` supplies the level names; they are what `K` would be matched
 against if a relationship matrix were given, and what appears in the BLUP row
 names.
 
 For the field, `dims = c(nr, nc)` tells `level = "ar1ar1"` the shape of the
-grid, and `idx = (row-1)*nc + col` must follow the same convention — row
+grid, and `idx = (row-1)*nc + col` must follow the same convention: row
 slowest, column fastest.
 
 ```r
@@ -276,7 +276,7 @@ correlation des vraies valeurs : -0.6984
 Column 1 is the direct effect of each genotype, column 2 its effect on
 neighbours. The correlation of the BLUPs (-0.668) is closer to the realised
 correlation of the simulated effects (-0.698) than the estimated covariance
-parameter was (-0.513) — BLUPs are shrunk towards the fitted covariance but
+parameter was (-0.513). BLUPs are shrunk towards the fitted covariance but
 also carry the data's own information.
 
 ---
@@ -317,7 +317,7 @@ fv$vpredict$predictions
 Now the estimates can be read. The direct-indirect correlation is
 `-0.51 +/- 0.15`: comfortably negative, and its distance from the simulated
 -0.76 is about 1.7 standard errors. The total heritable variance is
-`0.76 +/- 0.25`, well below the direct variance alone (1.01) — the negative
+`0.76 +/- 0.25`, well below the direct variance alone (1.01). The negative
 covariance removes a quarter of the selectable variance, which is the whole
 point of fitting the model.
 
@@ -360,7 +360,7 @@ matters.
 |---|---|
 | a term whose incidence you computed | `rx_term(name, Zmatrix, t = 1)` |
 | `t` columns with **different** incidences | `rx_term(name, list(Z1, ..., Zt), struct = "us")` |
-| a stacked `n x (t*q)` incidence | `rx_term(name, Z, t = t)` — order `(a-1)*q + level` |
+| a stacked `n x (t*q)` incidence | `rx_term(name, Z, t = t)`, order `(a-1)*q + level` |
 | a relationship matrix | `K =`, with `dimnames` matching `levels =` |
 | a separable field as a term | `level = "ar1ar1", dims = c(nr, nc)` |
 | a metric structure | `level = "iexp"`, `coord = <q x 2 matrix>` |
@@ -382,7 +382,7 @@ on.
 
 ## Next
 
-- [api-r.md](r-interface.html) — every argument of `rx_term`, `rx_residual`,
+- [api-r.md](r-interface.html): every argument of `rx_term`, `rx_residual`,
   `rx_model`, `rx_fit`.
-- [api-python.md](engine.html) — the same model as Python dictionaries.
-- [structures.md](structures.html) — the catalogue.
+- [api-python.md](engine.html): the same model as Python dictionaries.
+- [structures.md](structures.html): the catalogue.

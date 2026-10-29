@@ -23,7 +23,7 @@ underneath.
 Multi-trait data go in **long format**: one row per unit x trait, one response
 column, one trait column. That is preferred over a `cbind()` of responses
 because it handles traits measured on different subsets of units with nothing
-special — which is the rule as soon as phenotyping is incomplete.
+special. That case is the rule as soon as phenotyping is incomplete.
 
 Two columns matter beyond the response:
 
@@ -55,9 +55,9 @@ K : 80 x 80, diagonale moyenne 0.9937
 
 `K` must carry `dimnames` matching the levels of the grouping factor. remlax
 reorders it onto those levels, and a missing level is an error, not a silent
-drop. If `K` is not positive definite — which a GRM frequently is not, with
-identical genotypes or more markers than individuals — a bent Cholesky is
-used and the amount added is reported.
+drop. If `K` is not positive definite, a bent Cholesky is used and the amount
+added is reported. A GRM frequently is not positive definite, with
+identical genotypes or more markers than individuals.
 
 The small ridge added above is the usual precaution; without it the Cholesky
 would trigger the bending message.
@@ -105,9 +105,9 @@ Ajustement REML (cpu) : logLik -291.247351 | 6 parametres | 160 obs | 2.0 s
   residuelle : 0.563 1.967
 ```
 
-`us(gid, K = K)` is a single term with `t = 2` columns — one incidence per
-trait, built automatically from the trait factor — a free `2 x 2` covariance
-between them, and `K` between the 80 levels. `~ us(trait):units` gives the
+`us(gid, K = K)` is a single term with `t = 2` columns, a free `2 x 2` covariance
+between them, and `K` between the 80 levels. The term has one incidence per
+trait, built automatically from the trait factor. `~ us(trait):units` gives the
 residual a free `2 x 2` covariance between traits of the same unit.
 
 ```r
@@ -304,11 +304,11 @@ rang(Sigma rr) = 2 (valeurs propres : 3.49e+00 6.72e-01 1.07e-16 -1.63e-16)
 
 `rr(2)` delivers what it promises: a genetic covariance of rank 2, with two
 numerically zero eigenvalues. The slightly negative one is rounding at `1e-16`
-and is not a positive-definiteness failure — `Sigma` is built as `Gam Gam'`
+and is not a positive-definiteness failure. `Sigma` is built as `Gam Gam'`
 and cannot have a genuinely negative eigenvalue.
 
 To compare a reduced-rank genetic structure against `us` honestly, make the
-residual something the diagonal cannot hide in — an `iid` residual, or a
+residual something the diagonal cannot hide in: an `iid` residual, or a
 residual whose structure is fixed by design.
 
 ### The rr parameter count
@@ -345,7 +345,7 @@ same model.
 
 ## Next
 
-- [3. Spatial models](spatial.html) — separable AR1, metric kernels, 2D
+- [3. Spatial models](spatial.html): separable AR1, metric kernels, 2D
   splines.
-- [4. Explicit terms](explicit-terms.html) — weighted incidences and shared
+- [4. Explicit terms](explicit-terms.html): weighted incidences and shared
   covariances.

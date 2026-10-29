@@ -1,0 +1,6 @@
+% Function index
+\chapter{Function index}\label{ch:functions}
+
+\section{Exported functions}
+\pending{one line per function, with a pointer to its help page}
+

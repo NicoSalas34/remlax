@@ -77,7 +77,7 @@ components. Total genetic values: \code{sqrt(d)} on the direct column and
 \code{tau2 = Var(TBV) / V_P} of the RECEIVING target.
 }
 \examples{
-\dontshow{if (rx_python_check(quiet = TRUE)$ok) withAutoprint(\{ # examplesIf}
+\dontshow{if (rx_python_check(quiet = TRUE)$ok) (if (getRversion() >= "3.4") withAutoprint else force)(\{ # examplesIf}
 \donttest{
 set.seed(1)
 d <- data.frame(gid = factor(rep(1:30, each = 4)), x = rnorm(120))

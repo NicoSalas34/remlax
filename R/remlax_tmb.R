@@ -131,10 +131,13 @@ rx_n_theta <- function(model) {
       n_lv(rx_level_of(tm), tm$order, tm$opts, tm$parts)
   .t_de <- function(r) if (is.null(r$trait)) 1L else nlevels(factor(r$trait))
   res <- model$residual
-  for (s in (res$sections %||% list(res)))
+  for (s in (res$sections %||% list(res))) {
+    if (identical(s$struct, "none")) next
     np <- np + as.integer(rx_n_params(s$struct %||% "iid", .t_de(s), s$rank %||% 0L)) +
       n_lv(s$level %||% "id", s$order, s$opts, NULL)
-  np
+  }
+  # Entrees libres de Psi (rx_lag), en queue de theta comme dans le moteur.
+  np + (if (is.null(model$lag)) 0L else as.integer(model$lag$n_free))
 }
 
 RX_SPARSE_SIGMA <- c("iid", "diag", "us")
@@ -380,6 +383,15 @@ rx_quad_ar1ar1 <- function(u, phi_r, phi_c, nr, nc) {
 #   sous-estime son avantage.
 rx_fit_sparse <- function(model, theta_init = NULL, maxiter = 3000L, verbose = TRUE,
                           sdreport = TRUE) {
+  # MOTEUR DENSE SEULEMENT pour le modele structurel : y* = (I - M) y depend
+  # d'un parametre, et le jacobien log|det(I - M)| n'a pas de forme creuse
+  # dans ce moteur. Le dire plutot que d'ajuster y comme si M etait nulle.
+  if (!is.null(model$lag))
+    stop("rx_fit_sparse : decalage spatial (rx_lag) : moteur dense seulement, utiliser rx_fit().",
+         call. = FALSE)
+  if (identical(model$residual$struct, "none"))
+    stop("rx_fit_sparse : residuelle \"none\" : moteur dense seulement, utiliser rx_fit().",
+         call. = FALSE)
   stopifnot(rx_tmb_available())
   terms <- model$terms; residual <- model$residual
   y <- model$y; X <- as.matrix(model$X)

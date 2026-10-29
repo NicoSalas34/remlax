@@ -29,8 +29,8 @@ fit <- rx_reml(fixed    = y ~ 1 + traitement,
                backend  = "auto")
 ```
 
-and, for everything a formula cannot say — weighted incidences, heterogeneous
-columns — the explicit path, the same machinery without the sugar:
+and, for everything a formula cannot say (weighted incidences, heterogeneous
+columns), the explicit path, the same machinery without the sugar:
 
 ```r
 mod <- rx_model(y, X,
@@ -72,13 +72,13 @@ with a relationship matrix. `rank =` only means something for `fa`, `rr`,
 `rx_reml()`: the data are then in **long format**, one row per unit x trait,
 and each column's incidence is built automatically. Long format is chosen over
 a `cbind()` of responses because it handles traits measured on different
-subsets of units with nothing special — which is the rule as soon as
+subsets of units with nothing special. That case is the rule as soon as
 phenotyping is incomplete.
 
 ### Correlation between levels
 
 The variance stays in `Sigma`. `struct =` remains available to make it
-heterogeneous across traits — the equivalent of asreml's `v`/`h` suffixes.
+heterogeneous across traits. This is the equivalent of asreml's `v`/`h` suffixes.
 
 | written | correlation | parameters | notes |
 |---|---|---|---|
@@ -205,8 +205,8 @@ Three counts or conventions differ from the manual, deliberately.
 random = ~ str(~ gid + mm(W, name = "ige"), struct = "us", name = "dge_ige")
 ```
 
-The grouped terms must share **exactly** the same levels — that shared
-indexing is what gives a covariance between them any meaning — and each keeps
+The grouped terms must share **exactly** the same levels. Without that shared
+indexing, a covariance between them has no meaning. Each term keeps
 **its own** incidence, `mm()` included. This is what lets a direct effect and a
 neighbourhood effect carried by the same genotypes be correlated.
 
@@ -218,8 +218,8 @@ key is built from the names of the incidences.
 ## 2. Formula grammar: the residual
 
 Same grammar as the random terms. The formula reads as a product of factors
-separated by `:`. **At most one factor bears on the traits** — the one whose
-argument is the column passed as `trait =` — and the others bear on the units.
+separated by `:`. **At most one factor bears on the traits**: the one whose
+argument is the column passed as `trait =`. The others bear on the units.
 
 | written | R |
 |---|---|
@@ -254,7 +254,7 @@ res ~ diag(trait):ar1(row):ar1(col)            5
 Underneath there is a single formula:
 `R[i,j] = Sigma_trait[t_i, t_j] * C_unit[u_i, u_j]`. The residual is a term
 like any other whose incidence is the identity, so nothing had to be added to
-the solver — only exposed.
+the solver. It only had to be exposed.
 
 The `Sigma` side of a residual accepts `iid`, `diag`, `us` and `fa` only.
 
@@ -281,7 +281,7 @@ twice.
 uniqueness constraint of a structured residual field bears on the
 **(cell, trait) pair**, not on the cell: with `t` traits each cell of the field
 appears `t` times by construction, and `R = Sigma_trait (x) C_cell` is perfectly
-regular there — the correlation within a cell is what `Sigma_trait` carries.
+regular there: `Sigma_trait` carries the correlation within a cell.
 
 ```r
 rx_reml(y ~ trait, random = ~ gid,
@@ -300,7 +300,7 @@ Ajustement REML (cpu) : logLik -78.941857 | 6 parametres | 60 obs | 0.4 s
           residuelle!ar1ar11, residuelle!ar1ar12
 ```
 
-What the guard still refuses is a genuine repetition — the same trait twice in
+The guard still refuses a genuine repetition, with the same trait twice in
 the same cell:
 
 ```
@@ -373,7 +373,10 @@ rx_fit(model, backend = c("auto", "gpu", "cpu"), dir = NULL,
        vpredict = NULL, wald = FALSE,
        kenward_roger = FALSE, predict = NULL, theta_init = NULL,
        fixed_theta = NULL, floor = -12, ceil = 12,
-       verbose = TRUE, keep = FALSE)
+       verbose = TRUE, keep = FALSE,
+       optimizer = getOption("remlax.optimizer", "lbfgsb"),
+       engine = getOption("remlax.engine", "dense"),
+       inversion = c("auto", "dense", "sparse"))
 ```
 
 | argument | meaning |
@@ -394,11 +397,14 @@ rx_fit(model, backend = c("auto", "gpu", "cpu"), dir = NULL,
 | `floor`, `ceil` | bounds on every `theta`, default `-12` and `12`. `theta` is a **log standard deviation** (`var = exp(2 theta)`), so the default floor is `var = 3.8e-11`. The values actually used come back as `fit$par_floor` and `fit$par_ceil`; read them there rather than recoding them |
 | `verbose` | passes the solver's output through |
 | `keep` | keep `dir` after the fit |
+| `optimizer` | `"lbfgsb"` (default), `"ai"` (average information REML on the variance scale) or `"ai_theta"`; default settable by `options(remlax.optimizer = )` or `RX_OPTIMIZER` |
+| `engine` | `"dense"` (default, marginal `V`) or `"mme"` (mixed model equations `C`); default settable by `options(remlax.engine = )` or `RX_ENGINE` |
+| `inversion` | with `engine = "mme"`: `"auto"`, `"dense"` or `"sparse"` (selected inversion of the sparse factor of `C`) |
 
 ### `vpredict`
 
-The `Vi` are numbered in the order of `fit$composantes_noms` — a fixed,
-documented order, because a silent renumbering would make every expression
+The `Vi` are numbered in the order of `fit$composantes_noms`. That order is fixed and
+documented, because a silent renumbering would make every expression
 wrong on the next run. Expressions use `V1, V2, ...` and the usual operators,
 plus `sqrt`, `log`, `exp`, `abs`.
 
@@ -437,7 +443,7 @@ by row, then the between-level parameters:
 
 Standard errors come from the delta method on the Hessian of `-2 logL`:
 `var(g) = J' (2 H^-1) J`. They are `NA` when the Hessian is not invertible
-over the free subspace — never an invented number.
+over the free subspace. An invented number never replaces them.
 
 ### `wald`
 
@@ -487,7 +493,7 @@ fixe   logLik -141.765166  theta = -0.197944 -0.216115
 A fixed parameter is bounded to its starting value; the algebra is unchanged.
 It is excluded from the covariance used by `vpredict`.
 
-It is **outside the free subspace without being at a bound** — it is pinned to
+It is **outside the free subspace without being at a bound**: it is pinned to
 its starting value, which has nothing to do with `floor`/`ceil`. Three
 counters keep the three notions apart:
 
@@ -497,9 +503,9 @@ counters keep the three notions apart:
 | `n_fixed_out` | parameters held by `fixed_theta` (`n_fixed` is the same count) |
 | `n_par_free` | dimension of the actual free subspace |
 
-Read the two diagnostics in the fixed row above together. `max|grad|` is 2.879
-— the gradient along the pinned direction, large and irrelevant — while the
-Newton decrement is `4.6e-28`, correctly reporting the single free parameter as
+Read the two diagnostics in the fixed row above together. `max|grad|` is 2.879.
+It is the gradient along the pinned direction, which is large and irrelevant.
+Yet the Newton decrement is `4.6e-28`, correctly reporting the single free parameter as
 converged. The diagnostic is computed on the free subspace only; a pinned
 coordinate left inside it would contribute the slope available along a
 direction the step cannot take, and the fit would announce an optimum not
@@ -511,6 +517,32 @@ reached where it was.
 
 `restart_better` counts the restarts that found a strictly better optimum, and
 `restart_gain` is the improvement in `-2 logL`.
+
+### `engine`, `inversion` and `optimizer`
+
+The dense engine forms `V`, an `n x n` matrix, and its cost grows with `n`.
+The mixed model equations engine forms `C`, an `m x m` matrix, where `m`
+counts the fixed effects and the random levels. It pays off when `m` is small
+against `n`, or when `C` is sparse, as with a pedigree or a separable field.
+Both engines maximise the same likelihood, with the same `theta`, and return
+the same fields. `fit$moteur` reports the engine actually used: a model outside
+the scope of `"mme"` (residual `"none"`, `rr`, a spatial lag, Gaussian metric
+kernels) is fitted by the dense engine, with a message. With `"mme"`,
+`fit$inversion` reports how `C` was inverted. Prediction error variances come
+from the diagonal of `C^-1`. A separable `ar1` residual on a grid, with missing
+cells or not, keeps `C` sparse: each empty cell receives an indicator fixed
+effect, which leaves the restricted likelihood unchanged.
+
+`rx_fit_mme(model, ...)` is a shortcut for `rx_fit(model, engine = "mme",
+optimizer = "ai", ...)`.
+
+`optimizer = "ai"` takes average information steps on the variance scale, as
+asreml does. It usually needs far fewer evaluations than L-BFGS-B. An
+optimum on a face of the positive semidefinite cone, as in a rank-deficient
+`us` block, is reached by AI and declared converged when it satisfies the KKT
+conditions. When AI stalls or finds no admissible step, it hands over to
+L-BFGS-B from the point reached, and the final diagnostics are computed in the
+same way.
 
 ### `backend`
 
@@ -552,22 +584,22 @@ rx_term(name, Z, K = NULL, struct = "iid", rank = 0L,
 
 `Z` accepts:
 
-1. a **factor or character vector** of length `n` — indicator incidence,
+1. a **factor or character vector** of length `n`: indicator incidence,
    `t = 1`, levels deduced;
-2. a **list of `t` matrices** `n x q` — one per column of `Sigma`. This is the
+2. a **list of `t` matrices** `n x q`, one per column of `Sigma`. This is the
    form that covers weighted incidences;
 3. a **matrix `n x (t*q)`** already stacked, with `t` supplied.
 
 `K` is reordered onto `levels` when both have names, and a missing level is an
 error, not a silent drop. A Cholesky with **bending** is applied if `K` is not
-positive definite — a GRM frequently is not (identical genotypes, more markers
-than individuals) — with a message giving the amount added.
+positive definite, with a message giving the amount added. A GRM frequently
+is not positive definite (identical genotypes, more markers than individuals).
 
 Checks that raise: a list of incidences with differing column counts; `rank`
 out of `1..t` for `fa`/`rr` or `1..t-1` for `chol`/`ante`; a between-level
 structure combined with a supplied `K` (the structure **is** the covariance
 between levels); a metric structure without `coord`; a 2D metric structure
-with a single-column `coord` — which would be accepted silently and would give
+with a single-column `coord`, which would be accepted silently and would give
 a different model; `own` without `expr`.
 
 `struct = "iid"` with `t > 1` produces a message, not an error: it means one
@@ -601,7 +633,7 @@ rx_model(y, X, terms, residual = rx_residual(), name = "modele")
 
 Assembles and checks. Refuses: a term whose incidence has the wrong number of
 rows; a `diag`/`us`/`fa` residual without multiple traits; sections that do
-not partition the observations; an `X` that is not of full column rank —
+not partition the observations; an `X` that is not of full column rank, since
 `log|X'V^-1X|` would be `-Inf` and the restricted likelihood undefined.
 
 A model with **no random term** is legal as long as the residual is
@@ -666,9 +698,8 @@ building the right combination.
   `:` or `+`.
 - Every other variable of the fixed model is **averaged**: a factor over its
   levels (equal weights, or proportional to the observed counts with
-  `average = "proportional"`), a covariate at its **mean** — which is what
-  asreml does, and what explains a "by variety" prediction being given at
-  `Column = 5.5`.
+  `average = "proportional"`), a covariate at its **mean**. This matches asreml, and it explains a
+  "by variety" prediction being given at `Column = 5.5`.
 - `at` forces specific values, `levels` restricts the levels used, `weights`
   reweights the cells.
 - If a `classify` variable is the factor of a random term, its **BLUP enters
@@ -773,7 +804,8 @@ Ajustement REML (cpu) : logLik -388.088838 | 3 parametres | 240 obs | 1.6 s
 | `max_grad`, `newton_decrement`, `n_neg_eig`, `n_null_dir`, `cond` | diagnostics |
 | `n_at_bound`, `n_fixed`, `n_fixed_out`, `n_par_free` | bounds, fixed parameters, and the free-subspace dimension |
 | `par_floor`, `par_ceil` | the bounds the solver actually used |
-| `optim_msg` | L-BFGS-B's stopping message; read it first. `ABNORMAL` is a failed line search, not a maximum, whatever the gradient says |
+| `optim_msg` | the optimiser's stopping message; read it first. With `optimizer = "ai"` it says why the AI loop stopped, and whether L-BFGS-B took over. From L-BFGS-B, `ABNORMAL` is a failed line search, whatever the gradient says |
+| `moteur`, `inversion` | engine actually used (`"dense"` or `"mme"`) and, with `"mme"`, the inversion of `C` (`"dense"` or `"sparse"`) |
 | `composantes_degenerees` | terms with a parameter at the floor |
 | `composantes_noms` | the `Vi` numbering |
 | `vpredict`, `wald`, `kenward_roger`, `predictions` | present when requested |
@@ -784,7 +816,7 @@ under the local quadratic model, so it is directly comparable to the 3.84 of a
 one-degree-of-freedom LRT.
 
 **`logLik` is not asreml's.** The difference is `(n-p)/2 log(2 pi)`, which is
-219.6 on a design with `n = 240` — large enough to look like a disagreement
+219.6 on a design with `n = 240`. It is large enough to look like a disagreement
 between models. Use `logLik_asreml` when comparing.
 
 ---
@@ -1062,8 +1094,8 @@ because both backends then read strictly the same input.
 ## 14. A trap worth knowing
 
 `$` performs **partial matching** on R lists. When a `sigmas_res` field was
-added to the result, the expression `r$sigmas` — not yet created at that point
-of `rx_read_result()` — started matching `sigmas_res`. The terms' `Sigma`
+added to the result, the expression `r$sigmas` started matching `sigmas_res`. At that
+point of `rx_read_result()`, the `sigmas` field was not yet created. The terms' `Sigma`
 matrices were appended to the residual list, and `fit$sigmas[[1]]` returned the
 **residual** instead of the first term. Seven failures across three test
 suites, all shifted by one, and the log-likelihood stayed correct throughout,

@@ -1,0 +1,21 @@
+% A guided tour
+\chapter{A guided tour}\label{ch:tour}
+
+\section{The data}
+\pending{a simulated trial with genotypes, blocks and a genomic relationship matrix}
+
+\section{Fitting the model}
+\pending{rx_reml() call and what it prints}
+
+\section{Reading the variance components}
+\pending{summary(), the varcomp table, boundaries}
+
+\section{Heritability and other ratios}
+\pending{vpredict-like functions and their standard errors}
+
+\section{BLUPs and predictions}
+\pending{random effects, prediction error variances, rx_predict()}
+
+\section{Checking the fit}
+\pending{convergence diagnostics and residual plots}
+

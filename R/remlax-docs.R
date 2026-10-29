@@ -1,5 +1,5 @@
 # ==============================================================================
-# remlax-docs.R — documentation Rd du paquet, SEPAREE du code.
+# remlax-docs.R : documentation Rd du paquet, SEPAREE du code.
 # ------------------------------------------------------------------------------
 # Les pages d'aide vivent ici, separees du code, sous forme de blocs roxygen sans objet
 # (`NULL`), rattaches par @name. Le NAMESPACE est ecrit a la main : aucun
@@ -24,15 +24,27 @@
 #' The R side never imports Python. [rx_export()] writes the design to a
 #' directory (raw binary plus `manifest.json`), [rx_fit()] runs the solver as a
 #' subprocess, and [rx_read_result()] reads the result back. The solver is a
-#' JAX program shipped with the package under `inst/python/`, so that the
-#' interface and the engine always come from the same version.
+#' Python program shipped with the package under `inst/python/`, so that the
+#' interface and the solver always come from the same version.
 #'
-#' @section Two engines:
-#' [rx_fit()] is the dense engine: `V` is formed explicitly (`n x n`) and
-#' differentiated, on CPU or GPU. [rx_fit_sparse()] is the sparse engine built
-#' on the mixed model equations and RTMB, for the structures whose precision is
-#' sparse and known in closed form ([rx_sparse_scope()] says which). Both take
-#' the same [rx_model] object and maximise the same likelihood.
+#' @section Three engines:
+#' `rx_fit(engine = "dense")`, the default, forms the marginal covariance `V`
+#' (`n x n`) and differentiates the likelihood with JAX, on CPU or GPU; it
+#' covers every structure of the package. `rx_fit(engine = "mme")`, also
+#' reached by [rx_fit_mme()], works on Henderson's mixed model equations, with
+#' a dense or a sparse (selected) inversion of `C`; its cost follows the number
+#' of levels rather than `n`, and a model outside its scope falls back to the
+#' dense engine. [rx_fit_sparse()] is a separate engine built on RTMB, for the
+#' structures whose precision is sparse and known in closed form
+#' ([rx_sparse_scope()] says which). All three take the same [rx_model] object
+#' and maximise the same likelihood.
+#'
+#' @section Two optimisers:
+#' `optimizer = "lbfgsb"` (default) runs L-BFGS-B on the unconstrained
+#' parameters `theta`, then regularised Newton polishing. `optimizer = "ai"`
+#' runs average information REML with steps taken on the variance scale, as in
+#' ASReml; it hands over to L-BFGS-B when it cannot certify its optimum. Both
+#' report the same convergence diagnostics.
 #'
 #' @section Finding Python:
 #' [rx_python_cmd()] returns the interpreter: `RX_PY`, then `IGE_JAX_CMD`, then
@@ -97,7 +109,8 @@ NULL
 #'   `x * y` but not the constant, so `bloc` belongs in the fixed (or random)
 #'   formula; a message says so when it is missing. The complete grammar is described in
 #'   `vignette("r-interface", package = "remlax")`.
-#' @param residual `"units"`, `"diag"`, `"us"`, or a one-sided formula such as
+#' @param residual `"units"`, `"diag"`, `"us"`, `"none"` (no residual, see
+#'   [rx_residual()]), or a one-sided formula such as
 #'   `~ ar1(row):ar1(col)` or `~ dsum(~ units | section)`.
 #' @param data a data frame.
 #' @param trait name of the trait column for long-format multi-trait data, or a
@@ -107,9 +120,13 @@ NULL
 #' @param backend `"auto"` takes the GPU if JAX sees one, `"gpu"` refuses
 #'   rather than falling back, `"cpu"` forces the CPU. A machine choice, never a
 #'   model choice: CPU and GPU agree to machine precision.
-#' @param ... passed to [rx_fit()]: `vpredict`, `wald`, `kenward_roger`,
-#'   `predict`, `fixed_theta`, `theta_init`, `n_restarts`, `polish`, `maxiter`,
-#'   `hessian`, `blups`, `pev`, `verbose`, `keep`, `dir`.
+#' @param lag an [rx_lag] object: a spatial lag of the response, `y = M y +
+#'   ...` (the structural model). Its rows are those of `data`; a lag together
+#'   with incomplete rows is refused rather than silently realigned.
+#' @param ... passed to [rx_fit()]: `engine`, `inversion`, `optimizer`, `bayes`,
+#'   `vpredict`, `wald`, `kenward_roger`, `predict`, `fixed_theta`,
+#'   `theta_init`, `n_restarts`, `polish`, `maxiter`, `hessian`, `blups`,
+#'   `pev`, `verbose`, `keep`, `dir`.
 #' @return An object of class `rx_fit` (see [rx_fit()]) carrying in addition
 #'   `model`, `fixed`, `data`, `xlevels` and `call`, which [rx_predict()] needs.
 #' @details Incomplete rows are dropped with a message. `attr(X, "assign")` is
@@ -133,22 +150,28 @@ NULL
 #' @usage
 #' rx_reml(fixed, random = NULL, residual = "units", data,
 #'         trait = NULL, unit = NULL,
-#'         backend = c("auto", "gpu", "cpu"), ...)
+#'         backend = c("auto", "gpu", "cpu"), lag = NULL, ...)
 #' @name rx_reml
 NULL
 
-#' Fit an rx_model with the dense engine
+#' Fit an rx_model by REML
 #'
-#' Serialises the model with [rx_export()], runs the JAX solver as a
-#' subprocess, and reads the result with [rx_read_result()]. Optimisation is
-#' L-BFGS-B on an unconstrained parametrisation (a Cholesky factor of every
-#' `Sigma`), followed by regularised Newton polishing.
+#' Serialises the model with [rx_export()], runs the Python solver as a
+#' subprocess, and reads the result with [rx_read_result()]. Two engines
+#' compute the restricted likelihood: the dense engine forms the marginal
+#' covariance `V` (`n x n`); the mixed model equations engine works on
+#' `C = W'R^-1W + diag(0, G^-1)` (`m x m`, `m` fixed effects plus random
+#' levels). Two optimisers maximise it: L-BFGS-B on an unconstrained
+#' parametrisation (a Cholesky factor of every `Sigma`), or average information
+#' REML on the variance scale. Both end with the same regularised Newton
+#' polishing and the same diagnostics.
 #'
 #' @param model an [rx_model] object.
 #' @param backend `"auto"`, `"gpu"` or `"cpu"`; see [rx_reml()].
 #' @param dir directory receiving the serialised design and the result. A
 #'   temporary directory by default, removed unless `keep = TRUE`.
-#' @param maxiter cap on L-BFGS-B iterations (default 3000).
+#' @param maxiter cap on optimiser iterations (default 3000), L-BFGS-B or
+#'   average information.
 #' @param polish cap on Newton polishing steps (default 25). Each step costs two
 #'   gradients per parameter. Polishing stops early once the Newton decrement is
 #'   negligible. Each step prints one line when `verbose = TRUE`.
@@ -174,7 +197,7 @@ NULL
 #'   solver. Users normally call [rx_predict()] instead.
 #' @param theta_init starting value of `theta`, in the solver's order (see
 #'   [rx_n_theta()]). With `maxiter = 0` and `polish = 0` the objective is only
-#'   evaluated at that point.
+#'   evaluated at that point. `NA` entries take the automatic start.
 #' @param fixed_theta 1-based indices of parameters held at their starting
 #'   value. Indices, not combinations: a correlation of a `us` block depends on
 #'   two `theta` and cannot be fixed this way.
@@ -182,11 +205,62 @@ NULL
 #'   is a log standard deviation, `var = exp(2 theta)`, so the default floor is
 #'   `var = 3.8e-11`. The values actually used come back as `par_floor` and
 #'   `par_ceil` in the result; read them there rather than recoding them.
-#' @param verbose pass the solver's output through: one line per L-BFGS-B
+#' @param verbose pass the solver's output through: one line per optimiser
 #'   iteration and one per Newton polishing step.
 #' @param keep keep `dir` after the fit.
+#' @param optimizer `"lbfgsb"` (default), `"ai"`, `"ai_theta"` or `"auto"`
+#'   (`"ai"` with the mixed model equations engine, `"lbfgsb"` otherwise). `"ai"` is
+#'   AI-REML with steps taken on the variance scale (the entries of each
+#'   `Sigma`), as in ASReml. A `us` block whose optimum is rank deficient is
+#'   handled by an active set on the positive semidefinite cone. When halving
+#'   the step six times does not decrease `-2 logL`, the step is damped in the
+#'   manner of Levenberg and Marquardt (`AI + mu I`, `mu` increasing), which
+#'   turns it towards the gradient. An AI run that cannot certify its optimum
+#'   hands over to L-BFGS-B. `"ai_theta"` takes the AI steps on the Cholesky
+#'   scale of `theta` (earlier variant). The default can be set with
+#'   `options(remlax.optimizer = )` or the environment variable
+#'   `RX_OPTIMIZER`.
+#' @param engine `"dense"` (default), `"mme"`, `"blocks"` or `"auto"`. `"auto"`
+#'   takes the mixed model equations engine when the model is in its scope, else
+#'   the dense engine (in low memory mode above n = 5000); with
+#'   `optimizer = "auto"` it is the fastest combination on the benchmarks against
+#'   kmmr and ASReml-R. `"dense"`, `"mme"` and `"blocks"` select the marginal
+#'   covariance `V`, the mixed model equations `C`, or `V` processed block by
+#'   block. `"blocks"` finds by itself the terms that link otherwise
+#'   independent groups of observations (for instance genetic terms across
+#'   tanks), writes `V = A + U U'` with `A` block diagonal, and processes the
+#'   blocks in batches; same likelihood, L-BFGS-B only. Without such a
+#'   structure it falls back to the dense engine with `memory = "low"`. Use `"mme"` when the number of levels
+#'   `m` is small against `n`, or when `C` is sparse (pedigree, separable
+#'   fields). A model outside the scope of `"mme"` (residual `"none"`, `rr`,
+#'   a spatial lag, Gaussian metric kernels) is fitted by the dense engine with
+#'   a message. The default can be set with `options(remlax.engine = )` or the
+#'   environment variable `RX_ENGINE`.
+#' @param inversion with `engine = "mme"`: `"auto"` (default), `"dense"`,
+#'   `"sparse"` or `"hybrid"`; see [rx_fit_mme()]. Ignored by the dense engine.
+#' @param finish `"newton"` (default: L-BFGS-B to its tolerance, then Newton
+#'   polishing) or `"trust"`: L-BFGS-B stops when its gain over the last 100
+#'   iterations falls below 0.05 in -2 log L, then a trust-region Newton method
+#'   (exact subproblem, SR1 updates, variances near the floor set to it)
+#'   finishes. Same optimum, much shorter tails on models with flat directions.
+#' @param memory with the dense engine: `"standard"` (default) or `"low"`.
+#'   `"low"` computes the same likelihood, gradient and AI matrix with fewer
+#'   `n x n` matrices alive on the device: no full-height incidence matrices,
+#'   a residual without structure between units scattered entry by entry,
+#'   factors recomputed in the backward pass. Use it when the dense engine runs
+#'   out of GPU memory. Not available with a spatial lag (falls back to
+#'   `"standard"` with a message). Ignored by the `"mme"` engine.
+#' @param bayes `NULL` (default, REML only) or an [rx_bayes()] object: after
+#'   the REML fit, sample the posterior of the variance parameters by
+#'   Hamiltonian Monte Carlo (ChEES adaptation, many short chains).
+#'   The draws, their summary and the sampler diagnostics come back in
+#'   `fit$bayes`.
 #' @return An object of class `rx_fit`, a list with `theta`, `logLik`,
-#'   `logLik_asreml`, `n_par`, `n_obs`, `secondes`, `backend`, `sigmas` (named
+#'   `logLik_asreml`, `n_par`, `n_obs`, `secondes`, `chrono` (seconds spent in
+#'   each stage, from the export by R to the reading back of the result),
+#'   `compile_s` and `eval_s` (compilation, median time of one evaluation),
+#'   `backend`, `moteur` (the
+#'   engine actually used), `inversion` (with the `"mme"` engine), `sigmas` (named
 #'   list of `Sigma` matrices), `sigmas_res` and `sigma_res`, `rho`
 #'   (between-level parameters on the scale actually used), `blups` (named list
 #'   of `q x t` matrices), `beta`, `vbeta`, `hessian`, `max_grad`,
@@ -196,13 +270,33 @@ NULL
 #'   subspace, `NA` elsewhere; see [rx_se_theta()]),
 #'   `composantes_degenerees`, `composantes_noms`, `optim_msg` (read it first:
 #'   `ABNORMAL` is a failed line search, not a maximum), and, when requested, `vpredict`, `wald`, `kenward_roger`,
-#'   `pev`, `predictions`. Read fields with `[[` rather than `$`: `$` does
+#'   `pev`, `predictions`. With a spatial lag ([rx_lag()]): `lag`, a list with
+#'   `Psi` and `Psi_se` (`q x q`, receiver in rows, emitter in columns, units
+#'   of `W`; `NA` standard errors for entries that are not free), `criterion`,
+#'   `logdet_A` (`log|det(I - M)|`), `logdet_mean` (the mean-space term
+#'   `1/2 log|X_y'X_y| - 1/2 log|X'X|`, reported whatever the criterion),
+#'   `logLik_ystar` (restricted likelihood of `y*` alone), `logLik_jacobian`,
+#'   `rayon_spectral` (spectral radius of `M`), `admissible`, `chemin` (how
+#'   `log|det A|` was computed: `"nilpotent"`, `"rapide"`, `"general"`) and
+#'   `scale`; and `ystar`, the transformed response `(I - M) y` on which
+#'   `beta`, the BLUPs and the Wald tests are computed. The free entries of
+#'   `Psi` are also rows `Psi[receiver<-emitter]` of the component table, with
+#'   standard errors by the delta method, and the last elements of `theta`.
+#'   Always: `alias` (groups of entries of a `us` term with the same pattern in
+#'   `V`, identified only through their sum), `n_plat_attendu` (the number of
+#'   flat directions they create, excluded from `n_neg_eig`, `n_null_dir` and
+#'   the convergence verdict) and `n_par_identifies` (`n_par` minus those, the
+#'   count for a likelihood ratio test). For VP+ (plant term `[I, W]`, `us`
+#'   over `2q` columns, symmetric `W`) that is `q(q-1)/2` directions. Read fields with `[[` rather than `$`: `$` does
 #'   partial matching and `fit$sigmas` once matched `sigmas_res`.
 #' @details A model containing a term declared by its precision (`Kinv`) without
-#'   a factor of `K` is refused: the dense engine needs `K` and would otherwise
-#'   treat the term as independent without a message. Use [rx_fit_sparse()] for
-#'   such a term, or supply `K` to [rx_term()].
-#' @seealso [rx_reml()], [rx_fit_sparse()], [rx_read_result()]
+#'   a factor of `K` is refused by the dense engine, which needs `K` and would
+#'   otherwise treat the term as independent without a message. Fit such a term
+#'   with `engine = "mme"`, which uses `K^-1` directly, or with
+#'   [rx_fit_sparse()], or supply `K` to [rx_term()]. With a spatial lag,
+#'   `kenward_roger` and `predict` are refused: both assume `y` linear in `beta`
+#'   and `u` at given `V`, which only `y*` is.
+#' @seealso [rx_reml()], [rx_fit_mme()], [rx_fit_sparse()], [rx_read_result()], [rx_lag()]
 #' @examplesIf rx_python_check(quiet = TRUE)$ok
 #' \donttest{
 #' set.seed(1)
@@ -220,7 +314,13 @@ NULL
 #'        vpredict = NULL, wald = FALSE,
 #'        kenward_roger = FALSE, predict = NULL, theta_init = NULL,
 #'        fixed_theta = NULL, floor = -12, ceil = 12,
-#'        verbose = TRUE, keep = FALSE)
+#'        verbose = TRUE, keep = FALSE,
+#'        optimizer = getOption("remlax.optimizer",
+#'                              Sys.getenv("RX_OPTIMIZER", "lbfgsb")),
+#'        engine = getOption("remlax.engine", Sys.getenv("RX_ENGINE", "dense")),
+#'        inversion = c("auto", "dense", "sparse", "hybrid"), bayes = NULL,
+#'        memory = getOption("remlax.memory", Sys.getenv("RX_MEMORY", "standard")),
+#'        finish = getOption("remlax.finish", Sys.getenv("RX_FINISH", "newton")))
 #' @name rx_fit
 NULL
 
@@ -278,8 +378,17 @@ NULL
 #' @param terms list of [rx_term] objects.
 #' @param residual an [rx_residual] object.
 #' @param name a label used in the printed inventory.
+#' @param lag `NULL`, or an [rx_lag] object: the structural model `y = M y +
+#'   X b + Z u + e`. Its free entries of `Psi` are counted in `n_par` and come
+#'   last in `theta`.
+#' @param weights `NULL`, or prior weights `w` (one positive value per
+#'   observation): the residual becomes `R = W^-1/2 R0 W^-1/2`, `R0` the
+#'   declared residual. With an iid residual whose variance is fixed at 1
+#'   (`fixed_theta` in [rx_fit()]), `R = diag(1/w)`: known residual variances,
+#'   as in a two-stage analysis. The solver scales the rows of `y`, `X` and `Z`
+#'   by `sqrt(w)` and corrects the log-likelihood by `sum(log(w)) / 2`.
 #' @return An object of class `rx_model` with a `print` method.
-#' @seealso [rx_term()], [rx_residual()], [rx_fit()]
+#' @seealso [rx_term()], [rx_residual()], [rx_fit()], [rx_lag()]
 #' @examples
 #' set.seed(1)
 #' d <- data.frame(gid = factor(rep(1:30, each = 4)), x = rnorm(120))
@@ -288,7 +397,8 @@ NULL
 #' m
 #' rx_n_theta(m)
 #' @usage
-#' rx_model(y, X, terms, residual = rx_residual(), name = "modele")
+#' rx_model(y, X, terms, residual = rx_residual(), name = "modele", lag = NULL,
+#'          weights = NULL)
 #' @name rx_model
 NULL
 
@@ -329,7 +439,8 @@ NULL
 #'   describing a separable Kronecker product with any number of factors.
 #' @param Kinv sparse precision matrix of the levels, for the sparse engine
 #'   only. A term declared by `Kinv` without `K` cannot be fitted by [rx_fit()].
-#' @param Kinv_logdet log-determinant of `Kinv`, if already known; computed
+#' @param Kinv_logdet log-determinant of `K`, that is `-log|Kinv|`, if already
+#'   known (Henderson's rules give it as a sum of local terms); computed
 #'   otherwise.
 #' @return An object of class `rx_term`.
 #' @details `struct = "iid"` with `t > 1` is accepted with a message: it means
@@ -354,7 +465,22 @@ NULL
 
 #' Declare the residual structure
 #'
-#' @param struct `"iid"`, `"diag"`, `"us"` or `"fa"` over traits.
+#' @param struct `"iid"`, `"diag"`, `"us"` or `"fa"` over traits, or `"none"`:
+#'   no residual term at all (`R = 0`, no parameter). `V` must then be positive
+#'   definite from the random terms alone. The intended use is a plant-level
+#'   term that carries the residual itself: incidences `[I placed on trait t,
+#'   W_t placed on trait t]` (one pair per trait), structure `us` over the `2q`
+#'   columns, which holds the residual covariance, the indirect environmental
+#'   effects and their covariance (the "joint plant term"). The solver checks
+#'   `V` at the starting values and stops with an explicit message when it is
+#'   not positive definite. Not available in [rx_fit_sparse()]. With a
+#'   symmetric `W`, `Cov(res_t, IEE_u)` and `Cov(res_u, IEE_t)` enter `V` only
+#'   through their sum: the `us` plant term has `q(q-1)/2` entries that are not
+#'   identified on their own. The fit detects them, reports their sums with
+#'   standard errors and counts `q(q-1)/2` fewer parameters (see [rx_fit()]).
+#'   They are not removed from the parametrisation: a positive definite plant
+#'   covariance with a SYMMETRIC residual-IEE block is a strictly smaller model
+#'   (a structural truth such as `C = Psi R_e` is not symmetric).
 #' @param trait trait factor of length `n`; `NULL` means a single trait.
 #' @param unit unit identifier of length `n`: two observations of the same unit
 #'   on different traits are correlated under `us`.
@@ -365,16 +491,165 @@ NULL
 #'   carrying its `rows` and `name`.
 #' @param rows,name row indices and label of a section.
 #' @return An object of class `rx_residual`.
-#' @seealso [rx_model()], [rx_term()]
+#' @seealso [rx_model()], [rx_term()], [rx_lag()]
 #' @examples
 #' r <- rx_residual()
 #' r$struct
+#' rx_residual("none")$struct
 #' @usage
 #' rx_residual(struct = "iid", trait = NULL, unit = NULL, rank = 0L,
 #'             level = "id", order = 0L, coord = NULL, n_unit = NULL,
 #'             dims = NULL, opts = NULL, expr = NULL, sections = NULL,
 #'             rows = NULL, name = NULL)
 #' @name rx_residual
+NULL
+
+#' Declare a spatial lag of the response (structural model)
+#'
+#' The structural, trait-based model: the phenotype of a plant responds to the
+#' phenotypes of its neighbours,
+#' \deqn{y = M y + X b + \sum_k Z_k u_k + e, \qquad
+#'   M_{(t,i),(u,j)} = \Psi_{tu} W_t[i, j],}{y = M y + X b + sum_k Z_k u_k + e,  M[(t,i),(u,j)] = Psi[t,u] W_t[i,j],}
+#' with `Psi[t, u]` the effect of trait `u` of a neighbour (emitter, column) on
+#' trait `t` of the focal plant (receiver, row). With `A = I - M` invertible,
+#' `y* = A y` follows the ordinary model of the package, so every term and
+#' residual structure applies to it unchanged; only the objective changes.
+#'
+#' @param W neighbour matrix `N x N` (sparse or dense, zero diagonal), common
+#'   to all traits; or a list of `q` such matrices named by the trait levels,
+#'   one per RECEIVER trait.
+#' @param trait trait of each row of `y` (factor or vector of length `n`). Its
+#'   levels define the rows and columns of `Psi`.
+#' @param unit plant of each row: a row index of `W` (`1..N`), or a label
+#'   matched to `rownames(W)`. A factor is matched by its labels, never by its
+#'   codes. Each `(trait, unit)` pair may occur once; missing pairs are allowed
+#'   (the lag then acts on the observed rows only), at the price of the general
+#'   path for `log|det A|`.
+#' @param struct free entries of `Psi`: `"full"` (all `q^2`), `"diag"` (each
+#'   trait on itself), `"mask"` (those of `mask`).
+#' @param mask `q x q` logical matrix of free entries (receiver in rows), for
+#'   `struct = "mask"`. With dimnames, it is realigned on the trait levels.
+#' @param init starting values of `Psi` (`q x q` or a scalar, units of `W`);
+#'   0 by default, which is always admissible.
+#' @param value values of the entries that are NOT free (default 0): a
+#'   partly known `Psi`, or `Psi` held entirely (`struct = "mask"` with an
+#'   all-`FALSE` mask), e.g. to fit the model of `y*` at a given `Psi`.
+#' @param emitters,receivers optional subsets of trait levels: free entries
+#'   are restricted to these columns and rows, on top of `struct`.
+#' @param criterion the objective, in `-2 logL` units:
+#'   * `"reml_y"` (default): the exact restricted likelihood of `y`,
+#'     `-2 REML(y*) - 2 log|det A| - log|X_y'X_y| + log|X'X|`, with
+#'     `X_y = A^{-1} X` the mean design of `y`. The last two terms are
+#'     Harville's `|X'X|` factor of the restricted likelihood, which is constant
+#'     in the parameters for an ordinary model but not here, because `X_y`
+#'     depends on `Psi` as soon as the row sums of `W` vary (border plants).
+#'   * `"jacobian"`: `-2 REML(y*) - 2 log|det A|`, the change of variable alone,
+#'     Harville's factor taken on `X`. It differs from `"reml_y"` by a smooth
+#'     function of `Psi`, which is not `O(1/N)` (about 0.9 log-likelihood unit
+#'     at `psi = 0.6` per unit of total neighbour weight) and depends on the
+#'     scale of `b` in the `y*` parametrisation.
+#'   * `"ml"`: maximum likelihood, `-2 ML(y*) - 2 log|det A|`.
+#'
+#'   All three coincide at `Psi = 0` (up to the ML constant), and `"reml_y"`
+#'   and `"jacobian"` coincide exactly when all row sums of `W` are equal.
+#'   Compare log-likelihoods only within one criterion.
+#' @return An object of class `rx_lag`, passed to [rx_model()] or [rx_reml()]
+#'   through their `lag` argument.
+#' @details
+#' **Parameters.** The free entries of `Psi` come last in `theta`, receiver by
+#' receiver, named `Psi[receiver<-emitter]`. Internally they are scaled by the
+#' mean absolute row sum `s` of `W` (`theta = Psi s`, the effect of the whole
+#' neighbourhood), so that they share the scale of the variance parameters;
+#' outputs are in units of `W`. Standard errors come from the same observed
+#' Hessian as those of the variance components.
+#'
+#' **log|det A|.** Three exact paths, chosen once from the structure: when the
+#' possible non-zero pattern of `Psi` has no cycle (no feedback, e.g. only
+#' `T2 <- T1`), `det A = 1`; with one symmetric `W` and every `(trait, unit)`
+#' observed once, `log|det A| = sum_k log det(I_q - lambda_k Psi)` over the
+#' eigenvalues `lambda_k` of `W`, computed once; otherwise a dense LU of `A`.
+#'
+#' **Admissible region.** Every real eigenvalue of `M` must be below 1, i.e.
+#' `det(I - t M) > 0` for all `t` in `(0, 1]`: the region reached from
+#' `Psi = 0` without crossing a singular `A`. Outside it the objective returns
+#' a large finite penalty, so that the line search backtracks. The condition is
+#' checked exactly at every evaluation on the eigenvalue path; on the general
+#' path only `det A > 0` is checked during the fit and the exact condition at
+#' the end (`fit$lag$admissible`). The spectral radius of `M` is reported; a
+#' value above 1 with all real eigenvalues below 1 is allowed (the simultaneous
+#' model is defined, the equilibrium is no longer the limit of iterating
+#' `y <- M y + ...`). For one trait the region is the usual parameter space of
+#' the SAR model, `psi` in `(1/lambda_min, 1/lambda_max)`; for several traits it
+#' contains the stability region `rho(Psi) rho(W) < 1` and is larger than it.
+#'
+#' **Masks.** With a plant term carrying an indirect environmental effect
+#' (incidence `W` placed on a trait, IEE*), the plant level of the structural
+#' model is VP+ in other coordinates: with both `Psi[t,u]` and `Psi[u,t]` free,
+#' the direction of transmission is only weakly identified, and [rx_model()]
+#' warns. Leave at most one of each reciprocal pair free (`struct = "mask"`,
+#' `receivers`, `emitters`). Without IEE*, `Psi` is identified when full,
+#' through the genetic level, at a cost in precision.
+#'
+#' **Not available** with a lag: the sparse engine, Kenward-Roger, predict and
+#' the genome scan.
+#' @seealso [rx_model()], [rx_fit()], [rx_residual()] (`"none"`), and
+#'   `vignette("structural", package = "remlax")` for the VP+, TB and TB+
+#'   models.
+#' @examples
+#' # 4 x 5 plants, queen neighbourhood, two traits in long format
+#' co <- expand.grid(c = 1:5, r = 1:4)
+#' W <- (as.matrix(dist(co, method = "maximum")) == 1) * 1
+#' trait <- factor(rep(c("T1", "T2"), each = 20))
+#' L <- rx_lag(W, trait = trait, unit = rep(1:20, 2), receivers = "T2")
+#' L
+#' L$param_names
+#' @usage
+#' rx_lag(W, trait, unit, struct = c("full", "diag", "mask"), mask = NULL,
+#'        init = NULL, value = NULL, emitters = NULL, receivers = NULL,
+#'        criterion = c("reml_y", "jacobian", "ml"))
+#' @name rx_lag
+NULL
+
+#' Border covariates: number of neighbours per trait
+#'
+#' Fixed-effect columns `W 1` (and `W^k 1` up to `order`), placed on the rows
+#' of each trait, for data in long format.
+#'
+#' **Why.** With non-zero trait means, the structural model `y = M y + X b +
+#' ...` has mean `E y = (I - M)^{-1} X b`. Without feedback, the mean of trait
+#' `t` on unit `i` is `mu_t + sum_u Psi[t,u] mu_u (W 1)_i`: it depends on the
+#' number of neighbours of `i` (border plants, missing plants). The structural
+#' criteria of [rx_lag()] (`"reml_y"`, `"jacobian"`, `"ml"`) contain this
+#' term, but a model without a lag (DGE/IGE models, with or without the joint
+#' plant term) does not: its ratio of covariances is then biased, by several
+#' standard errors when the means are large relative to the standard
+#' deviations. Adding these columns to `X`, for every model, removes the bias
+#' exactly without feedback (`order = 1`) and up to second-order terms with
+#' feedback (`order = 2` reduces them further). In a structural model, the
+#' same columns absorb a border effect that is not an interaction (more light
+#' at the edge), so that `Psi` is no longer read from the border pattern of
+#' the mean.
+#'
+#' @param W,trait,unit as in [rx_lag()]: one common `W` or a named list, one
+#'   per receiving trait; `unit` gives the row of `W` of each observation.
+#' @param order number of powers of `W`: columns `W 1`, ..., `W^order 1`.
+#' @param scale divide each power by the mean absolute row sum of `W` (default),
+#'   so that the columns are of order 1.
+#' @return A numeric matrix with one row per observation and `q * order`
+#'   columns named `border<k>:<trait>`, zero outside the rows of that trait;
+#'   bind it to `X` (`cbind(X, rx_border(...))`), or add it to the data of a
+#'   formula. With constant row sums (torus, complete groups) the columns are
+#'   collinear with the trait intercepts and must not be added.
+#' @seealso [rx_lag()], [rx_model()]
+#' @examples
+#' co <- expand.grid(c = 1:5, r = 1:4)
+#' W <- (as.matrix(dist(co, method = "maximum")) == 1) * 1
+#' trait <- factor(rep(c("T1", "T2"), each = 20))
+#' B <- rx_border(W, trait = trait, unit = rep(1:20, 2))
+#' head(B)
+#' X <- cbind(model.matrix(~ trait - 1), B)
+#' @usage rx_border(W, trait, unit, order = 1L, scale = TRUE)
+#' @name rx_border
 NULL
 
 #' Two-dimensional P-spline basis (PS-ANOVA)
@@ -917,6 +1192,8 @@ NULL
 #' @param upgrade reinstall the packages if the venv already exists.
 #' @param ask ask for confirmation before writing or deleting (default: in
 #'   interactive sessions only).
+#' @param bayes also install blackjax, needed by the Bayesian route
+#'   ([rx_bayes()]).
 #' @return `rx_python_check()`: a list with `ok`, `python`, `versions` and
 #'   `message`, invisibly. `rx_install_python()`: the path of the created
 #'   interpreter, invisibly. `rx_remove_python()`: `TRUE` if the directory was
@@ -934,7 +1211,7 @@ NULL
 #' rx_python_check(py = rx_python_cmd(), quiet = FALSE)
 #' rx_install_python(dir = file.path(tools::R_user_dir("remlax", "data"), "venv"),
 #'                   cuda = FALSE, python = "python3", upgrade = FALSE,
-#'                   ask = interactive())
+#'                   ask = interactive(), bayes = FALSE)
 #' rx_remove_python(dir = file.path(tools::R_user_dir("remlax", "data"), "venv"),
 #'                  ask = interactive())
 #' @name rx_python_check
@@ -1000,6 +1277,81 @@ NULL
 #' rx_scan_seuil(res, test, alpha = 0.05)
 #' @name rx_scan
 #' @aliases rx_scan_seuil
+NULL
+
+# ------------------------------------------------------------------------------
+
+#' GWAS with one null per chromosome, and exact refit of the top SNPs
+#'
+#' `rx_scan_loco()` runs [rx_scan()] chromosome by chromosome. Each chromosome
+#' is scanned under its own null model, whose relationship matrix is computed
+#' without that chromosome (leave one chromosome out). The polygenic term then
+#' no longer absorbs part of the effect of the tested SNP.
+#'
+#' `rx_scan_exact()` refits the model for the top SNPs of a scan, with the SNP
+#' as a fixed effect, and returns a Wald test with re-estimated variance
+#' components. At fixed V, the p-value of a SNP of large effect is about six
+#' times too large. A REML likelihood ratio test is not used, since two models
+#' with different fixed effects do not share the same restricted likelihood.
+#'
+#' The model is built by the caller. `construire(K, X_sup = NULL)` returns the
+#' [rx_model] for a relationship matrix `K` and, when given, extra fixed-effect
+#' columns `X_sup` appended to `X`. The relationship matrix can then change
+#' without guessing where it enters the model, and the design of the null is
+#' kept by construction.
+#'
+#' @param construire function `(K, X_sup = NULL)` returning an [rx_model].
+#' @param K_de function `(W)` returning the `q x q` relationship matrix computed
+#'   from a dose matrix `W` (`q x p'`), named as the levels of the genetic term.
+#' @param marqueurs dose matrix `q x p`, rows in the order of the levels of the
+#'   genetic term. Doses must be centred when the `ind` family is tested.
+#' @param carte data frame with columns `snp`, `chr` (required) and `pos`.
+#' @param incidences,tests,maf,codage passed to [rx_scan()].
+#' @param fit_args list of arguments passed to [rx_fit()] (`backend`,
+#'   `optimizer`, ...).
+#' @param theta_init starting values of the refits, for instance the `theta` of
+#'   the genome-wide null.
+#' @param verbose print one line per chromosome or per refitted SNP.
+#' @param ... further arguments passed to [rx_scan()].
+#' @param res result of `rx_scan()` or `rx_scan_loco()`.
+#' @param test linear test to refit: `"dir"`, `"ind"` or `"dir+ind"`. The `sim`
+#'   family and conditional tests are not refitted.
+#' @param top number of top SNPs, ranked by the p-value of `test` in `res`.
+#' @param loco `TRUE` refits with the relationship matrix computed without the
+#'   chromosome of the SNP, `FALSE` with the full matrix.
+#' @return `rx_scan_loco()` returns a data frame as [rx_scan()], with a column
+#'   `chr_loco`, an attribute `"loco"` (one row per chromosome: number of SNPs,
+#'   log-likelihood, convergence, time and `theta` of the null) and an
+#'   attribute `"lambda"` (genomic control per test, over all SNPs).
+#'
+#'   `rx_scan_exact()` returns one row per refitted SNP: p-value at fixed V
+#'   (`p_fige`), Wald statistic and p-value of the refit (`chi2_exact`,
+#'   `p_exact`), estimates and standard errors of the added columns
+#'   (`beta_dir`, `se_dir`, `beta_ind`, `se_ind`), log-likelihood, convergence
+#'   and time of the refit.
+#' @seealso [rx_scan()]
+#' @examples
+#' \dontrun{
+#' construire <- function(K, X_sup = NULL)
+#'   rx_model(d$y, cbind(rep(1, nrow(d)), X_sup),
+#'            list(rx_term("dge_ige", list(Zd, Zn), K = K, struct = "us")),
+#'            rx_residual())
+#' K_de <- function(W) { W <- scale(W, scale = FALSE); tcrossprod(W) / ncol(W) }
+#' incid <- c(dir = "dge_ige:1", ind = "dge_ige:2")
+#' loco <- rx_scan_loco(construire, K_de, M, carte, incidences = incid,
+#'                      tests = c("dir", "ind"), fit_args = list(backend = "cpu"))
+#' rx_scan_exact(loco, "ind", construire, K_de, M, carte, incid, top = 10,
+#'               fit_args = list(backend = "cpu"))
+#' }
+#' @usage
+#' rx_scan_loco(construire, K_de, marqueurs, carte, incidences,
+#'              tests = c("dir", "ind", "dir+ind"), maf = NULL, codage = "pm1",
+#'              fit_args = list(), theta_init = NULL, verbose = TRUE, ...)
+#' rx_scan_exact(res, test, construire, K_de, marqueurs, carte, incidences,
+#'               top = 10L, loco = TRUE, fit_args = list(), theta_init = NULL,
+#'               verbose = TRUE)
+#' @name rx_scan_loco
+#' @aliases rx_scan_exact
 NULL
 
 # ------------------------------------------------------------------------------
@@ -1112,9 +1464,19 @@ NULL
 #' Hessian `H` of `-2 logL`. The `bound` column follows 'asreml': `P` a
 #' variance, `U` an unconstrained parameter (covariance, correlation, range),
 #' `B` a component at a bound or on a flat direction of the likelihood, whose
-#' standard error is not reported, `F` a fixed component. AIC and BIC count the
-#' variance parameters that are not fixed: `AIC = -2 logL + 2 k` and
-#' `BIC = -2 logL + k log(n - p)`, with `p` the rank of `X`.
+#' standard error is not reported, `F` a fixed component, `N` an entry of a
+#' `us` structure that is not identified on its own because another entry of
+#' the same term has the same pattern in `V` (only their sum enters; e.g. the
+#' residual-IEE covariances `Cov(res_t, IEE_u)` and `Cov(res_u, IEE_t)` of a
+#' plant term `[I, W]` with a symmetric `W`). The identified sums are added at
+#' the end of the table, named `"a+b"`, with their standard errors, and the
+#' known flat directions are excluded from the covariance of `theta` and from
+#' the convergence verdict. With a spatial lag, the free entries of `Psi`
+#' are rows `Psi[receiver<-emitter]`, coded `U`. AIC and BIC count the
+#' variance parameters that are neither fixed nor non-identified:
+#' `AIC = -2 logL + 2 k` and `BIC = -2 logL + k log(n - p)`, with `p` the rank
+#' of `X`; `k` is the number of degrees of freedom to use in a likelihood
+#' ratio test.
 #'
 #' @param object an `rx_fit` object.
 #' @param coef also return the BLUPs of the random effects, with standard
@@ -1123,7 +1485,8 @@ NULL
 #' @param digits significant digits.
 #' @param ... ignored.
 #' @return A list of class `summary.rx_fit`: `call`, `backend`, `n_obs`,
-#'   `nedf`, `n_par`, `n_estimated`, `n_at_bound`, `loglik`, `loglik_asreml`,
+#'   `nedf`, `n_par`, `n_estimated`, `n_not_identified`, `n_at_bound`, `loglik`,
+#'   `loglik_asreml`, `lag` (with a spatial lag),
 #'   `aic`, `bic`, `criteria`, `converged`, `convergence`, `varcomp` (data frame
 #'   with `component`, `std.error`, `z.ratio`, `bound`), `coef.fixed` (with
 #'   `solution`, `std.error`, `z.ratio`), `coef.random` (when `coef = TRUE`),
@@ -1153,7 +1516,10 @@ NULL
 #' `q`, relationship and parameter count. `print.rx_fit()` prints the
 #' log-likelihood, the convergence diagnostics (`max|grad|`, Newton decrement,
 #' number of negative eigenvalues), every `Sigma`, the residual, and the
-#' `vpredict` table when present. `print.rx_predict()` prints the prediction
+#' `vpredict` table when present, and, with a spatial lag, `Psi` with its
+#' standard errors, the criterion, `log|det(I - M)|` and the spectral radius of
+#' `M`. `print.rx_lag()` prints the free and fixed entries of `Psi`.
+#' `print.rx_predict()` prints the prediction
 #' table and the mean standard error of differences when `sed = TRUE`.
 #'
 #' @param x the object.
@@ -1162,10 +1528,11 @@ NULL
 #' @usage
 #' \method{print}{rx_fit}(x, ...)
 #' \method{print}{rx_model}(x, ...)
+#' \method{print}{rx_lag}(x, ...)
 #' \method{print}{rx_predict}(x, ...)
 #' \method{print}{rx_neighbourhood}(x, ...)
 #' \method{print}{rx_ratios}(x, ...)
 #' \method{print}{rx_grid_summary}(x, ...)
 #' @name print.rx_fit
-#' @aliases print.rx_model print.rx_predict print.rx_neighbourhood print.rx_ratios print.rx_grid_summary
+#' @aliases print.rx_model print.rx_lag print.rx_predict print.rx_neighbourhood print.rx_ratios print.rx_grid_summary
 NULL

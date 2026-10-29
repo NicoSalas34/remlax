@@ -1,0 +1,49 @@
+% Preamble of the remlax Reference Manual. Compiled with pdfLaTeX and biber.
+\usepackage[british]{babel}
+\usepackage[T1]{fontenc}
+\usepackage[utf8]{inputenc}
+\usepackage{libertinus}
+\usepackage[scaled=0.85]{beramono}
+\usepackage{amsmath,amssymb,bm}
+\usepackage[a4paper,inner=30mm,outer=25mm,top=28mm,bottom=30mm]{geometry}
+\usepackage{microtype}
+\usepackage{graphicx}
+\usepackage{booktabs,longtable,array,tabularx}
+\usepackage{xcolor}
+\usepackage[most]{tcolorbox}
+\addtokomafont{caption}{\small}\addtokomafont{captionlabel}{\bfseries}\setcapindent{1em}
+\usepackage{csquotes}
+\usepackage[backend=biber,style=authoryear,maxcitenames=2,uniquename=false,uniquelist=false,doi=true,url=false,isbn=false]{biblatex}
+\addbibresource{references.bib}
+\usepackage[colorlinks=true,linkcolor=rxblue,citecolor=rxblue,urlcolor=rxblue]{hyperref}
+\usepackage[nameinlink,capitalise,noabbrev]{cleveref}
+
+\definecolor{rxblue}{HTML}{1F4E79}
+\definecolor{rxgrey}{HTML}{F3F4F6}
+\definecolor{rxamber}{HTML}{B45309}
+
+\KOMAoptions{headings=normal}
+\setkomafont{disposition}{\normalfont\bfseries\color{rxblue}}
+\setcounter{tocdepth}{1}
+\setcounter{secnumdepth}{2}
+
+% Notation used throughout the manual
+\newcommand{\vect}[1]{\bm{#1}}
+\newcommand{\mat}[1]{\mathbf{#1}}
+\newcommand{\tr}{^{\mathsf{T}}}
+\newcommand{\kron}{\otimes}
+\newcommand{\rx}{\textsf{remlax}}
+\newcommand{\asr}{\textsf{ASReml-R}}
+\newcommand{\fn}[1]{\texttt{#1()}}
+\newcommand{\code}[1]{\texttt{#1}}
+
+% Syntax box in the manner of the ASReml-R manual: the call on top, its
+% arguments described below
+\newtcolorbox{syntax}[1][]{colback=rxgrey,colframe=rxblue!40,boxrule=0.4pt,arc=1pt,
+  left=4pt,right=4pt,top=3pt,bottom=3pt,fontupper=\small,#1}
+% Note on a pitfall or a limit
+\newtcolorbox{caveat}[1][]{colback=rxamber!6,colframe=rxamber!60,boxrule=0.4pt,arc=1pt,
+  left=4pt,right=4pt,top=3pt,bottom=3pt,fontupper=\small,title={#1},
+  coltitle=black,fonttitle=\small\bfseries,colbacktitle=rxamber!15}
+% Placeholder shown in drafts for a section not yet written
+\newcommand{\pending}[1]{\par\noindent\textcolor{rxamber}{\small\textsf{[To be written: \detokenize{#1}]}}\par}

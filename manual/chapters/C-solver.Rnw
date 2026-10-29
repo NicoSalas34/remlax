@@ -1,0 +1,12 @@
+% The solver interface
+\chapter{The solver interface}\label{ch:solver}
+
+\section{The binary bundle}
+\pending{files, manifest and data types}
+
+\section{The command line}
+\pending{options of the Python solver}
+
+\section{Environment variables}
+\pending{RX_PY, RX_BACKEND, RX_ENGINE, RX_OPTIMIZER and the others}
+

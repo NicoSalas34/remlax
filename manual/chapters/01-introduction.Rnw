@@ -1,0 +1,18 @@
+% Introduction
+\chapter{Introduction}\label{ch:intro}
+
+\section{What remlax fits}
+\pending{the linear mixed model, the REML criterion, the scope of the package}
+
+\section{Two forms of the likelihood}
+\pending{the marginal form on V and the mixed model equations on C, and when each is cheaper}
+
+\section{From R to the solver and back}
+\pending{design built in R, binary bundle with a JSON manifest, Python solver as a subprocess, result read back}
+
+\section{Notation}
+\pending{y, X, Z, G, R, V, C, theta, Sigma, K; conventions used in every chapter}
+
+\section{How to read this manual}
+\pending{map of the chapters and appendices}
+

@@ -117,7 +117,9 @@ def run():
         r = fit_reml([tm], rs, y, X, verbose=False)
         da = abs(float(r["sigmas"]["g"][0, 0]) - (MSA - MSE) / m)
         de = abs(float(r["sigma_res"][0, 0]) - MSE)
-        check("a=%d m=%d : sigma2 analytiques retrouvees" % (a, m), da < 1e-8 and de < 1e-8,
+        # la position de l'optimum n'est connue qu'a sqrt(decrement / courbure)
+        # pres : ~1e-10 sur CPU, 1,5e-8 sur GPU (L40S, sommes reordonnees)
+        check("a=%d m=%d : sigma2 analytiques retrouvees" % (a, m), da < 1e-7 and de < 1e-7,
               "ecarts %.1e / %.1e, decrement %.1e" % (da, de, r["newton_decrement"]))
 
     print("\n=== 5. reproductibilite et invariance au peripherique ===")

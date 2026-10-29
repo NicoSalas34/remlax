@@ -1,0 +1,21 @@
+% Special models
+\chapter{Special models}\label{ch:special}
+
+\section{Multi-trait models}
+\pending{long format, us and fa genetic covariances, residual structures by unit}
+
+\section{Relationship-based models}
+\pending{GRM, pedigree and the inverse relationship matrix}
+
+\section{Spatial models}
+\pending{AR1 x AR1 fields, metric kernels, Matern, two-dimensional splines}
+
+\section{Indirect genetic effects}
+\pending{neighbourhood incidences, exposure scaling, dilution, two-species mixtures}
+
+\section{Spatial lag of the response}
+\pending{structural models and their criterion}
+
+\section{Genome-wide scans}
+\pending{rx_scan() at fixed covariance, rx_scan_loco() with one null per chromosome, rx_scan_exact() for the top SNPs}
+

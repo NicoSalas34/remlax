@@ -80,7 +80,7 @@ term. The two spellings are mixed here only to show that they are.
 
 A genotypic variance of 1.401 against a true 1.5, and a residual of 0.899
 against 1.0: normal sampling variation at this size. The block variance came
-out at 0.0072 against a true 0.4, which is what four blocks buy you — the
+out at 0.0072 against a true 0.4, which is what four blocks buy you. The
 whole information about that component is four numbers.
 
 ---
@@ -118,7 +118,7 @@ fit$sigma_res
 ```
 
 `sigmas` is a named list of `Sigma` matrices, one per term, always as
-matrices — `1 x 1` for a single-column term. `sigma_res` is the residual, and
+matrices: `1 x 1` for a single-column term. `sigma_res` is the residual, and
 `sigmas_res` is the per-section list when `dsum` is used.
 
 Read a fit with `[[ ]]`, not `$`: partial matching on lists is a trap, and
@@ -138,7 +138,7 @@ c(logLik = fit$logLik, logLik_asreml = fit$logLik_asreml,
 ```
 
 remlax includes the constant `(n-p)/2 log(2 pi)`, like lme4. asreml and
-sommer omit it. Here the difference is 219.6 — big enough to look like a
+sommer omit it. Here the difference is 219.6. It is big enough to look like a
 disagreement between models rather than a convention. Compare
 `logLik_asreml` with asreml, `logLik` with lme4.
 
@@ -191,7 +191,7 @@ the same count) counts parameters held by `fixed_theta`: those are outside the
 free subspace **without** being at a bound, since they are pinned to their
 starting value. `n_par_free` is the dimension of the free subspace that
 remains. All three categories are excluded from the diagnostic, by the KKT
-condition for the first and by construction for the second — the Newton
+condition for the first and by construction for the second. The Newton
 decrement is computed only along directions the step can actually take.
 
 `composantes_degenerees` names terms with a parameter at the floor. A variance
@@ -238,8 +238,8 @@ The standard errors come from the delta method on the Hessian of `-2 logL`:
 `-2 logL` rather than of `-logL`. The Jacobian is obtained by automatic
 differentiation, so any expression you can write is differentiated exactly.
 
-When the Hessian is not invertible over the free subspace — a parameter at a
-bound, a flat direction — the standard error is `NA`. It is never replaced by
+When the Hessian is not invertible over the free subspace, for example with a parameter
+at a bound or a flat direction, the standard error is `NA`. It is never replaced by
 a number.
 
 ---
@@ -360,7 +360,7 @@ The Kenward-Roger adjustment does two separate things: it inflates the
 covariance of `beta` to account for `V` being **estimated** rather than known,
 and it matches moments to obtain a denominator degrees of freedom and a scale
 factor. Here `trt` gets 20.19 denominator degrees of freedom instead of the
-asymptotic infinity, and `p` moves from 0.0061 to 0.0164 — a factor of nearly
+asymptotic infinity, and `p` moves from 0.0061 to 0.0164. That is a factor of nearly
 three on the p-value, from 27 observations.
 
 `second_ordre_omis` is `FALSE`: the model carries no between-level correlation
@@ -465,17 +465,17 @@ The numbers differ from the R fit because R's `rnorm` and numpy's generator
 produce different data, not because the models differ.
 
 The `zi`, `zj`, `zx` triplet is `Z` in COO form with **0-based** indices, and
-the column of `Z` for column `a` of `Sigma` and level `l` is `(a-1)*q + l` —
-level varying fastest. That convention is shared with the R side; see
+the column of `Z` for column `a` of `Sigma` and level `l` is `(a-1)*q + l`,
+with level varying fastest. That convention is shared with the R side; see
 [api-python.md](engine.html#column-order-of-z).
 
 ---
 
 ## Next
 
-- [2. Multi-trait models](multi-trait.html) — several traits, `us` and `fa`,
+- [2. Multi-trait models](multi-trait.html): several traits, `us` and `fa`,
   genomic relationship.
-- [3. Spatial models](spatial.html) — separable AR1, metric kernels, 2D
+- [3. Spatial models](spatial.html): separable AR1, metric kernels, 2D
   splines.
-- [4. Explicit terms](explicit-terms.html) — weighted incidences and shared
+- [4. Explicit terms](explicit-terms.html): weighted incidences and shared
   covariances.

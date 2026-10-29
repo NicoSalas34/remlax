@@ -4,7 +4,8 @@
 \alias{rx_model}
 \title{Assemble and check a model from explicit components}
 \usage{
-rx_model(y, X, terms, residual = rx_residual(), name = "modele")
+rx_model(y, X, terms, residual = rx_residual(), name = "modele", lag = NULL,
+         weights = NULL)
 }
 \arguments{
 \item{y}{response vector of length \code{n}.}
@@ -17,6 +18,16 @@ carried through so that Wald tests operate on whole terms.}
 \item{residual}{an \link{rx_residual} object.}
 
 \item{name}{a label used in the printed inventory.}
+
+\item{lag}{\code{NULL}, or an \link{rx_lag} object: the structural model \verb{y = M y + X b + Z u + e}. Its free entries of \code{Psi} are counted in \code{n_par} and come
+last in \code{theta}.}
+
+\item{weights}{\code{NULL}, or prior weights \code{w} (one positive value per
+observation): the residual becomes \verb{R = W^-1/2 R0 W^-1/2}, \code{R0} the
+declared residual. With an iid residual whose variance is fixed at 1
+(\code{fixed_theta} in \code{\link[=rx_fit]{rx_fit()}}), \code{R = diag(1/w)}: known residual variances,
+as in a two-stage analysis. The solver scales the rows of \code{y}, \code{X} and \code{Z}
+by \code{sqrt(w)} and corrects the log-likelihood by \code{sum(log(w)) / 2}.}
 }
 \value{
 An object of class \code{rx_model} with a \code{print} method.
@@ -40,5 +51,5 @@ m
 rx_n_theta(m)
 }
 \seealso{
-\code{\link[=rx_term]{rx_term()}}, \code{\link[=rx_residual]{rx_residual()}}, \code{\link[=rx_fit]{rx_fit()}}
+\code{\link[=rx_term]{rx_term()}}, \code{\link[=rx_residual]{rx_residual()}}, \code{\link[=rx_fit]{rx_fit()}}, \code{\link[=rx_lag]{rx_lag()}}
 }

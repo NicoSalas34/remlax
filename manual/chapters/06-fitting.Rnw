@@ -1,0 +1,21 @@
+% Fitting
+\chapter{Fitting}\label{ch:fitting}
+
+\section{Three engines}
+\pending{dense marginal engine (JAX), mixed model equations engine (Python), sparse RTMB engine; scope of each}
+
+\section{Inverting C}
+\pending{dense inversion and supernodal selected inversion; fill-in of the factor}
+
+\section{Optimisers}
+\pending{L-BFGS-B, average information in the variance scale, active set on the cone with rotations of a rank-deficient us, KKT point on the boundary, Levenberg-Marquardt damping, fallbacks}
+
+\section{Convergence}
+\pending{Newton decrement, projected gradient, curvature check, what each criterion proves}
+
+\section{CPU or GPU}
+\pending{devices, compilation cost, memory limits}
+
+\section{Choosing an engine}
+\pending{measured times by family and size, and the rule of engine = auto}
+

@@ -62,7 +62,7 @@ tab[order(-tab$checks), ]
 
 `r nrow(checks)` checks, `r sum(checks$verdict == "pass")` passed. The
 references called `internal`, `dense`, `independent` and `properties` are
-closed forms, the sparse engine of the package compared with its dense
+closed forms, the RTMB engine of the package compared with its dense
 engine at a common parameter, a REML written longhand in dense algebra, and
 properties that have no external reference (finite likelihood, positive
 definite covariance).
@@ -167,6 +167,26 @@ In the benchmark no remlax fit has a lower log-likelihood than the asreml
 fit it is paired with. Where remlax is higher by more than `1e-3` (five small,
 heavily parameterised cases), asreml continued with `update()` moves toward
 remlax's value and never passes it.
+
+## Engines and optimisers checked by simulation
+
+The mixed model equations engine and the average information optimiser are
+checked by a separate simulation suite, `verif_simulations` in
+[remlax-validation](https://github.com/NicoSalas34/remlax-validation). It
+covers 37 model types, from one random factor to multi-trait `fa` models,
+separable residual fields, pedigrees and direct and indirect genetic effects.
+Each data set is simulated from known parameters, then fitted along four
+routes: L-BFGS-B and AI on the dense engine, and AI on the mixed model
+equations engine with the automatic and with the sparse inversion of `C`. A dense REML
+written in R evaluates the likelihood at each estimate. A fit passes when this
+arbiter agrees with the likelihood reported by the solver, when the routes
+agree with one another, and when every component lies within three standard
+errors of its true value.
+
+On 22 October 2026, 144 of 150 fits passed. The five failures are statistical:
+in each, one component lies beyond three standard errors of its true value,
+and the likelihoods of the routes agree to within 3e-5. The remaining fit is a refusal by
+design: the AI optimiser is not used with a spatial lag of the response.
 
 ## Rerun the comparisons on your machine
 

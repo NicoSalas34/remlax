@@ -86,6 +86,17 @@ class Bundle:
             )
             d["LK"] = (self.get("term_%s_LK" % nm).astype(np.float64)
                        if self.has("term_%s_LK" % nm) else None)
+            # Precision creuse (pedigree) : seul le moteur MME s'en sert.
+            if self.has("term_%s_Kinv_i" % nm):
+                import scipy.sparse as _sp
+                q_ = int(self.get("term_%s_q" % nm)[0])
+                d["Kinv"] = _sp.csr_matrix((self.get("term_%s_Kinv_x" % nm).astype(np.float64),
+                                            (self.get("term_%s_Kinv_i" % nm).astype(np.int64),
+                                             self.get("term_%s_Kinv_j" % nm).astype(np.int64))),
+                                           shape=(q_, q_))
+                d["Kinv_logdet"] = float(self.get("term_%s_Kinv_logdet" % nm)[0])
+            else:
+                d["Kinv"], d["Kinv_logdet"] = None, None
             # Structure ENTRE NIVEAUX : "id" (defaut), "fixed" (K fournie),
             # "ar1", "ar1ar1". Les anciens paquets n'ont pas la cle : on deduit
             # alors "fixed" si une K est presente, "id" sinon.
@@ -153,7 +164,10 @@ class Bundle:
                       if self.has("res_trait") else np.zeros(self.n, np.int64))
         r["unit"] = (self.get("res_unit").astype(np.int64)
                      if self.has("res_unit") else np.arange(self.n, dtype=np.int64))
-        r["n_unit"] = int(r["unit"].max()) + 1
+        # n_unit exporte par R pour une grille (cellules sans observation
+        # comprises) ; sinon le plus grand code + 1.
+        r["n_unit"] = (int(self.get("res_nunit")[0]) if self.has("res_nunit")
+                       else int(r["unit"].max()) + 1)
         n_sec = int(self.get("res_nsec")[0]) if self.has("res_nsec") else 0
         if n_sec > 1:
             secs, noms = [], (self.get("res_secnames")
@@ -164,7 +178,8 @@ class Bundle:
                 s["rows"] = self.get(pre + "_rows").astype(np.int64)
                 s["trait"] = self.get(pre + "_trait").astype(np.int64)
                 s["unit"] = self.get(pre + "_unit").astype(np.int64)
-                s["n_unit"] = int(s["unit"].max()) + 1
+                s["n_unit"] = (int(self.get(pre + "_nunit")[0]) if self.has(pre + "_nunit")
+                               else int(s["unit"].max()) + 1)
                 s["name"] = noms[k] if noms is not None and k < len(noms) else "section%d" % (k + 1)
                 secs.append(s)
             vues = np.concatenate([s["rows"] for s in secs])
@@ -176,3 +191,33 @@ class Bundle:
                     "deux fois." % (self.n, len(vues), len(np.unique(vues))))
             r["sections"] = secs
         return r
+
+    def lag(self):
+        """Decalage spatial (rx_lag cote R), ou None.
+
+        W voyage en triplets COO 0-based, une matrice commune ou une par
+        caractere receveur ; mask, value et init sont des matrices q x q
+        (receveur en ligne, emetteur en colonne), ecrites en column-major comme
+        tout le reste.
+        """
+        if not self.has("lag_q"):
+            return None
+        import scipy.sparse as sp
+        q = int(self.get("lag_q")[0])
+        N = int(self.get("lag_N")[0])
+        nW = int(self.get("lag_nW")[0])
+        Ws = []
+        for k in range(nW):
+            i = self.get("lag_W%d_i" % k).astype(np.int64)
+            j = self.get("lag_W%d_j" % k).astype(np.int64)
+            x = self.get("lag_W%d_x" % k).astype(np.float64)
+            Ws.append(sp.csr_matrix((x, (i, j)), shape=(N, N)))
+        mat = lambda nm, dt: np.asarray(self.get(nm), dtype=dt).reshape((q, q), order="F")  # noqa: E731
+        return dict(q=q, N=N, W=Ws,
+                    trait=self.get("lag_trait").astype(np.int64),
+                    unit=self.get("lag_unit").astype(np.int64),
+                    mask=mat("lag_mask", np.int64).astype(bool),
+                    value=mat("lag_value", np.float64),
+                    init=mat("lag_init", np.float64),
+                    traits=list(self.get("lag_traits")),
+                    criterion=self.get("lag_criterion")[0])

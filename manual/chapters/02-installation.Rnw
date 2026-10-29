@@ -1,0 +1,18 @@
+% Installation
+\chapter{Installation}\label{ch:install}
+
+\section{The R package}
+\pending{installation from the repository, dependencies}
+
+\section{The Python solver}
+\pending{Python version, jax, numpy and scipy; rx_install_python() and rx_python_check()}
+
+\section{GPU support}
+\pending{CUDA build of jax, device selection, memory on a MIG slice}
+
+\section{Containers}
+\pending{a single image holding R and JAX, and why images cannot be nested}
+
+\section{Checking the installation}
+\pending{a first fit and the messages it prints}
+

@@ -2,7 +2,7 @@
 % Please edit documentation in R/remlax-docs.R
 \name{rx_fit}
 \alias{rx_fit}
-\title{Fit an rx_model with the dense engine}
+\title{Fit an rx_model by REML}
 \usage{
 rx_fit(model, backend = c("auto", "gpu", "cpu"), dir = NULL,
        maxiter = 3000L, polish = 25L, n_restarts = 0L,
@@ -10,7 +10,13 @@ rx_fit(model, backend = c("auto", "gpu", "cpu"), dir = NULL,
        vpredict = NULL, wald = FALSE,
        kenward_roger = FALSE, predict = NULL, theta_init = NULL,
        fixed_theta = NULL, floor = -12, ceil = 12,
-       verbose = TRUE, keep = FALSE)
+       verbose = TRUE, keep = FALSE,
+       optimizer = getOption("remlax.optimizer",
+                             Sys.getenv("RX_OPTIMIZER", "lbfgsb")),
+       engine = getOption("remlax.engine", Sys.getenv("RX_ENGINE", "dense")),
+       inversion = c("auto", "dense", "sparse", "hybrid"), bayes = NULL,
+       memory = getOption("remlax.memory", Sys.getenv("RX_MEMORY", "standard")),
+       finish = getOption("remlax.finish", Sys.getenv("RX_FINISH", "newton")))
 }
 \arguments{
 \item{model}{an \link{rx_model} object.}
@@ -20,7 +26,8 @@ rx_fit(model, backend = c("auto", "gpu", "cpu"), dir = NULL,
 \item{dir}{directory receiving the serialised design and the result. A
 temporary directory by default, removed unless \code{keep = TRUE}.}
 
-\item{maxiter}{cap on L-BFGS-B iterations (default 3000).}
+\item{maxiter}{cap on optimiser iterations (default 3000), L-BFGS-B or
+average information.}
 
 \item{polish}{cap on Newton polishing steps (default 25). Each step costs two
 gradients per parameter. Polishing stops early once the Newton decrement is
@@ -54,7 +61,7 @@ solver. Users normally call \code{\link[=rx_predict]{rx_predict()}} instead.}
 
 \item{theta_init}{starting value of \code{theta}, in the solver's order (see
 \code{\link[=rx_n_theta]{rx_n_theta()}}). With \code{maxiter = 0} and \code{polish = 0} the objective is only
-evaluated at that point.}
+evaluated at that point. \code{NA} entries take the automatic start.}
 
 \item{fixed_theta}{1-based indices of parameters held at their starting
 value. Indices, not combinations: a correlation of a \code{us} block depends on
@@ -65,14 +72,71 @@ is a log standard deviation, \verb{var = exp(2 theta)}, so the default floor is
 \code{var = 3.8e-11}. The values actually used come back as \code{par_floor} and
 \code{par_ceil} in the result; read them there rather than recoding them.}
 
-\item{verbose}{pass the solver's output through: one line per L-BFGS-B
+\item{verbose}{pass the solver's output through: one line per optimiser
 iteration and one per Newton polishing step.}
 
 \item{keep}{keep \code{dir} after the fit.}
+
+\item{optimizer}{\code{"lbfgsb"} (default), \code{"ai"}, \code{"ai_theta"} or \code{"auto"}
+(\code{"ai"} with the mixed model equations engine, \code{"lbfgsb"} otherwise). \code{"ai"} is
+AI-REML with steps taken on the variance scale (the entries of each
+\code{Sigma}), as in ASReml. A \code{us} block whose optimum is rank deficient is
+handled by an active set on the positive semidefinite cone. When halving
+the step six times does not decrease \verb{-2 logL}, the step is damped in the
+manner of Levenberg and Marquardt (\verb{AI + mu I}, \code{mu} increasing), which
+turns it towards the gradient. An AI run that cannot certify its optimum
+hands over to L-BFGS-B. \code{"ai_theta"} takes the AI steps on the Cholesky
+scale of \code{theta} (earlier variant). The default can be set with
+\code{options(remlax.optimizer = )} or the environment variable
+\code{RX_OPTIMIZER}.}
+
+\item{engine}{\code{"dense"} (default), \code{"mme"}, \code{"blocks"} or \code{"auto"}. \code{"auto"}
+takes the mixed model equations engine when the model is in its scope, else
+the dense engine (in low memory mode above n = 5000); with
+\code{optimizer = "auto"} it is the fastest combination on the benchmarks against
+kmmr and ASReml-R. \code{"dense"}, \code{"mme"} and \code{"blocks"} select the marginal
+covariance \code{V}, the mixed model equations \code{C}, or \code{V} processed block by
+block. \code{"blocks"} finds by itself the terms that link otherwise
+independent groups of observations (for instance genetic terms across
+tanks), writes \verb{V = A + U U'} with \code{A} block diagonal, and processes the
+blocks in batches; same likelihood, L-BFGS-B only. Without such a
+structure it falls back to the dense engine with \code{memory = "low"}. Use \code{"mme"} when the number of levels
+\code{m} is small against \code{n}, or when \code{C} is sparse (pedigree, separable
+fields). A model outside the scope of \code{"mme"} (residual \code{"none"}, \code{rr},
+a spatial lag, Gaussian metric kernels) is fitted by the dense engine with
+a message. The default can be set with \code{options(remlax.engine = )} or the
+environment variable \code{RX_ENGINE}.}
+
+\item{inversion}{with \code{engine = "mme"}: \code{"auto"} (default), \code{"dense"},
+\code{"sparse"} or \code{"hybrid"}; see \code{\link[=rx_fit_mme]{rx_fit_mme()}}. Ignored by the dense engine.}
+
+\item{finish}{\code{"newton"} (default: L-BFGS-B to its tolerance, then Newton
+polishing) or \code{"trust"}: L-BFGS-B stops when its gain over the last 100
+iterations falls below 0.05 in -2 log L, then a trust-region Newton method
+(exact subproblem, SR1 updates, variances near the floor set to it)
+finishes. Same optimum, much shorter tails on models with flat directions.}
+
+\item{memory}{with the dense engine: \code{"standard"} (default) or \code{"low"}.
+\code{"low"} computes the same likelihood, gradient and AI matrix with fewer
+\verb{n x n} matrices alive on the device: no full-height incidence matrices,
+a residual without structure between units scattered entry by entry,
+factors recomputed in the backward pass. Use it when the dense engine runs
+out of GPU memory. Not available with a spatial lag (falls back to
+\code{"standard"} with a message). Ignored by the \code{"mme"} engine.}
+
+\item{bayes}{\code{NULL} (default, REML only) or an \code{\link[=rx_bayes]{rx_bayes()}} object: after
+the REML fit, sample the posterior of the variance parameters by
+Hamiltonian Monte Carlo (ChEES adaptation, many short chains).
+The draws, their summary and the sampler diagnostics come back in
+\code{fit$bayes}.}
 }
 \value{
 An object of class \code{rx_fit}, a list with \code{theta}, \code{logLik},
-\code{logLik_asreml}, \code{n_par}, \code{n_obs}, \code{secondes}, \code{backend}, \code{sigmas} (named
+\code{logLik_asreml}, \code{n_par}, \code{n_obs}, \code{secondes}, \code{chrono} (seconds spent in
+each stage, from the export by R to the reading back of the result),
+\code{compile_s} and \code{eval_s} (compilation, median time of one evaluation),
+\code{backend}, \code{moteur} (the
+engine actually used), \code{inversion} (with the \code{"mme"} engine), \code{sigmas} (named
 list of \code{Sigma} matrices), \code{sigmas_res} and \code{sigma_res}, \code{rho}
 (between-level parameters on the scale actually used), \code{blups} (named list
 of \verb{q x t} matrices), \code{beta}, \code{vbeta}, \code{hessian}, \code{max_grad},
@@ -82,23 +146,48 @@ of \verb{q x t} matrices), \code{beta}, \code{vbeta}, \code{hessian}, \code{max_
 subspace, \code{NA} elsewhere; see \code{\link[=rx_se_theta]{rx_se_theta()}}),
 \code{composantes_degenerees}, \code{composantes_noms}, \code{optim_msg} (read it first:
 \code{ABNORMAL} is a failed line search, not a maximum), and, when requested, \code{vpredict}, \code{wald}, \code{kenward_roger},
-\code{pev}, \code{predictions}. Read fields with \code{[[} rather than \code{$}: \code{$} does
+\code{pev}, \code{predictions}. With a spatial lag (\code{\link[=rx_lag]{rx_lag()}}): \code{lag}, a list with
+\code{Psi} and \code{Psi_se} (\verb{q x q}, receiver in rows, emitter in columns, units
+of \code{W}; \code{NA} standard errors for entries that are not free), \code{criterion},
+\code{logdet_A} (\verb{log|det(I - M)|}), \code{logdet_mean} (the mean-space term
+\verb{1/2 log|X_y'X_y| - 1/2 log|X'X|}, reported whatever the criterion),
+\code{logLik_ystar} (restricted likelihood of \verb{y*} alone), \code{logLik_jacobian},
+\code{rayon_spectral} (spectral radius of \code{M}), \code{admissible}, \code{chemin} (how
+\verb{log|det A|} was computed: \code{"nilpotent"}, \code{"rapide"}, \code{"general"}) and
+\code{scale}; and \code{ystar}, the transformed response \verb{(I - M) y} on which
+\code{beta}, the BLUPs and the Wald tests are computed. The free entries of
+\code{Psi} are also rows \code{Psi[receiver<-emitter]} of the component table, with
+standard errors by the delta method, and the last elements of \code{theta}.
+Always: \code{alias} (groups of entries of a \code{us} term with the same pattern in
+\code{V}, identified only through their sum), \code{n_plat_attendu} (the number of
+flat directions they create, excluded from \code{n_neg_eig}, \code{n_null_dir} and
+the convergence verdict) and \code{n_par_identifies} (\code{n_par} minus those, the
+count for a likelihood ratio test). For VP+ (plant term \verb{[I, W]}, \code{us}
+over \verb{2q} columns, symmetric \code{W}) that is \code{q(q-1)/2} directions. Read fields with \code{[[} rather than \code{$}: \code{$} does
 partial matching and \code{fit$sigmas} once matched \code{sigmas_res}.
 }
 \description{
-Serialises the model with \code{\link[=rx_export]{rx_export()}}, runs the JAX solver as a
-subprocess, and reads the result with \code{\link[=rx_read_result]{rx_read_result()}}. Optimisation is
-L-BFGS-B on an unconstrained parametrisation (a Cholesky factor of every
-\code{Sigma}), followed by regularised Newton polishing.
+Serialises the model with \code{\link[=rx_export]{rx_export()}}, runs the Python solver as a
+subprocess, and reads the result with \code{\link[=rx_read_result]{rx_read_result()}}. Two engines
+compute the restricted likelihood: the dense engine forms the marginal
+covariance \code{V} (\verb{n x n}); the mixed model equations engine works on
+\verb{C = W'R^-1W + diag(0, G^-1)} (\verb{m x m}, \code{m} fixed effects plus random
+levels). Two optimisers maximise it: L-BFGS-B on an unconstrained
+parametrisation (a Cholesky factor of every \code{Sigma}), or average information
+REML on the variance scale. Both end with the same regularised Newton
+polishing and the same diagnostics.
 }
 \details{
 A model containing a term declared by its precision (\code{Kinv}) without
-a factor of \code{K} is refused: the dense engine needs \code{K} and would otherwise
-treat the term as independent without a message. Use \code{\link[=rx_fit_sparse]{rx_fit_sparse()}} for
-such a term, or supply \code{K} to \code{\link[=rx_term]{rx_term()}}.
+a factor of \code{K} is refused by the dense engine, which needs \code{K} and would
+otherwise treat the term as independent without a message. Fit such a term
+with \code{engine = "mme"}, which uses \code{K^-1} directly, or with
+\code{\link[=rx_fit_sparse]{rx_fit_sparse()}}, or supply \code{K} to \code{\link[=rx_term]{rx_term()}}. With a spatial lag,
+\code{kenward_roger} and \code{predict} are refused: both assume \code{y} linear in \code{beta}
+and \code{u} at given \code{V}, which only \verb{y*} is.
 }
 \examples{
-\dontshow{if (rx_python_check(quiet = TRUE)$ok) withAutoprint(\{ # examplesIf}
+\dontshow{if (rx_python_check(quiet = TRUE)$ok) (if (getRversion() >= "3.4") withAutoprint else force)(\{ # examplesIf}
 \donttest{
 set.seed(1)
 d <- data.frame(gid = factor(rep(1:30, each = 4)), x = rnorm(120))
@@ -111,5 +200,5 @@ f$sigmas
 \dontshow{\}) # examplesIf}
 }
 \seealso{
-\code{\link[=rx_reml]{rx_reml()}}, \code{\link[=rx_fit_sparse]{rx_fit_sparse()}}, \code{\link[=rx_read_result]{rx_read_result()}}
+\code{\link[=rx_reml]{rx_reml()}}, \code{\link[=rx_fit_mme]{rx_fit_mme()}}, \code{\link[=rx_fit_sparse]{rx_fit_sparse()}}, \code{\link[=rx_read_result]{rx_read_result()}}, \code{\link[=rx_lag]{rx_lag()}}
 }

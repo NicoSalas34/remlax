@@ -22,7 +22,8 @@ errors when the fit was made with \code{pev = TRUE}.}
 }
 \value{
 A list of class \code{summary.rx_fit}: \code{call}, \code{backend}, \code{n_obs},
-\code{nedf}, \code{n_par}, \code{n_estimated}, \code{n_at_bound}, \code{loglik}, \code{loglik_asreml},
+\code{nedf}, \code{n_par}, \code{n_estimated}, \code{n_not_identified}, \code{n_at_bound}, \code{loglik},
+\code{loglik_asreml}, \code{lag} (with a spatial lag),
 \code{aic}, \code{bic}, \code{criteria}, \code{converged}, \code{convergence}, \code{varcomp} (data frame
 with \code{component}, \code{std.error}, \code{z.ratio}, \code{bound}), \code{coef.fixed} (with
 \code{solution}, \code{std.error}, \code{z.ratio}), \code{coef.random} (when \code{coef = TRUE}),
@@ -51,12 +52,22 @@ Jacobian of the components with respect to \code{theta}, and a covariance of
 Hessian \code{H} of \verb{-2 logL}. The \code{bound} column follows 'asreml': \code{P} a
 variance, \code{U} an unconstrained parameter (covariance, correlation, range),
 \code{B} a component at a bound or on a flat direction of the likelihood, whose
-standard error is not reported, \code{F} a fixed component. AIC and BIC count the
-variance parameters that are not fixed: \verb{AIC = -2 logL + 2 k} and
-\verb{BIC = -2 logL + k log(n - p)}, with \code{p} the rank of \code{X}.
+standard error is not reported, \code{F} a fixed component, \code{N} an entry of a
+\code{us} structure that is not identified on its own because another entry of
+the same term has the same pattern in \code{V} (only their sum enters; e.g. the
+residual-IEE covariances \code{Cov(res_t, IEE_u)} and \code{Cov(res_u, IEE_t)} of a
+plant term \verb{[I, W]} with a symmetric \code{W}). The identified sums are added at
+the end of the table, named \code{"a+b"}, with their standard errors, and the
+known flat directions are excluded from the covariance of \code{theta} and from
+the convergence verdict. With a spatial lag, the free entries of \code{Psi}
+are rows \code{Psi[receiver<-emitter]}, coded \code{U}. AIC and BIC count the
+variance parameters that are neither fixed nor non-identified:
+\verb{AIC = -2 logL + 2 k} and \verb{BIC = -2 logL + k log(n - p)}, with \code{p} the rank
+of \code{X}; \code{k} is the number of degrees of freedom to use in a likelihood
+ratio test.
 }
 \examples{
-\dontshow{if (rx_python_check(quiet = TRUE)$ok) withAutoprint(\{ # examplesIf}
+\dontshow{if (rx_python_check(quiet = TRUE)$ok) (if (getRversion() >= "3.4") withAutoprint else force)(\{ # examplesIf}
 \donttest{
 set.seed(2026)
 d <- expand.grid(gid = factor(1:60), bloc = factor(1:4))

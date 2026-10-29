@@ -44,3 +44,20 @@ paper/*.log
 paper/*.out
 paper/*.bbl
 paper/*.blg
+
+# Manuel de reference : sources versionnees (manual/*.Rnw, chapters/, R/,
+# preamble.tex, references.bib) ; produits de knitr et de latexmk exclus
+manual/remlax-manual.tex
+manual/figures/
+manual/cache/
+manual/*.pdf
+manual/*.aux
+manual/*.log
+manual/*.out
+manual/*.toc
+manual/*.bbl
+manual/*.bcf
+manual/*.blg
+manual/*.run.xml
+manual/*.fls
+manual/*.fdb_latexmk

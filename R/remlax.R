@@ -203,6 +203,14 @@ rx_n_level <- function(level, order = 0L, opts = NULL, parts = NULL) {
 #   Le moteur DENSE ignore `Kinv` : il lui faudrait inverser pour retrouver K,
 #   ce qui annulerait tout l'interet. Un terme ainsi declare n'est donc ajustable
 #   que par le moteur creux, et rx_model le signale.
+# Incidence en dgCMatrix SANS passer par une matrice dense : as.matrix()
+# sur une incidence creuse de 128 000 x 2000 allouait 1,9 Go pour la
+# reconvertir aussitot en creux.
+.rx_dgc <- function(m) {
+  if (!inherits(m, "Matrix")) m <- methods::as(as.matrix(m), "dMatrix")
+  methods::as(methods::as(methods::as(m, "dMatrix"), "generalMatrix"), "CsparseMatrix")
+}
+
 rx_term <- function(name, Z, K = NULL, struct = "iid", rank = 0L,
                     t = NULL, levels = NULL, level = "auto",
                     dims = NULL, order = 0L, coord = NULL,
@@ -228,13 +236,13 @@ rx_term <- function(name, Z, K = NULL, struct = "iid", rank = 0L,
                                x = 1, dims = c(length(f), q))
     Zl <- list(Zm); t <- 1L
   } else if (is.list(Z)) {
-    t <- length(Z); Zl <- lapply(Z, function(m) methods::as(as.matrix(m), "dgCMatrix"))
+    t <- length(Z); Zl <- lapply(Z, .rx_dgc)
     q <- ncol(Zl[[1]])
     if (any(vapply(Zl, ncol, 1L) != q))
       stop("terme '", name, "' : les incidences n'ont pas toutes ", q, " colonnes.")
   } else {
     if (is.null(t)) stop("terme '", name, "' : fournir `t` avec une matrice empilee.")
-    Zm <- methods::as(as.matrix(Z), "dgCMatrix")
+    Zm <- .rx_dgc(Z)
     q <- ncol(Zm) / t
     if (q != round(q)) stop("terme '", name, "' : ncol(Z) n'est pas un multiple de t.")
     q <- as.integer(q)
@@ -351,11 +359,20 @@ rx_term <- function(name, Z, K = NULL, struct = "iid", rank = 0L,
 # @param trait  facteur de caractere (longueur n) ; NULL = un seul caractere
 # @param unit   identifiant d'unite : deux observations de la MEME unite sur
 #               des caracteres differents sont correlees sous `us`.
+# struct = "none" : AUCUNE residuelle (R = 0). V doit alors etre definie
+# positive par les seuls termes - typiquement un terme de plante dont les
+# incidences sont [I place sur le caractere t, W_t place sur le caractere t],
+# structure us sur 2q colonnes, qui porte a la fois la residuelle, les effets
+# environnementaux indirects (IEE) et leur covariance. Le moteur verifie V au
+# point de depart et le dit en clair si elle ne l'est pas.
 rx_residual <- function(struct = "iid", trait = NULL, unit = NULL, rank = 0L,
                         level = "id", order = 0L, coord = NULL, n_unit = NULL,
                         dims = NULL, opts = NULL, expr = NULL, sections = NULL,
                         rows = NULL, name = NULL) {
-  struct <- match.arg(struct, c("iid", "diag", "us", "fa"))
+  struct <- match.arg(struct, c("iid", "diag", "us", "fa", "none"))
+  if (struct == "none" && (!identical(level, "id") || !is.null(sections)))
+    stop("rx_residual(\"none\") : ni structure entre unites ni sections, il n'y a pas de ",
+         "residuelle a structurer.", call. = FALSE)
   level  <- match.arg(level, RX_LEVEL_STRUCTURES)
   structure(list(struct = struct, trait = trait, unit = unit, rank = as.integer(rank),
                  level = level, order = as.integer(order), coord = coord,
@@ -495,7 +512,7 @@ rx_residual <- function(struct = "iid", trait = NULL, unit = NULL, rank = 0L,
     x
   }
   if (is.character(residual) && length(residual) == 1L &&
-      residual %in% c("units", "iid", "diag", "us", "fa")) {
+      residual %in% c("units", "iid", "diag", "us", "fa", "none")) {
     r <- if (residual == "units") "iid" else residual
     return(rx_residual(r, trait = .vec_de(trait), unit = .vec_de(unit)))
   }
@@ -648,16 +665,37 @@ rx_residual <- function(struct = "iid", trait = NULL, unit = NULL, rank = 0L,
 # ==============================================================================
 # 3. MODELE
 # ==============================================================================
-rx_model <- function(y, X, terms, residual = rx_residual(), name = "modele") {
+rx_model <- function(y, X, terms, residual = rx_residual(), name = "modele", lag = NULL,
+                     weights = NULL) {
   n <- length(y)
+  # POIDS A PRIORI : R = W^-1/2 R0 W^-1/2. Avec une residuelle iid dont la
+  # variance est fixee a 1 (fixed_theta), R = diag(1/w) : variances residuelles
+  # connues, comme dans une analyse en deux etapes. Le solveur met les lignes a
+  # l'echelle sqrt(w) et corrige la vraisemblance (fit.fit_reml).
+  if (!is.null(weights)) {
+    weights <- as.numeric(weights)
+    if (length(weights) != n || any(!is.finite(weights)) || any(weights <= 0))
+      stop("weights : ", n, " valeurs finies et > 0 attendues.", call. = FALSE)
+  }
   if (!is.matrix(X)) X <- matrix(X, nrow = n)
   if (nrow(X) != n) stop("X a ", nrow(X), " lignes pour ", n, " observations.")
   # Un modele SANS terme aleatoire est licite des lors que la residuelle est
   # structuree (residual = ~ ar1(row):ar1(col)) : c'est le modele spatial le
   # plus courant en essai au champ.
   if (!length(terms) && identical(residual$level, "id") &&
-      identical(residual$struct, "iid"))
+      identical(residual$struct, "iid") && is.null(lag))
     stop("aucun terme aleatoire et residuelle iid : il n'y a rien a estimer.")
+  if (!length(terms) && identical(residual$struct, "none"))
+    stop("residuelle \"none\" sans terme aleatoire : V serait nulle.", call. = FALSE)
+  if (!is.null(lag)) {
+    if (!inherits(lag, "rx_lag")) stop("`lag` doit etre un objet rx_lag (voir rx_lag()).",
+                                       call. = FALSE)
+    if (length(lag$trait) != n)
+      stop("rx_lag : ", length(lag$trait), " lignes declarees pour ", n, " observations. ",
+           "`trait` et `unit` de rx_lag() decrivent les lignes de y, dans le meme ordre.",
+           call. = FALSE)
+    .rx_avertir_tb_iee(terms, lag)
+  }
   for (tm in terms) {
     if (!inherits(tm, "rx_term")) stop("terms doit contenir des objets rx_term.")
   }
@@ -679,6 +717,7 @@ rx_model <- function(y, X, terms, residual = rx_residual(), name = "modele") {
   }
   .t_de <- function(r) if (is.null(r$trait)) 1L else nlevels(factor(r$trait))
   for (s in (residual$sections %||% list(residual))) {
+    if (identical(s$struct, "none")) next
     if (s$struct %in% c("diag", "us", "fa") && .t_de(s) < 2L)
       stop("structure residuelle '", s$struct, "'",
            if (!is.null(s$name)) paste0(" (section ", s$name, ")") else "",
@@ -700,15 +739,18 @@ rx_model <- function(y, X, terms, residual = rx_residual(), name = "modele") {
   X_assign <- attr(X, "assign"); X_termes <- attr(X, "termes")
   structure(list(name = name, y = as.numeric(y), X = X, terms = terms,
                  X_assign = X_assign, X_termes = X_termes,
-                 residual = residual, n = n, t_res = t_res,
+                 residual = residual, n = n, t_res = t_res, lag = lag, weights = weights,
                  # La residuelle porte aussi des parametres de NIVEAUX (le rho
                  # d'un ar1 residuel), et une residuelle en sections en porte un
                  # jeu par section. Les omettre affichait 2 parametres pour un
-                 # champ ar1 x ar1 qui en a 4.
+                 # champ ar1 x ar1 qui en a 4. Les entrees libres de Psi
+                 # viennent en dernier, comme dans theta.
                  n_par = sum(vapply(terms, `[[`, 1L, "n_par")) +
                    sum(vapply(residual$sections %||% list(residual), function(s)
+                     if (identical(s$struct, "none")) 0L else
                      rx_n_params(s$struct, .t_de(s), s$rank) +
-                       rx_n_level(s$level %||% "id", s$order %||% 0L, s$opts), 1L))),
+                       rx_n_level(s$level %||% "id", s$order %||% 0L, s$opts), 1L)) +
+                   (if (is.null(lag)) 0L else lag$n_free)),
             class = "rx_model")
 }
 
@@ -721,10 +763,16 @@ print.rx_model <- function(x, ...) {
                 switch(tm$level, id = "K=I", fixed = "K fournie",
                        ar1ar1 = "AR1xAR1", toupper(tm$level)), tm$n_par,
                 if (tm$n_par > 1) "s" else ""))
+  if (identical(x$residual$struct, "none")) {
+    cat("  residuelle     aucune (V portee par les termes)\n")
+  } else
   cat(sprintf("  residuelle     %-5s t=%d  (%d parametre%s)\n", x$residual$struct, x$t_res,
               rx_n_params(x$residual$struct, x$t_res, x$residual$rank),
               if (rx_n_params(x$residual$struct, x$t_res, x$residual$rank) > 1) "s" else ""))
-  cat(sprintf("  total : %d parametres de variance\n", x$n_par))
+  if (!is.null(x$lag))
+    cat(sprintf("  decalage       Psi %dx%d, %d entree(s) libre(s), critere %s\n",
+                x$lag$q, x$lag$q, x$lag$n_free, x$lag$criterion))
+  cat(sprintf("  total : %d parametres\n", x$n_par))
   invisible(x)
 }
 
@@ -751,6 +799,7 @@ rx_export <- function(model, dir) {
     invisible()
   }
   put("y", model$y); put("X", model$X)
+  if (!is.null(model$weights)) put("poids", model$weights)
   # Groupement des colonnes de X par TERME du modele (attribut `assign` de
   # model.matrix). Sans lui, un test de Wald porterait sur chaque colonne prise
   # isolement, ce qui n'a pas de sens des qu'un facteur a plus de deux niveaux :
@@ -791,6 +840,15 @@ rx_export <- function(model, dir) {
           vapply(tm$parts, function(x) as.integer(x[[2]]), integer(1)), "i4")
     }
     if (!is.null(tm$LK)) put(paste0("term_", p, "_LK"), tm$LK)
+    if (!is.null(tm$Kinv)) {
+      # precision creuse (pedigree) : lue par le seul moteur MME
+      Ti <- methods::as(methods::as(tm$Kinv, "CsparseMatrix"), "TsparseMatrix")
+      put(paste0("term_", p, "_Kinv_i"), Ti@i, "i4"); put(paste0("term_", p, "_Kinv_j"), Ti@j, "i4")
+      put(paste0("term_", p, "_Kinv_x"), Ti@x)
+      ld <- tm$Kinv_logdet %||%
+        -as.numeric(Matrix::determinant(Matrix::forceSymmetric(tm$Kinv), logarithm = TRUE)$modulus)
+      put(paste0("term_", p, "_Kinv_logdet"), ld)
+    }
     if (!is.null(tm$levels)) put(paste0("term_", p, "_levels"), tm$levels, "str")
   }
   # Une section (ou la residuelle entiere) : memes champs, meme prefixe.
@@ -810,8 +868,19 @@ rx_export <- function(model, dir) {
     put(paste0(pre, "_rank"), r$rank, "i4")
     put(paste0(pre, "_trait"),
         if (is.null(r$trait)) rep(0L, nlig) else as.integer(factor(r$trait)) - 1L, "i4")
+    # UNE GRILLE AR1 x AR1 GARDE SES CODES DE CELLULE. L'unite y vaut
+    # (ligne-1)*n_colonnes + colonne, de 1 a n_unit : c'est la POSITION dans le
+    # produit de Kronecker. La renumeroter par factor() supprimait les cellules
+    # sans observation et decalait toutes les suivantes, sans aucune erreur : le
+    # solveur lisait la correlation aux mauvaises cellules. MESURE (5 % de
+    # cellules manquantes) : logLik -854,39 contre -820,77 avec la vraie
+    # geometrie, rho des lignes 0,18 pour 0,6 simule. Partout ailleurs l'unite
+    # n'est qu'une etiquette, et factor() reste correct.
+    grille <- identical(r$level, "ar1ar1") && !is.null(r$n_unit) && !is.null(r$unit)
     put(paste0(pre, "_unit"),
-        if (is.null(r$unit)) seq_len(nlig) - 1L else as.integer(factor(r$unit)) - 1L, "i4")
+        if (is.null(r$unit)) seq_len(nlig) - 1L else
+        if (grille) as.integer(r$unit) - 1L else as.integer(factor(r$unit)) - 1L, "i4")
+    if (grille) put(paste0(pre, "_nunit"), as.integer(r$n_unit), "i4")
   }
   put_res("res", model$residual, model$n)
   secs <- model$residual$sections
@@ -823,6 +892,27 @@ rx_export <- function(model, dir) {
       put_res(sprintf("res_s%d", k - 1L), s, length(s$rows))
       put(sprintf("res_s%d_rows", k - 1L), as.integer(s$rows) - 1L, "i4")
     }
+  }
+  # DECALAGE SPATIAL. W en triplets COO 0-based (une commune, ou une par
+  # caractere receveur), indices de caractere et d'unite 0-based par ligne,
+  # et trois matrices q x q (receveur en ligne) : entrees libres, valeurs des
+  # entrees non libres, depart des entrees libres.
+  if (!is.null(model$lag)) {
+    L <- model$lag
+    put("lag_q", L$q, "i4"); put("lag_N", L$N, "i4"); put("lag_nW", length(L$W), "i4")
+    for (k in seq_along(L$W)) {
+      S <- methods::as(L$W[[k]], "TsparseMatrix")
+      put(sprintf("lag_W%d_i", k - 1L), S@i, "i4")
+      put(sprintf("lag_W%d_j", k - 1L), S@j, "i4")
+      put(sprintf("lag_W%d_x", k - 1L), S@x)
+    }
+    put("lag_trait", as.integer(L$trait) - 1L, "i4")
+    put("lag_unit", as.integer(L$unit) - 1L, "i4")
+    put("lag_mask", matrix(as.integer(L$mask), L$q, L$q), "i4")
+    put("lag_value", matrix(as.numeric(L$value), L$q, L$q))
+    put("lag_init", matrix(as.numeric(L$init), L$q, L$q))
+    put("lag_traits", L$traits, "str")
+    put("lag_criterion", L$criterion, "str")
   }
   writeLines(jsonlite::toJSON(man, auto_unbox = TRUE), file.path(dir, "manifest.json"))
   invisible(dir)
@@ -843,7 +933,40 @@ rx_fit <- function(model, backend = c("auto", "gpu", "cpu"), dir = NULL,
                    vpredict = NULL, wald = FALSE,
                    kenward_roger = FALSE, predict = NULL, theta_init = NULL,
                    fixed_theta = NULL, floor = -12, ceil = 12,
-                   verbose = TRUE, keep = FALSE) {
+                   verbose = TRUE, keep = FALSE,
+                   optimizer = getOption("remlax.optimizer", Sys.getenv("RX_OPTIMIZER", "lbfgsb")),
+                   engine = getOption("remlax.engine", Sys.getenv("RX_ENGINE", "dense")),
+                   inversion = c("auto", "dense", "sparse", "hybrid"), bayes = NULL,
+                   memory = getOption("remlax.memory", Sys.getenv("RX_MEMORY", "standard")),
+                   finish = getOption("remlax.finish", Sys.getenv("RX_FINISH", "newton"))) {
+  # optimizer : "lbfgsb" (defaut), "ai" (AI-REML, pas pris en echelle des
+  # variances, a la maniere d'asreml) ou "ai_theta" (AI-REML, pas pris en theta
+  # de Cholesky, variante anterieure). Polissage, diagnostics et sorties ne
+  # changent pas. Le defaut se regle sans toucher aux appels, par
+  # options(remlax.optimizer = "ai") ou la variable d'environnement RX_OPTIMIZER :
+  # c'est ce qui permet de rejouer une suite de validation entiere sous AI-REML.
+  optimizer <- match.arg(optimizer, c("lbfgsb", "ai", "ai_theta", "auto"))
+  # engine : "dense" (V formee) ou "mme" (equations du modele mixte). Un modele
+  # hors du perimetre du moteur MME (residuelle none, rr, decalage) y bascule
+  # vers le dense, avec un message du solveur.
+  # "auto" : moteur MME et AI-REML quand le modele est dans le perimetre du
+  # MME, sinon moteur dense et L-BFGS-B (econome au-dela de n = 5000)
+  engine <- match.arg(engine, c("dense", "mme", "blocks", "auto"))
+  engine_cli <- if (engine == "blocks") "blocs" else engine
+  # inversion de C dans le moteur MME. "creuse" reste accepte (nom d'origine,
+  # employe par les bancs et la suite de verification) ; le solveur attend
+  # toujours "creuse".
+  if (identical(inversion, "creuse")) inversion <- "sparse"
+  inversion <- match.arg(inversion)
+  inversion_cli <- switch(inversion, sparse = "creuse", hybrid = "hybride", inversion)
+  # memory : "standard" ou "low" (le solveur dit "econome", econome.py). Meme
+  # vraisemblance ; "low" garde moins de matrices n x n sur le GPU.
+  memory <- match.arg(memory, c("standard", "low"))
+  memory_cli <- if (memory == "low") "econome" else "standard"
+  # finish : "newton" (polissage apres L-BFGS-B) ou "trust" (arret sur progres
+  # lent et Newton a region de confiance, finition.py)
+  finish <- match.arg(finish, c("newton", "trust"))
+  finish_cli <- if (finish == "trust") "rc" else "newton"
   # LES BORNES DE theta SE DEMANDENT ICI, ET NULLE PART AILLEURS. Le CLI les
   # acceptait (--floor, --ceil) mais aucun argument R ne les transmettait : un
   # appelant qui croyait poser un plancher a -8 obtenait -12 sans un mot, et
@@ -865,15 +988,21 @@ rx_fit <- function(model, backend = c("auto", "gpu", "cpu"), dir = NULL,
   # SANS parente (0,3013) -- au lieu de 0,1849, celle de l'univarie AVEC
   # parente (0,1839). Toutes les heritabilites en decoulant etaient gonflees
   # d'un facteur 1,63, sans qu'aucun diagnostic ne le signale.
-  if (isTRUE(attr(model$terms, "creux_seulement")))
+  if (isTRUE(attr(model$terms, "creux_seulement")) && !(as.character(engine)[1] %in% c("mme", "auto")))
     stop("rx_fit : ce modele contient un ou plusieurs termes declares par leur ",
          "PRECISION (Kinv) sans facteur de K. Le moteur dense a besoin de K et ",
          "ignorerait silencieusement la parente, en estimant les effets comme ",
-         "INDEPENDANTS. Fournir K a rx_term(), ou ajuster avec rx_fit_sparse().",
+         "INDEPENDANTS. Fournir K a rx_term(), ou ajuster avec engine = \"mme\".",
          call. = FALSE)
 
   backend <- match.arg(backend)
+  # Kenward-Roger et predict supposent y lineaire en beta et u a V donnee ;
+  # avec un decalage, seule y* = (I - M) y l'est, et M depend d'un parametre.
+  if (!is.null(model$lag) && (isTRUE(kenward_roger) || !is.null(predict)))
+    stop("rx_fit : Kenward-Roger et predict ne sont pas disponibles avec un decalage ",
+         "spatial (rx_lag).", call. = FALSE)
   if (is.null(dir)) { dir <- tempfile("rx_"); on.exit(if (!keep) unlink(dir, recursive = TRUE)) }
+  t_R0 <- Sys.time()
   rx_export(model, dir)
   # predict : L (l x p) et, par terme aleatoire, M (l x t*q). Ecrits en
   # column-major comme tout le reste du paquet.
@@ -892,8 +1021,14 @@ rx_fit <- function(model, backend = c("auto", "gpu", "cpu"), dir = NULL,
     writeBin(as.double(theta_init), con, size = 8); close(con)
   }
   py <- rx_python_cmd()
-  .rx_python_assurer(py)
+  # PAS DE SONDE PREALABLE de l'interpreteur : elle lancait un Python juste pour
+  # importer jax, numpy et scipy (1,5 s a chaque session R) avant que le solveur
+  # ne refasse les memes imports. Elle ne sert plus qu'a expliquer un echec du
+  # lancement (voir plus bas), avec le meme message qu'avant.
   a <- c(rx_solver_args(), dir, "--backend", backend, "--maxiter", maxiter, "--polish", polish,
+         "--optimiseur", optimizer, "--moteur", engine_cli, "--inversion", inversion_cli,
+         "--memoire", memory_cli, "--finition", finish_cli,
+         .rx_bayes_args(bayes, dir),
          "--restarts", n_restarts,
          "--floor", format(floor, digits = 15), "--ceil", format(ceil, digits = 15),
          if (!is.null(vpredict)) c("--vpredict",
@@ -916,8 +1051,30 @@ rx_fit <- function(model, backend = c("auto", "gpu", "cpu"), dir = NULL,
          if (isTRUE(pev)) "--pev" else
            if (is.character(pev) && length(pev)) c("--pev-termes", paste(pev, collapse = ",")) else NULL,
          if (!verbose) "--quiet" else NULL)
-  .rx_lancer(py, a, verbose, "solveur REML : echec")
-  rx_read_result(dir, model = model, fixed_theta = fixed_theta)
+  t_R1 <- Sys.time()
+  tryCatch(.rx_lancer(py, a, verbose, "solveur REML : echec"), error = function(e) {
+    # interpreteur sans jax, numpy ou scipy : le dire en clair, avec RX_PY
+    .rx_python_assurer(py)
+    stop(e)
+  })
+  t_R2 <- Sys.time()
+  res <- rx_read_result(dir, model = model, fixed_theta = fixed_theta)
+  t_R3 <- Sys.time()
+  # CHRONO PAR ETAPES : celles du solveur (result.json, chrono.py) encadrees
+  # par celles de R. "solveur_total" est le temps mur du lancement au retour ;
+  # l'ecart avec la somme des etapes du solveur est la fin du processus.
+  dt <- function(a, b) as.numeric(difftime(b, a, units = "secs"))
+  ch_py <- unlist(res[["chrono"]])
+  # demarrage_serveur : ce que le temps mur du solveur a de plus que ses etapes
+  # (demarrage du serveur persistant au premier ajustement de la session, fin
+  # du processus en sous-processus)
+  res[["chrono"]] <- c(export_R = dt(t_R0, t_R1), ch_py,
+                       demarrage_serveur = max(dt(t_R1, t_R2) - sum(ch_py), 0),
+                       solveur_total = dt(t_R1, t_R2), lecture_R = dt(t_R2, t_R3))
+  # le solveur nomme l'inversion creuse "creuse" ; l'interface dit "sparse"
+  if (identical(res[["inversion"]], "creuse")) res[["inversion"]] <- "sparse"
+  if (identical(res[["inversion"]], "hybride")) res[["inversion"]] <- "hybrid"
+  res
 }
 
 # ERREURS-TYPES SUR theta. Le Hessien rendu est celui de -2 logL, donc
@@ -977,7 +1134,18 @@ rx_solver_args <- function() {
 
 # Commande Python : $RX_PY, sinon $IGE_JAX_CMD, sinon $IGE_JAX_SIF, sinon python3
 rx_python_cmd <- function() {
-  if (nzchar(Sys.getenv("RX_PY"))) return(strsplit(Sys.getenv("RX_PY"), " +")[[1]])
+  if (nzchar(Sys.getenv("RX_PY"))) {
+    py <- strsplit(Sys.getenv("RX_PY"), " +")[[1]]
+    # RX_PY qui designe le DOSSIER d'un venv (celui que cree rx_install_python)
+    # plutot que son interpreteur : erreur frequente, et le shell ne repondait
+    # que "Permission denied". On prend l'interpreteur du venv.
+    if (length(py) == 1L && dir.exists(py)) {
+      cand <- file.path(py, c("bin/python", "bin/python3", "Scripts/python.exe"))
+      cand <- cand[file.exists(cand)]
+      if (length(cand)) return(cand[1])
+    }
+    return(py)
+  }
   if (nzchar(Sys.getenv("IGE_JAX_CMD"))) return(strsplit(Sys.getenv("IGE_JAX_CMD"), " +")[[1]])
   sif <- Sys.getenv("IGE_JAX_SIF")
   if (nzchar(sif)) return(c("apptainer", "exec", "--nv", sif, "python3"))
@@ -1031,6 +1199,18 @@ rx_python_cmd <- function() {
 # fichier temporaire : sous R, capturer stderr forcerait aussi la capture de
 # stdout. Sans cela, un echec ne rendait que « echec » sans la cause.
 .rx_lancer <- function(py, a, verbose, quoi) {
+  # SOLVEUR PERSISTANT d'abord (remlax_serveur.R) : il evite le demarrage de
+  # Python et l'import de JAX a chaque ajustement. NULL : pas de serveur
+  # utilisable, on lance le sous-processus comme avant.
+  ent <- rx_solver_args(); n0 <- length(ent)
+  r <- if (identical(as.character(a[seq_len(n0)]), as.character(ent)))
+    .rx_serveur_executer(py, a[-seq_len(n0)], verbose) else NULL
+  if (!is.null(r)) {
+    if (!identical(r$code, 0L))
+      stop(paste(c(paste0(quoi, ". Sortie du solveur :"), utils::tail(r$sortie, 40)),
+                 collapse = "\n"), call. = FALSE)
+    return(invisible(r$sortie))
+  }
   err <- tempfile("rx_err_"); on.exit(unlink(err), add = TRUE)
   # backend = "cpu" : JAX ne doit pas toucher au GPU. Sinon il l'initialise quand
   # meme et tente d'en reserver 75 % de la memoire, ce qui echoue bruyamment
@@ -1038,6 +1218,9 @@ rx_python_cmd <- function() {
   ib <- match("--backend", a)
   env <- if (!is.na(ib) && identical(as.character(a[ib + 1L]), "cpu"))
     c(JAX_PLATFORMS = "cpu") else character()
+  # instant du lancement, pour le chrono du solveur (chrono.py) : sa premiere
+  # etape mesure alors le demarrage de Python
+  env <- c(env, RX_T_LANCEMENT = format(as.numeric(Sys.time()), digits = 17))
   st <- suppressWarnings(.rx_system2(py[1], shQuote(c(py[-1], as.character(a))),
                                      stdout = if (verbose) "" else TRUE,
                                      stderr = if (verbose) err else TRUE, env = env))
@@ -1128,7 +1311,8 @@ rx_python_check <- function(py = rx_python_cmd(), quiet = FALSE) {
 # @param upgrade reinstaller si le venv existe deja.
 # @return chemin de l'interpreteur cree, invisible.
 rx_install_python <- function(dir = file.path(tools::R_user_dir("remlax", "data"), "venv"), cuda = FALSE,
-                              python = "python3", upgrade = FALSE, ask = interactive()) {
+                              python = "python3", upgrade = FALSE, ask = interactive(),
+                              bayes = FALSE) {
   # Chemin ABSOLU : une RX_PY relative se resoudrait contre le repertoire
   # courant de chaque session, donc tantot un venv, tantot rien.
   dir <- normalizePath(dir, mustWork = FALSE)
@@ -1149,7 +1333,9 @@ rx_install_python <- function(dir = file.path(tools::R_user_dir("remlax", "data"
         stop("remlax : `", python, " -m venv` a echoue (code ", st, "). Python >= 3.10 requis.",
              call. = FALSE)
     }
-    paquets <- c(if (cuda) "jax[cuda12]>=0.4.30" else "jax>=0.4.30", "numpy>=1.24", "scipy>=1.10")
+    paquets <- c(if (cuda) "jax[cuda12]>=0.4.30" else "jax>=0.4.30", "numpy>=1.24", "scipy>=1.10",
+                 # voie bayesienne (rx_bayes) : BlackJAX (et optax), optionnel
+                 if (bayes) "blackjax>=1.7")
     message("remlax : pip install ", paste(paquets, collapse = " "))
     st <- system2(exe, c("-m", "pip", "install", "--upgrade", "--quiet", shQuote(paquets)))
     if (!identical(as.integer(st), 0L))
@@ -1259,6 +1445,19 @@ rx_read_result <- function(dir, model = NULL, fixed_theta = NULL) {
     if (q_ * q_ == length(v)) r[["hessian"]] <- matrix(v, q_, q_)
     else warning(sprintf("out_hessian a %d valeurs, non carre : ignore", length(v)))
   }
+  # DECALAGE SPATIAL : Psi (unites de W), ses erreurs-types (methode delta du
+  # moteur), et y* au point final (beta et les BLUP sont ceux du modele de y*).
+  if (!is.null(r[["lag"]])) {
+    q_ <- as.integer(r[["lag"]][["q"]])
+    tn <- as.character(r[["lag"]][["traits"]])
+    v <- rd("out_lag_psi")
+    if (!is.null(v)) r[["lag"]][["Psi"]] <- matrix(v, q_, q_, dimnames = list(tn, tn))
+    v <- rd("out_lag_psi_se")
+    if (!is.null(v)) r[["lag"]][["Psi_se"]] <- matrix(v, q_, q_, dimnames = list(tn, tn))
+    r[["ystar"]] <- rd("out_ystar")
+  }
+  # Voie bayesienne : tirages, resume et diagnostics (remlax_bayes.R).
+  r <- .rx_bayes_read(r, rd)
   # Erreurs-types sur theta, sur le sous-espace libre ; NA sans Hessien.
   r[["fixed_theta"]] <- if (length(fixed_theta)) as.integer(fixed_theta) else integer(0)
   r[["se_theta"]] <- rx_se_theta(r[["theta"]], r[["hessian"]],
@@ -1283,10 +1482,18 @@ rx_read_result <- function(dir, model = NULL, fixed_theta = NULL) {
 }
 
 print.rx_fit <- function(x, ...) {
+  if (identical(x[["depart_bayes"]], "map")) {
+    # voie bayesienne sans REML : valeurs au MODE A POSTERIORI, pas d'optimum
+    # REML ni de diagnostic de convergence REML a afficher
+    mp <- x[["mode_posterieur"]]
+    cat(sprintf("Mode a posteriori (%s), sans ajustement REML : logLik REML au mode %.6f | %d parametres | %d obs | %.1f s\n",
+                x$backend, x$logLik, x$n_par, x$n_obs, (mp$secondes %||% NA)))
+  } else {
   cat(sprintf("Ajustement REML (%s) : logLik %.6f | %d parametres | %d obs | %.1f s\n",
               x$backend, x$logLik, x$n_par, x$n_obs, x$secondes))
   cat(sprintf("  max|grad| %.2e | decrement de Newton %.2e | %d valeur(s) propre(s) negative(s)\n",
               x$max_grad, x$newton_decrement %||% NA, x$n_neg_eig %||% NA))
+  }
   for (nm in names(x$sigmas)) {
     S <- x$sigmas[[nm]]
     cat(sprintf("  Sigma[%s] %dx%d, diagonale : %s\n", nm, nrow(S), ncol(S),
@@ -1299,8 +1506,27 @@ print.rx_fit <- function(x, ...) {
     for (nm in names(sr))
       cat(sprintf("  residuelle[%s] : %s\n", nm,
                   paste(format(diag(as.matrix(sr[[nm]])), digits = 4), collapse = " ")))
-  } else if (!is.null(x$sigma_res))
-    cat(sprintf("  residuelle : %s\n", paste(format(diag(as.matrix(x$sigma_res)), digits = 4), collapse = " ")))
+  } else if (!is.null(x[["sigma_res"]]))
+    # [[ et non $ : `x$sigma_res` s'appariait partiellement sur `sigma_res_dims`
+    # quand la residuelle est absente ("none"), et imprimait une ligne vide.
+    cat(sprintf("  residuelle : %s\n", paste(format(diag(as.matrix(x[["sigma_res"]])), digits = 4), collapse = " ")))
+  else cat("  residuelle : aucune\n")
+  # Entrees non identifiees separement (meme motif dans V) : on le dit, avec
+  # le nombre de parametres identifies, celui qui compte pour un LRT.
+  if (isTRUE(x[["n_plat_attendu"]] > 0))
+    cat(sprintf("  %d direction(s) plate(s) par construction (entrees de meme motif, seule leur somme est identifiee) : %d parametres identifies\n",
+                as.integer(x[["n_plat_attendu"]]), as.integer(x[["n_par_identifies"]])))
+  Lg <- x[["lag"]]
+  if (!is.null(Lg) && !is.null(Lg[["Psi"]])) {
+    cat(sprintf("  Psi (receveur en ligne, emetteur en colonne ; unites de W) | critere %s | log|det A| %.6f | rayon spectral de M %.4f%s\n",
+                Lg[["criterion"]], Lg[["logdet_A"]], Lg[["rayon_spectral"]],
+                if (isFALSE(Lg[["admissible"]])) " | HORS REGION ADMISSIBLE" else ""))
+    P <- Lg[["Psi"]]; S <- Lg[["Psi_se"]]
+    m <- matrix(sprintf("%10.5f", P), nrow(P))
+    if (!is.null(S)) m[] <- ifelse(is.na(S), paste0(m, "          "), sprintf("%s (%7.5f)", m, S))
+    dimnames(m) <- list(paste0("    ", rownames(P), " <-"), colnames(P))
+    print(noquote(m))
+  }
   # Correspondance V1, V2, ... des expressions vpredict, pour qu'on sache ce
   # que l'on a divise par quoi.
   cp <- x$vpredict$composantes
@@ -1322,6 +1548,7 @@ print.rx_fit <- function(x, ...) {
       cat(sprintf("    %-14s ddl %2d   F %9.3f   p %.4g\n",
                   tw$terme[i], tw$ddl[i], tw$F[i], tw$p[i]))
   }
+  .rx_bayes_print(x)
   invisible(x)
 }
 `%||%` <- function(a, b) if (is.null(a)) b else a
@@ -1595,7 +1822,7 @@ print.rx_fit <- function(x, ...) {
 # @param backend  "auto" | "gpu" | "cpu" - choix de MACHINE, jamais de modele
 rx_reml <- function(fixed, random = NULL, residual = "units", data,
                     trait = NULL, unit = NULL,
-                    backend = c("auto", "gpu", "cpu"), ...) {
+                    backend = c("auto", "gpu", "cpu"), lag = NULL, ...) {
   # `...` transmet vpredict, wald, fixed_theta, n_restarts, verbose... a rx_fit.
   backend <- match.arg(backend)
 
@@ -1606,6 +1833,10 @@ rx_reml <- function(fixed, random = NULL, residual = "units", data,
   .lab <- c("(Intercept)", attr(terms(fixed), "term.labels"))
   attr(X, "termes") <- .lab[sort(unique(.asg)) + 1L]
   ok <- stats::complete.cases(y, X)
+  if (!all(ok) && !is.null(lag))
+    stop("rx_reml : ", sum(!ok), " ligne(s) incomplete(s) et un decalage spatial. Les ",
+         "lignes de rx_lag() decrivent celles de `data` ; retirer les lignes incompletes ",
+         "AVANT de construire rx_lag(), ou passer par rx_model().", call. = FALSE)
   if (!all(ok)) {
     message("rx_reml : ", sum(!ok), " ligne(s) incompletes retirees.")
     data <- data[ok, , drop = FALSE]
@@ -1645,7 +1876,7 @@ rx_reml <- function(fixed, random = NULL, residual = "units", data,
                                 trait = if (!is.null(trait)) trait else tr,
                                 unit  = if (!is.null(unit))  unit  else un)
   mod <- rx_model(y, X, terms_l, res_obj,
-                  name = deparse(fixed[[2]])[1])
+                  name = deparse(fixed[[2]])[1], lag = lag)
   # Une surface spl2d() demande les PEV (dimensions effectives, heritabilite
   # generalisee) : on les calcule par defaut, sauf si l'appel dit pev =.
   dots <- list(...)
@@ -1934,6 +2165,8 @@ rx_predict <- function(fit, classify, levels = NULL, at = NULL,
   if (is.null(fit$fixed) || is.null(fit$data))
     stop("rx_predict : cet ajustement ne vient pas de rx_reml() ; la formule des ",
          "effets fixes et les donnees ne sont pas connues.")
+  if (!is.null(fit$model$lag))
+    stop("rx_predict : non disponible avec un decalage spatial (rx_lag).", call. = FALSE)
   cls <- unlist(strsplit(classify, "[:+]"))
   cls <- trimws(cls[nzchar(cls)])
   data <- fit$data

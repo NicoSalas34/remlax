@@ -9,7 +9,7 @@
 rx_python_check(py = rx_python_cmd(), quiet = FALSE)
 rx_install_python(dir = file.path(tools::R_user_dir("remlax", "data"), "venv"),
                   cuda = FALSE, python = "python3", upgrade = FALSE,
-                  ask = interactive())
+                  ask = interactive(), bayes = FALSE)
 rx_remove_python(dir = file.path(tools::R_user_dir("remlax", "data"), "venv"),
                  ask = interactive())
 }
@@ -32,6 +32,9 @@ default CPU build uses open-source packages only.}
 
 \item{ask}{ask for confirmation before writing or deleting (default: in
 interactive sessions only).}
+
+\item{bayes}{also install blackjax, needed by the Bayesian route
+(\code{\link[=rx_bayes]{rx_bayes()}}).}
 }
 \value{
 \code{rx_python_check()}: a list with \code{ok}, \code{python}, \code{versions} and

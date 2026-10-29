@@ -18,6 +18,22 @@ solveur utilisable a n de l'ordre de 16 000 sur une tranche de GPU de 10 Go.
 Le reste du paquet ne voit qu'une fonction differentiable de V : toute
 construction de V — structure de covariance, noyau de voisinage parametre —
 recoit donc son gradient sans code supplementaire.
+
+GRADIENT PAR RAPPORT A y. La passe arriere rend aussi
+
+    d(-2logL)/dy = 2 P y = 2 r
+
+qui ne coute rien (r est deja calcule par la passe avant). Il etait inutile tant
+que y etait une donnee ; il devient necessaire des que la reponse analysee est
+une TRANSFORMEE parametree des donnees, y* = (I - M(Psi)) y, comme dans le
+modele structurel a decalage spatial (lag.py) : la derivee de -2logL par rapport
+a Psi passe par y*, et sans cette composante la differentiation automatique
+l'aurait vue nulle — un gradient faux, sans erreur.
+
+ML. `ml_from_V` est la meme fonction sans le terme log|X'V^-1 X| (et avec la
+constante N log 2pi) : -2logL_ML profilee en beta. Son gradient par rapport a V
+est V^-1 - r r' au lieu de P - r r'. Elle ne sert qu'au critere `ml` du modele
+structurel.
 """
 
 import os
@@ -52,7 +68,7 @@ def reml_from_V(V, y, X):
     return _reml_fwd(V, y, X)[0]
 
 
-def _reml_fwd(V, y, X):
+def _reml_fwd(V, y, X, ml=False):
     N, p = X.shape
     L = jnp.linalg.cholesky(V)
     logdetV = 2.0 * jnp.sum(jnp.log(jnp.diag(L)))
@@ -68,7 +84,11 @@ def _reml_fwd(V, y, X):
         La.T, jax.scipy.linalg.solve_triangular(La, XtViy, lower=True), lower=False)
     r = Viy - ViX @ beta                     # = P y
     yPy = y @ r
-    val = (N - p) * LOG2PI + logdetV + logdetA + yPy
+    if ml:
+        # -2logL_ML profilee : ni log|X'V^-1X| ni retrait de p dans la constante.
+        val = N * LOG2PI + logdetV + yPy
+    else:
+        val = (N - p) * LOG2PI + logdetV + logdetA + yPy
     return val, (L, ViX, La, r)
 
 
@@ -78,6 +98,10 @@ def _fwd(V, y, X):
 
 
 def _bwd(saved, g):
+    return _bwd_commun(saved, g, ml=False)
+
+
+def _bwd_commun(saved, g, ml=False):
     """P - (Py)(Py)', ecrit pour minimiser le nombre de matrices N x N VIVANTES
     simultanement. Sur une A100 entiere (80 Go) la formulation naive passe sans
     qu'on y pense ; sur un huitieme de carte (10 Go) chaque matrice N x N pese
@@ -103,9 +127,12 @@ def _bwd(saved, g):
         Linv = jax.scipy.linalg.solve_triangular(L, jnp.eye(N), lower=True)
         W = Linv.T @ Linv                   # = V^-1
         del Linv
-        W = W - Z.T @ Z                     # = P
-        W = W - jnp.outer(r, r)             # = P - (Py)(Py)'
-        return (g * W, None, None)
+        if not ml:
+            W = W - Z.T @ Z                 # = P
+        W = W - jnp.outer(r, r)             # = P - (Py)(Py)'   (ML : V^-1 - r r')
+        # Cotangente de y : 2 P y = 2 r (cf. en-tete). Rendue meme quand y
+        # n'est pas differentie : un vecteur de taille N, deja calcule.
+        return (g * W, 2.0 * g * r, None)
 
     # ---- variante a memoire bornee -------------------------------------------
     # On n a jamais besoin de V^-1 en entier d un coup : sa k-ieme tranche de
@@ -136,13 +163,34 @@ def _bwd(saved, g):
         E = (rows[:, None] == idx[None, :]).astype(L.dtype)
         blk = jax.scipy.linalg.solve_triangular(
             L.T, jax.scipy.linalg.solve_triangular(L, E, lower=True), lower=False)
-        blk = blk - Z.T @ jax.lax.dynamic_slice(Zp, (0, start), (Zp.shape[0], k))
+        if not ml:
+            blk = blk - Z.T @ jax.lax.dynamic_slice(Zp, (0, start), (Zp.shape[0], k))
         blk = blk - r[:, None] * jax.lax.dynamic_slice(rp, (start,), (k,))[None, :]
         return jax.lax.dynamic_update_slice(W, blk, (0, start))
 
     Wp = jax.lax.fori_loop(0, nchunk, body, Wp)
-    return (g * Wp[:, :N], None, None)
+    return (g * Wp[:, :N], 2.0 * g * r, None)
 
 
 reml_from_V.defvjp(_fwd, _bwd)
+
+
+# ==============================================================================
+# Variante ML (critere `ml` du modele structurel)
+# ==============================================================================
+@partial(jax.custom_vjp, nondiff_argnums=())
+def ml_from_V(V, y, X):
+    return _reml_fwd(V, y, X, ml=True)[0]
+
+
+def _fwd_ml(V, y, X):
+    val, res = _reml_fwd(V, y, X, ml=True)
+    return val, (res, X)
+
+
+def _bwd_ml(saved, g):
+    return _bwd_commun(saved, g, ml=True)
+
+
+ml_from_V.defvjp(_fwd_ml, _bwd_ml)
 

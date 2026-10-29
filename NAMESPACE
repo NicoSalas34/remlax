@@ -8,11 +8,19 @@ export(rx_reml)
 export(rx_model)
 export(rx_term)
 export(rx_residual)
+export(rx_border)
+export(rx_lag)
 export(rx_spl2d)
 
 # --- ajustement ---
 export(rx_fit)
 export(rx_fit_sparse)
+export(rx_fit_mme)
+export(rx_bayes)
+export(rx_prior)
+export(rx_bayes_available)
+export(rx_server_stop)
+S3method(print, rx_prior)
 export(rx_predict)
 
 # --- serialisation ---
@@ -37,6 +45,8 @@ export(rx_remove_python)
 # --- scan GWAS ---
 export(rx_scan)
 export(rx_scan_seuil)
+export(rx_scan_loco)
+export(rx_scan_exact)
 
 # --- dispositif : incidences de voisinage, expositions, parente ---
 export(rx_neighbourhood)
@@ -52,6 +62,7 @@ export(rx_ratios)
 export(rx_grid_summary)
 
 S3method(print, rx_model)
+S3method(print, rx_lag)
 S3method(print, rx_fit)
 S3method(print, rx_predict)
 S3method(print, rx_neighbourhood)
@@ -75,3 +86,4 @@ export(rx_validation_results)
 export(rx_spatial_trend)
 export(rx_dimensions)
 export(rx_heritability)
+

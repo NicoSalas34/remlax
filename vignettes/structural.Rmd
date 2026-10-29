@@ -1,0 +1,403 @@
+---
+title: "Structural models: a spatial lag of the response"
+output: rmarkdown::html_vignette
+vignette: >
+  %\VignetteIndexEntry{Structural models: a spatial lag of the response}
+  %\VignetteEngine{knitr::rmarkdown}
+  %\VignetteEncoding{UTF-8}
+---
+
+<!-- Code blocks are shown, not run: CRAN builds vignettes without Python.
+     Every block was executed with remlax and its output pasted underneath. -->
+
+```{r, include = FALSE}
+knitr::opts_chunk$set(eval = FALSE)
+```
+
+A neighbour can act on a plant in two ways. In the variance-partition view
+(the IGE model of `vignette("explicit-terms")`), each genotype carries an
+indirect genetic effect, a random effect of its own, and nothing says what it
+is made of. In the structural, trait-based view, the phenotype of a plant
+responds to the *phenotypes* of its neighbours:
+
+```
+y = M y + X b + sum_k Z_k u_k + e,      M[(t,i),(u,j)] = Psi[t,u] * W_t[i,j]
+```
+
+`y` is in long format (one row per plant and trait). `Psi[t, u]` is the
+effect of trait `u` of a neighbour (the **emitter**, a column of `Psi`) on
+trait `t` of the focal plant (the **receiver**, a row), per unit of
+neighbourhood weight `W_t[i, j]`. A diagonal entry is a loop: a tall
+neighbour makes a plant taller, which makes its neighbours taller, and the
+phenotypes are the equilibrium `y = (I - M)^-1 (X b + Z u + e)`.
+
+With `A = I - M` invertible, `y* = A y` is an ordinary mixed model: mean
+`X b`, covariance `V(theta)`. remlax therefore fits the structural model with
+every term and residual structure it already has; only the objective changes,
+and `Psi` becomes one more block of parameters.
+
+## Three models
+
+The examples below use one simulated field: 16 x 10 plants, queen
+neighbourhood with unit weights (`s = 7.05` neighbours on average), 40
+genotypes, two traits, `Psi[T1 <- T1] = 0.3 / s` (a loop) and
+`Psi[T2 <- T1] = -0.6 / s`.
+
+```{r}
+library(remlax)
+set.seed(2026)
+nr <- 16; nc <- 10; N <- nr * nc; ng <- 40; q <- 2
+field <- expand.grid(col = 1:nc, row = 1:nr)
+W <- Matrix::Matrix((as.matrix(dist(field, method = "maximum")) == 1) * 1, sparse = TRUE)
+s <- mean(Matrix::rowSums(W))
+geno <- factor(sample(rep(sprintf("G%02d", 1:ng), length.out = N)))
+Psi <- matrix(c(0.3, -0.6, 0, 0) / s, 2, dimnames = list(c("T1", "T2"), c("T1", "T2")))
+a <- matrix(rnorm(ng * q), ng) %*% chol(matrix(c(1, 0.4, 0.4, 1), 2))
+e <- matrix(rnorm(N * q), N)
+eta <- as.numeric(a[as.integer(geno), ] + e) + rep(c(10, 20), each = N)
+y <- as.numeric(solve(diag(N * q) - kronecker(Psi, as.matrix(W)), eta))
+d <- data.frame(y = y, trait = factor(rep(c("T1", "T2"), each = N)),
+                plant = rep(1:N, q), geno = rep(geno, q),
+                row = factor(rep(field$row, q)), col = factor(rep(field$col, q)))
+```
+
+The incidences are built once. `place()` puts an `N x m` block on the rows of
+one trait; that is how a multi-trait term gets one incidence per column of its
+`Sigma`.
+
+```{r}
+X <- model.matrix(~ trait - 1, d)
+Zg <- Matrix::sparseMatrix(i = 1:N, j = as.integer(geno), x = 1, dims = c(N, ng))
+place <- function(Z, k) {
+  zero <- Matrix::Matrix(0, N, ncol(Z), sparse = TRUE)
+  do.call(rbind, lapply(1:q, function(j) if (j == k) Z else zero))
+}
+Z_DGE <- list(DGE_T1 = place(Zg, 1), DGE_T2 = place(Zg, 2))
+Z_IGE <- list(IGE_T1 = place(W %*% Zg, 1), IGE_T2 = place(W %*% Zg, 2))
+I_N <- Matrix::Diagonal(N) * 1
+Z_plant <- list(res_T1 = place(I_N, 1), res_T2 = place(I_N, 2),
+                IEE_T1 = place(W, 1), IEE_T2 = place(W, 2))
+res_us <- rx_residual("us", trait = d$trait, unit = d$plant)
+lag <- rx_lag(W, trait = d$trait, unit = d$plant)
+```
+
+### VP+: variance partition with a joint plant term
+
+No lag. A genetic term over `[Z, W Z]` (direct and indirect genetic effects
+and their covariance, `us` over `2q` columns) and a **plant term** over
+`[I, W]`: its `2q x 2q` covariance holds the residual, the indirect
+environmental effects (IEE) and their covariance. That term *is* the
+residual, so the residual of the model is declared absent with
+`rx_residual("none")`.
+
+```{r}
+vp <- rx_fit(rx_model(d$y, X, list(rx_term("gen", c(Z_DGE, Z_IGE), struct = "us"),
+                                   rx_term("plant", Z_plant, struct = "us")),
+                      residual = rx_residual("none")), backend = "cpu")
+vp
+```
+
+```
+Ajustement REML (cpu) : logLik -553.145225 | 20 parametres | 320 obs | 155.7 s
+  max|grad| 8.48e-09 | decrement de Newton 1.40e-23 | 0 valeur(s) propre(s) negative(s)
+  Sigma[gen] 4x4, diagonale : 3.7311 2.9334 0.4938 1.4171
+  Sigma[plant] 4x4, diagonale : 0.813372 0.805986 0.018849 0.006307
+  residuelle : aucune
+  1 direction(s) plate(s) par construction (entrees de meme motif, seule leur somme est identifiee) : 19 parametres identifies
+```
+
+Without a residual, `V` must be positive definite from the terms alone. The
+solver checks it at the starting values and stops with an explicit message
+when it is not (for instance with a genetic term only).
+
+With a symmetric `W`, `Cov(res_t, IEE_u)` and `Cov(res_u, IEE_t)` have the
+same pattern in `V` and enter only through their sum: for `q >= 2` the plant
+term has `q(q-1)/2` flat directions. The fit detects them from the incidences
+(`fit$alias`), counts `q(q-1)/2` fewer parameters (`fit$n_par_identifies`,
+used by AIC, BIC and for the degrees of freedom of a likelihood ratio test),
+keeps them out of the convergence verdict, and reports the identified sum:
+
+```{r}
+summary(vp)$varcomp[grepl("^plant", rownames(summary(vp)$varcomp)), ]
+```
+
+```
+                         component   std.error     z.ratio bound
+plant[1,1]             0.813372091 0.139307977  5.83866129     P
+plant[2,1]             0.001297969 0.096644245  0.01343038     U
+plant[2,2]             0.805986307 0.129325871  6.23221249     P
+plant[3,1]             0.042702114 0.041785278  1.02194159     U
+plant[3,2]            -0.097116894          NA          NA     N
+plant[3,3]             0.018848987 0.015293000  1.23252389     P
+plant[4,1]            -0.002427647          NA          NA     N
+plant[4,2]            -0.071248677 0.042726551 -1.66755041     U
+plant[4,3]             0.008366310 0.009706911  0.86189214     U
+plant[4,4]             0.006306835          NA          NA     B
+plant[3,2]+plant[4,1] -0.099544541 0.059816921 -1.66415355     U
+```
+
+`plant[3,2]` is `Cov(IEE_T1, res_T2)` and `plant[4,1]` is `Cov(IEE_T2, res_T1)`:
+each is coded `N` (not identified on its own), their sum is estimated with a
+standard error. The parametrisation is not constrained to a symmetric
+residual-IEE block on purpose: a positive definite plant covariance with a
+symmetric cross block is a strictly smaller model (a structural truth such as
+`Cov(IEE, res) = Psi R_e` is not symmetric).
+
+### TB: trait-based model
+
+The lag carries the neighbour effects; the genetic term is the direct effect
+only, and the residual is `us` over traits.
+
+```{r}
+tb <- rx_fit(rx_model(d$y, X, list(rx_term("gen", Z_DGE, struct = "us")), res_us, lag = lag),
+             backend = "cpu")
+tb
+```
+
+```
+Ajustement REML (cpu) : logLik -494.836891 | 10 parametres | 320 obs | 24.9 s
+  max|grad| 1.01e-04 | decrement de Newton 4.20e-11 | 0 valeur(s) propre(s) negative(s)
+  Sigma[gen] 2x2, diagonale : 0.7416 0.5752
+  residuelle : 0.9560 0.8858
+  Psi (receveur en ligne, emetteur en colonne ; unites de W) | critere reml_y | log|det A| -0.910539 | rayon spectral de M 0.2930
+          T1                   T2
+    T1 <-    0.04670 (0.00540)    0.00539 (0.00909)
+    T2 <-   -0.07835 (0.00529)   -0.01178 (0.00869)
+```
+
+The true values are `0.3 / 7.05 = 0.0426` and `-0.6 / 7.05 = -0.0851`; both
+estimates are within 1.5 standard errors. Standard errors come from the
+observed Hessian, as for the variance components, and the free entries of
+`Psi` appear in the component table of `summary()`:
+
+```{r}
+summary(tb)$varcomp
+```
+
+```
+                   component   std.error     z.ratio bound
+gen[1,1]         0.741585235 0.224221704   3.3073749     P
+gen[2,1]         0.199883061 0.147539928   1.3547727     U
+gen[2,2]         0.575156162 0.183988331   3.1260469     P
+residuelle[1,1]  0.956039130 0.124430002   7.6833490     P
+residuelle[2,1]  0.050629466 0.084596151   0.5984843     U
+residuelle[2,2]  0.885845251 0.114650526   7.7264822     P
+Psi[T1<-T1]      0.046704934 0.005399027   8.6506210     U
+Psi[T1<-T2]      0.005389221 0.009093886   0.5926203     U
+Psi[T2<-T1]     -0.078349354 0.005291298 -14.8072084     U
+Psi[T2<-T2]     -0.011776933 0.008692267  -1.3548747     U
+```
+
+Restricting `Psi` is done in `rx_lag()`: `struct = "diag"` (loops only),
+`receivers =` and `emitters =` (subsets of traits), `struct = "mask"` with a
+logical `q x q` matrix, and `value =` for entries held at a known value. The
+free entries come last in `theta`, receiver by receiver, so `fixed_theta` can
+also hold some of them at their starting value (`init =`).
+
+### TB+: trait-based model with residual indirect genetic effects
+
+Both routes: the lag, and a genetic term over `[Z, W Z]` whose indirect part
+is the residual IGE, the part of a genotype's effect on its neighbours that
+does not go through the measured traits.
+
+```{r}
+tbp <- rx_fit(rx_model(d$y, X, list(rx_term("gen", c(Z_DGE, Z_IGE), struct = "us")), res_us,
+                       lag = lag), backend = "cpu")
+tbp
+```
+
+```
+Ajustement REML (cpu) : logLik -492.538658 | 17 parametres | 320 obs | 56.4 s
+  max|grad| 1.06e-08 | decrement de Newton 2.93e-24 | 0 valeur(s) propre(s) negative(s)
+  Sigma[gen] 4x4, diagonale : 0.757828 0.571184 0.015831 0.004371
+  residuelle : 0.8510 0.8605
+  Psi (receveur en ligne, emetteur en colonne ; unites de W) | critere reml_y | log|det A| -0.760373 | rayon spectral de M 0.2681
+          T1                   T2
+    T1 <-    0.04590 (0.00672)    0.00718 (0.01060)
+    T2 <-   -0.07622 (0.00620)   -0.01524 (0.00978)
+```
+
+### TB+ with residual indirect environmental effects (IEE*)
+
+A term over `W` placed on each trait adds the indirect environmental effects
+not carried by the measured traits. The plant level is then VP+ in other
+coordinates, and with both `Psi[t,u]` and `Psi[u,t]` free the direction of
+transmission is only weakly identified; `rx_model()` warns:
+
+```{r}
+Z_iee <- list(IEE_T1 = place(W, 1), IEE_T2 = place(W, 2))
+m <- rx_model(d$y, X, list(rx_term("gen", c(Z_DGE, Z_IGE), struct = "us"),
+                           rx_term("iee", Z_iee, struct = "us")), res_us, lag = lag)
+```
+
+```
+Warning message:
+rx_model : terme(s) iee avec une incidence W (IEE*) et Psi libre dans les deux sens pour T1/T2. Le sens de la transmission n'y est que faiblement identifie (directions faibles de VP+) : laisser libre au plus une de Psi[t,u], Psi[u,t] (rx_lag(struct = "mask") ou receivers/emitters).
+```
+
+Leave at most one entry of each reciprocal pair free, here the hypothesised
+path `T2 <- T1` and the loops:
+
+```{r}
+mk <- matrix(c(TRUE, TRUE, FALSE, TRUE), 2, dimnames = list(c("T1", "T2"), c("T1", "T2")))
+lag_m <- rx_lag(W, trait = d$trait, unit = d$plant, struct = "mask", mask = mk)
+tbi <- rx_fit(rx_model(d$y, X, list(rx_term("gen", c(Z_DGE, Z_IGE), struct = "us"),
+                                    rx_term("iee", Z_iee, struct = "us")), res_us, lag = lag_m),
+              backend = "cpu")
+tbi
+```
+
+```
+Ajustement REML (cpu) : logLik -492.625046 | 19 parametres | 320 obs | 163.3 s
+  max|grad| 1.33e-08 | decrement de Newton 1.79e-22 | 0 valeur(s) propre(s) negative(s)
+  Sigma[gen] 4x4, diagonale : 0.748706 0.569605 0.013158 0.004546
+  Sigma[iee] 2x2, diagonale : 0.006178 0.002004
+  residuelle : 0.818 0.846
+  Psi (receveur en ligne, emetteur en colonne ; unites de W) | critere reml_y | log|det A| -1.686256 | rayon spectral de M 0.3787
+          T1                   T2                  
+    T1 <-    0.04945 (0.00389)    0.00000          
+    T2 <-   -0.07648 (0.00625)   -0.01498 (0.00979)
+```
+
+Without IEE*, `Psi` is identified when full, through the genetic level, at
+some cost in precision; a mask on the hypothesised paths still tightens it.
+
+### TB with a spatially correlated environment
+
+The lag goes through `rx_reml()` too, and combines with any residual the
+formula grammar knows: here an unstructured covariance between traits times
+a separable AR1 x AR1 field.
+
+```{r}
+tbs <- rx_reml(y ~ trait - 1, random = ~ us(geno), residual = ~ us(trait):ar1(row):ar1(col),
+               data = d, trait = "trait", lag = lag, backend = "cpu")
+tbs
+```
+
+```
+Ajustement REML (cpu) : logLik -494.261208 | 12 parametres | 320 obs | 32.7 s
+  max|grad| 4.14e-11 | decrement de Newton 7.38e-24 | 0 valeur(s) propre(s) negative(s)
+  Sigma[geno] 2x2, diagonale : 0.7342 0.5622
+  residuelle : 0.9576 0.8969
+  Psi (receveur en ligne, emetteur en colonne ; unites de W) | critere reml_y | log|det A| -0.633419 | rayon spectral de M 0.2473
+          T1                   T2
+    T1 <-    0.04532 (0.00593)    0.00763 (0.00974)
+    T2 <-   -0.07771 (0.00573)   -0.01322 (0.00924)
+```
+
+The rows of `rx_lag()` are those of `data`; `rx_reml()` refuses a lag when it
+would have to drop incomplete rows, rather than realigning them silently.
+
+## The criterion
+
+The likelihood of `y` follows from that of `y*` by a change of variable, which
+adds the Jacobian `log|det A|`. For maximum likelihood that is the whole story.
+For REML it is not: the restricted likelihood of `y` is built on contrasts
+orthogonal to the mean space of `y`, which is spanned by `X_y = A^-1 X`, not by
+`X`. Harville's form of the restricted likelihood contains `|X'X|^{1/2}`,
+constant in an ordinary model and usually dropped; here the factor is
+`|X_y'X_y|^{1/2}`, and `X_y` depends on `Psi` as soon as the row sums of `W`
+vary, which border plants always make them do. `rx_lag(criterion =)` offers:
+
+| criterion | `-2 logL` | what it is |
+|---|---|---|
+| `"reml_y"` (default) | `-2 REML(y*) - 2 log|det A| - log|X_y'X_y| + log|X'X|` | the exact restricted likelihood of `y` |
+| `"jacobian"` | `-2 REML(y*) - 2 log|det A|` | change of variable only, Harville's factor on `X` |
+| `"ml"` | `-2 ML(y*) - 2 log|det A|` | maximum likelihood |
+
+The extra term of `"reml_y"` is not a small-sample nuisance of order `1/N`: on
+a field where the row sums of `W` vary, `X_y` is about `X / (1 - psi)` inside
+the field, so the term is of order `log(1/(1 - psi))` per trait. Without it
+the criterion depends on the scale of `b` in the `y*` parametrisation, and a
+likelihood ratio between models with and without `Psi` carries that offset.
+The fit reports the term (`fit$lag$logdet_mean`, in log-likelihood units)
+whatever the criterion, together with `logLik_ystar` (REML of `y*` alone) and
+`logLik_jacobian`. On the example:
+
+```
+reml_y   logLik  -494.8369  Psi[T1<-T1]  0.04670  Psi[T2<-T1] -0.07835  mean term 0.3071
+jacobian logLik  -495.1378  Psi[T1<-T1]  0.04621  Psi[T2<-T1] -0.07821  mean term 0.2948
+ml       logLik  -493.1208  Psi[T1<-T1]  0.04622  Psi[T2<-T1] -0.07824  mean term 0.2949
+```
+
+The estimates differ by a fraction of a standard error, as expected from
+criteria that differ by a smooth function of `Psi`. Log-likelihoods are
+comparable only within one criterion. Models without a lag (VP, VP+) have the
+same value under `"reml_y"` and `"jacobian"`, which makes the default the one
+to use for a likelihood ratio between VP+ and TB-type models.
+
+## Trait means and border plants
+
+With non-zero trait means, the structural model has mean
+`E y = (I - M)^-1 X b`. Without feedback, the mean of trait `t` on plant `i`
+is `mu_t + sum_u Psi[t,u] mu_u (W 1)_i`: plants with fewer neighbours (borders,
+gaps) differ in mean. The three criteria above contain this term, because
+they put the fixed effects in the structural equation. A model without a lag
+(VP, VP+) does not, and its covariance ratio is then biased, by several
+standard errors when the means are large relative to the standard deviations
+(height is often 10 standard deviations away from zero). Conversely, with
+large means a structural criterion reads much of `Psi` in the border pattern
+of the mean, so that any border effect that is not an interaction (more light
+at the edge) is attributed to `Psi`.
+
+`rx_border(W, trait, unit)` returns the number of neighbours `W 1` (scaled by
+its mean) as one fixed-effect column per trait. Add it to `X` of every model:
+
+```r
+X <- cbind(model.matrix(~ trait - 1, d), rx_border(W, d$trait, d$plant))
+```
+
+The VP-family models are then correct without feedback, and `Psi` of the
+structural models is read from the covariances only, whatever the border
+effects. With feedback, `order = 2` adds `W^2 1` and reduces the remaining
+second-order terms. With constant row sums (torus, complete groups) the
+columns are collinear with the intercepts and must not be added.
+
+## How `log|det A|` is computed
+
+Three exact paths, chosen once from the structure of the lag
+(`fit$lag$chemin`):
+
+* **no feedback** (`"nilpotent"`): the possible non-zero entries of `Psi` form
+  a graph without a cycle (for instance only `T2 <- T1`). Then `M^q = 0`,
+  `det A = 1` and `A^-1 = sum_{m<q} M^m`;
+* **one symmetric W, complete data** (`"rapide"`): `W = U diag(lambda) U'`
+  once, and `log|det A| = sum_k log det(I_q - lambda_k Psi)`, `q x q` per
+  eigenvalue;
+* **otherwise** (`"general"`): one `W` per receiver trait (a list named by the
+  traits), an asymmetric `W`, or missing (trait, plant) pairs: a dense LU of
+  `A`, of the same order of cost as the Cholesky of `V` already paid at every
+  evaluation.
+
+The admissible region is the set of `Psi` reached from `Psi = 0` without
+crossing a singular `A`: every real eigenvalue of `M` below 1. Outside it the
+objective returns a large finite penalty, which the line search treats as a
+cliff. On the eigenvalue path the condition is checked exactly at every
+evaluation; on the general path only `det A > 0` is, and the exact condition is
+checked at the end (`fit$lag$admissible`). The spectral radius of `M` is
+reported; a value above 1 is allowed when all real eigenvalues are below 1
+(the simultaneous model is defined, but the equilibrium is no longer the limit
+of iterating `y <- M y + ...`). For one trait the region is the usual
+parameter space of the SAR model, `psi` in `(1/lambda_min, 1/lambda_max)`;
+for several traits it contains the stability region `rho(Psi) rho(W) < 1`.
+
+## Checks and limits
+
+The objective, under the three criteria and on the three paths, equals a
+dense computation written independently in the tests; its gradient, through
+`y* = A y` (the solver's analytic gradient with respect to `V` now also
+returns `2 P y` for `y`), agrees with finite differences; a lag whose `Psi` is
+held at zero reproduces the fit without lag bit for bit. VP+, TB and TB+ were
+cross-validated against the independent engine of the IGE programme
+(`igepath_reml`, eigenbasis and Woodbury), with and without feedback: same
+log-likelihood under the same criterion and same estimates, to the
+optimiser's tolerance.
+
+Not available with a lag: the RTMB engine (`rx_fit_sparse()`),
+Kenward-Roger, `rx_predict()` and `rx_scan()`, which all assume `y` linear in
+`b` and `u` at given `V`. `fitted()` and `residuals()` refer to `y*`
+(`fit$ystar`). The Hessian is computed by finite differences of the gradient:
+at an optimum close to the edge of the admissible region a step can cross it,
+and the corresponding column of the Hessian is then wrong; the reported
+spectral radius tells when that is a risk. A lagged model fitted with
+`engine = "mme"` is fitted by the dense engine, with a message.
