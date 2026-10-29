@@ -109,3 +109,17 @@ package (`.Rbuildignore`).
 - pev takes term names: on the full IGE model, 21 of the 23 terms are nuisance
   terms, and asking for all their prediction error variances exhausted the
   memory at the first real run.
+
+### scan.R
+
+- A conditional test such as "ind|dir+sim" contains a vertical bar that the
+  shell of system2() reads as a pipe: the command was cut in two and returned
+  127, "command not found", with nothing pointing at the pipe. Every value is
+  now quoted.
+- read.csv() without check.names = FALSE turned `p_dir+ind+sim` into
+  `p_dir.ind.sim`; a caller looping over `tests` then skipped the composite
+  tests silently (three tests out of six missing from a summary).
+- tempdir() can be relative when $TMPDIR is, and the path then resolved
+  against the working directory of the Python process.
+- Identical doses for both families are written once: 292 MB in the format of
+  the IGE project.

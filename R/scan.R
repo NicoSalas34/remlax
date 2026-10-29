@@ -1,65 +1,22 @@
 # ==============================================================================
-# remlax_scan.R - GWAS a V figee, POSE A COTE de R/remlax.R
+# scan.R - rx_scan(): genome-wide scan at fixed V on a fitted model
 # ==============================================================================
-# Ce fichier n'est pas source par R/remlax.R et n'en modifie rien. Il le
-# SUPPOSE deja source : il appelle rx_export(), rx_pkg_dir(), rx_python_cmd()
-# et rx_solver_args(), toutes existantes.
-#
-#   source("R/remlax.R")
-#   source("R/remlax_scan.R")
-#   fit  <- rx_fit(modele)
-#   gwas <- rx_scan(fit, modele, marqueurs = M, carte = carte,
+#   fit  <- rx_fit(model)
+#   gwas <- rx_scan(fit, model, marqueurs = M, carte = carte,
 #                   incidences = c(dir = "gen", ind = "voisin"),
 #                   tests = c("dir", "ind", "dir+ind+sim", "ind|dir+sim"))
 #
-# CE QUE FAIT rx_scan, ET CE QU'IL NE FAIT PAS. Il ne reajuste rien : il reecrit
-# le theta DEJA estime par rx_fit dans le paquet et lance le scan avec
-# --theta-in --maxiter 0, donc le solveur reassemble V et s'arrete. Les
-# composantes de variance du scan sont exactement celles de l'ajustement que
-# l'utilisateur a lance et regarde.
+# rx_scan() refits nothing: it writes the theta already estimated by rx_fit()
+# into the bundle and runs the scan with --theta-in --maxiter 0, so the solver
+# rebuilds V and stops. The variance components of the scan are exactly those
+# of the fit.
 #
-# POURQUOI LES INCIDENCES SONT NOMMEES PAR LEURS TERMES. Z_soi et Z_voisin
-# existent deja : ce sont les incidences des termes DGE et IGE du modele
-# ajuste. Les redemander a l'utilisateur ouvrirait la porte a un scan mene sur
-# une incidence differente de celle du modele nul - un defaut silencieux. On
-# nomme donc les TERMES, et le dispositif du scan est celui du modele par
-# construction.
+# The incidences of the focal genotype and of the neighbours are named by the
+# terms of the fitted model that carry them, never supplied as matrices: a scan
+# run on an incidence different from that of the null model would be a silent
+# error.
 # ==============================================================================
 
-# Arguments and environment that select the scan entry point: $RX_SCAN_CLI when
-# set, otherwise the shipped launcher followed by "scan_cli". It cannot reuse
-# rx_solver_args(), which already names the fitting entry point.
-rx_scan_solver_args <- function() {
-  if (nzchar(Sys.getenv("RX_SCAN_CLI")))
-    return(list(args = strsplit(Sys.getenv("RX_SCAN_CLI"), " +")[[1]], env = character(0)))
-  py <- rx_python_cmd()
-  .rx_python_require(py)
-  list(args = c(.rx_launcher(), "scan_cli"), env = character(0))
-}
-
-
-# GWAS a V figee sur un modele deja ajuste
-#
-# @param fit sortie de `rx_fit` (ou `rx_reml`) : seul `fit$theta` est lu.
-# @param model l'objet `rx_model` correspondant.
-# @param marqueurs matrice des doses GENOTYPIQUES (q lignes x p SNP), lignes
-#   nommees par les niveaux du terme, ou liste `list(dir = ., ind = .)` pour le
-#   cas inter-especes (voisins d'une autre espece, donc autre jeu de SNP -
-#   les tests conjoints sont alors refuses par le solveur).
-#   Pour la famille `sim`, les doses doivent etre CENTREES (codage +/-1).
-# @param carte data.frame optionnel a colonnes `snp`, `chr`, `pos`.
-# @param incidences vecteur nomme : quels TERMES du modele portent l'incidence
-#   du genotype focal (`dir`) et celle des voisins (`ind`).
-# @param tests specifications, cf. docs/scan.md. La barre denote un test
-#   conditionnel : `"ind|dir+sim"` teste l'effet ADDITIF du voisin sachant le
-#   modele de Sato.
-# @param maf filtre de frequence allelique mineure, calcule sur `marqueurs$dir`
-#   selon `codage`. NULL pour ne rien filtrer.
-# @param codage "pm1" (doses en -1/+1) ou "012". Sert au calcul de la MAF, et
-#   c'est le seul endroit du dispositif ou le codage intervient.
-# @param bloc largeur des blocs de SNP pour la famille `sim`.
-# @return data.frame d'une ligne par SNP, plus l'attribut "meta" (lambda de
-#   controle genomique par test, temps, -2logL du nul).
 rx_scan <- function(fit, model, marqueurs, carte = NULL,
                     incidences = c(dir = "gen", ind = "voisin"),
                     tests = c("dir", "ind", "sim", "dir+ind+sim"),
@@ -72,36 +29,90 @@ rx_scan <- function(fit, model, marqueurs, carte = NULL,
   if (!is.null(model$lag))
     stop("rx_scan : non disponible avec un decalage spatial (rx_lag) ; le balayage suppose ",
          "y lineaire a V donnee.", call. = FALSE)
+  Z <- .rx_scan_incidences(model, incidences)
+  marqueurs <- .rx_scan_doses(marqueurs, Z, incidences)
+  p <- ncol(marqueurs[[names(Z)[1]]])
+  keep_snp <- .rx_scan_maf(marqueurs, Z, maf, codage, verbose, p)
 
-  # ---- les incidences viennent des TERMES du modele ------------------------
-  noms_termes <- vapply(model$terms, `[[`, "", "name")
+  # The bundle is kept when the solver fails, so that the path in the error
+  # message still exists.
+  keep_bundle <- FALSE
+  if (is.null(dir)) {
+    dir <- file.path(tempdir(), paste0("rx_scan_", as.integer(Sys.time())))
+    on.exit(if (!keep && !keep_bundle) unlink(dir, recursive = TRUE), add = TRUE)
+  }
+  # tempdir() can be relative (when $TMPDIR is); the path would then resolve
+  # against the working directory of the Python process.
+  dir.create(dir, recursive = TRUE, showWarnings = FALSE)
+  dir <- normalizePath(dir, mustWork = TRUE)
+  .rx_scan_write(dir, model, fit, Z, marqueurs, keep_snp, carte, p)
+
+  # Every value is quoted for the shell: a conditional test "ind|dir+sim"
+  # would otherwise be read as a pipe, and the bundle path may contain spaces.
+  sol <- .rx_scan_solver_args()
+  args <- c(shQuote(sol$args), shQuote(dir),
+            "--tests", shQuote(paste(tests, collapse = ",")),
+            "--backend", backend, "--theta-in", "--maxiter", "0",
+            "--bloc", as.character(as.integer(bloc)))
+  if (!verbose) args <- c(args, "--quiet")
+  code <- .rx_system2(rx_python_cmd(), args, stdout = "", stderr = "", env = sol$env)
+  if (!identical(as.integer(code), 0L)) {
+    keep_bundle <- TRUE
+    stop("rx_scan : le solveur a rendu le code ", code,
+         ". Paquet conserve pour diagnostic dans ", dir,
+         "\n  relancer a la main : ", paste(c(rx_python_cmd(), args), collapse = " "),
+         call. = FALSE)
+  }
+  # check.names = FALSE keeps the test names (`p_dir+ind+sim`, `p_sim|dir+ind`)
+  # that make.names() would turn into dots.
+  out <- utils::read.csv(file.path(dir, "scan_resultats.csv"),
+                         stringsAsFactors = FALSE, check.names = FALSE)
+  attr(out, "meta") <- jsonlite::fromJSON(file.path(dir, "scan_meta.json"))
+  out
+}
+
+# Arguments and environment that select the scan entry point: $RX_SCAN_CLI when
+# set, otherwise the shipped launcher followed by "scan_cli". It cannot reuse
+# rx_solver_args(), which already names the fitting entry point.
+.rx_scan_solver_args <- function() {
+  if (nzchar(Sys.getenv("RX_SCAN_CLI")))
+    return(list(args = strsplit(Sys.getenv("RX_SCAN_CLI"), " +")[[1]], env = character(0)))
+  py <- rx_python_cmd()
+  .rx_python_require(py)
+  list(args = c(.rx_launcher(), "scan_cli"), env = character(0))
+}
+
+# "term" or "term:a": the name of a term and the index of one of its
+# incidences (NA when the index is not an integer).
+.rx_parse_term_ref <- function(spec) {
+  spec <- as.character(spec)
+  if (!grepl(":", spec, fixed = TRUE)) return(list(name = spec, index = 1L, indexed = FALSE))
+  parts <- strsplit(spec, ":", fixed = TRUE)[[1]]
+  list(name = parts[1], index = suppressWarnings(as.integer(parts[2])), indexed = TRUE)
+}
+
+# The incidences of the scan, taken from the terms of the model. A term may
+# carry several incidences (a us structure on direct and indirect effects is
+# one term with t = 2), so "term:a" names the a-th; it is required when t > 1,
+# since guessing would give the direct effect the neighbour incidence.
+.rx_scan_incidences <- function(model, incidences) {
+  term_names <- vapply(model$terms, `[[`, "", "name")
   Z <- list()
   for (fam in names(incidences)) {
     if (!fam %in% c("dir", "ind"))
       stop("incidences : nom '", fam, "' inconnu ; attendu 'dir' et/ou 'ind'.",
            call. = FALSE)
-    # Un terme peut porter PLUSIEURS incidences. C'est le cas normal du modele
-    # DGE/IGE : une structure `us` 2x2 sur (direct, indirect) est UN terme a
-    # t = 2, dont Zl[[1]] est l'incidence du genotype porte et Zl[[2]] celle des
-    # voisins. On accepte donc `"terme:a"` pour designer la a-ieme, et on
-    # l'EXIGE des que t > 1 - deviner l'indice attribuerait l'effet direct a
-    # l'incidence de voisinage sans qu'aucune erreur ne le signale.
-    spec <- as.character(incidences[[fam]])
-    a <- 1L
-    if (grepl(":", spec, fixed = TRUE)) {
-      mor <- strsplit(spec, ":", fixed = TRUE)[[1]]
-      spec <- mor[1]
-      a <- suppressWarnings(as.integer(mor[2]))
-      if (is.na(a)) stop("incidences['", fam, "'] : apres ':' il faut un entier, ",
-                         "l'indice de la colonne du terme.", call. = FALSE)
-    }
-    k <- match(spec, noms_termes)
+    ref <- .rx_parse_term_ref(incidences[[fam]])
+    spec <- ref$name; a <- ref$index
+    if (is.na(a)) stop("incidences['", fam, "'] : apres ':' il faut un entier, ",
+                       "l'indice de la colonne du terme.", call. = FALSE)
+    k <- match(spec, term_names)
     if (is.na(k))
       stop("incidences['", fam, "'] = '", spec,
            "' : ce terme n'est pas dans le modele. Termes disponibles : ",
-           paste(noms_termes, collapse = ", "), call. = FALSE)
+           paste(term_names, collapse = ", "), call. = FALSE)
     tm <- model$terms[[k]]
-    if (tm$t > 1L && !grepl(":", as.character(incidences[[fam]]), fixed = TRUE))
+    if (tm$t > 1L && !ref$indexed)
       stop("terme '", tm$name, "' porte t = ", tm$t, " incidences. Preciser ",
            "laquelle : incidences['", fam, "'] = \"", spec, ":1\" pour la ",
            "premiere. Deviner l'indice attribuerait l'effet direct a ",
@@ -112,8 +123,13 @@ rx_scan <- function(fit, model, marqueurs, carte = NULL,
     Z[[fam]] <- tm$Zl[[a]]
   }
   if (!length(Z)) stop("incidences vide.", call. = FALSE)
+  Z
+}
 
-  # ---- doses ---------------------------------------------------------------
+# Dose matrices by family, indexed by genotype in the order of the levels of
+# the term. One matrix serves both families unless a list is given (neighbours
+# of another species carry another set of SNPs).
+.rx_scan_doses <- function(marqueurs, Z, incidences) {
   if (!is.list(marqueurs)) marqueurs <- list(dir = marqueurs, ind = marqueurs)
   for (fam in names(Z)) {
     if (is.null(marqueurs[[fam]]))
@@ -126,128 +142,61 @@ rx_scan <- function(fit, model, marqueurs, carte = NULL,
            call. = FALSE)
     marqueurs[[fam]] <- M
   }
-  p <- ncol(marqueurs[[names(Z)[1]]])
   if (length(unique(vapply(marqueurs[names(Z)], ncol, 1L))) > 1L)
     stop("les matrices de doses n'ont pas le meme nombre de SNP.", call. = FALSE)
+  marqueurs
+}
 
-  # ---- filtre de frequence -------------------------------------------------
-  garder <- rep(TRUE, p)
-  if (!is.null(maf)) {
-    Md <- marqueurs[[if ("dir" %in% names(Z)) "dir" else names(Z)[1]]]
-    f <- if (codage == "pm1") (colMeans(Md) + 1) / 2 else colMeans(Md) / 2
-    garder <- pmin(f, 1 - f) >= maf & apply(Md, 2, stats::sd) > 0
-    if (verbose)
-      message(sprintf("  rx_scan : %d SNP sur %d passent MAF >= %.3g",
-                      sum(garder), p, maf))
-  }
+# SNPs kept by the minor allele frequency filter, computed on the direct doses
+# with the coding of `codage`; monomorphic SNPs are dropped.
+.rx_scan_maf <- function(marqueurs, Z, maf, codage, verbose, p) {
+  keep <- rep(TRUE, p)
+  if (is.null(maf)) return(keep)
+  Md <- marqueurs[[if ("dir" %in% names(Z)) "dir" else names(Z)[1]]]
+  f <- if (codage == "pm1") (colMeans(Md) + 1) / 2 else colMeans(Md) / 2
+  keep <- pmin(f, 1 - f) >= maf & apply(Md, 2, stats::sd) > 0
+  if (verbose)
+    message(sprintf("  rx_scan : %d SNP sur %d passent MAF >= %.3g",
+                    sum(keep), p, maf))
+  keep
+}
 
-  # ---- paquet : rx_export intact, puis les tableaux du scan A COTE ---------
-  garde_paquet <- FALSE
-  if (is.null(dir)) {
-    dir <- file.path(tempdir(), paste0("rx_scan_", as.integer(Sys.time())))
-    on.exit(if (!keep && !garde_paquet) unlink(dir, recursive = TRUE), add = TRUE)
-  }
-  # QUATRIEME PIEGE : `tempdir()` peut etre RELATIF (c'est le cas quand $TMPDIR
-  # l'est). Le chemin est alors resolu contre le repertoire courant du
-  # processus PYTHON, pas celui de R, et le solveur cherche le paquet ailleurs.
-  # On rend le chemin absolu avant de le passer.
-  dir.create(dir, recursive = TRUE, showWarnings = FALSE)
-  dir <- normalizePath(dir, mustWork = TRUE)
+# The bundle of the fitted model, its theta, and the arrays of the scan
+# (incidences in 0-based COO triplets, doses, kept SNPs, map) described by
+# scan_manifest.json. Identical doses for both families are written once.
+.rx_scan_write <- function(dir, model, fit, Z, marqueurs, keep_snp, carte, p) {
   rx_export(model, dir)
   con <- file(file.path(dir, "in_theta.bin"), "wb")
   writeBin(as.double(fit$theta), con, size = 8); close(con)
-
-  man <- list()
-  put <- function(name, x, dtype = "f8") {
-    if (dtype == "str") {
-      writeLines(as.character(x), file.path(dir, paste0(name, ".txt")))
-      man[[length(man) + 1L]] <<- list(name = name, dtype = "str",
-                                       shape = I(length(x)))
-      return(invisible())
-    }
-    shp <- if (is.matrix(x)) dim(x) else length(x)
-    con <- file(file.path(dir, paste0(name, ".bin")), "wb")
-    if (dtype == "f8") writeBin(as.double(as.vector(x)), con, size = 8)
-    else               writeBin(as.integer(as.vector(x)), con, size = 4)
-    close(con)
-    man[[length(man) + 1L]] <<- list(name = name, dtype = dtype, shape = I(shp))
-    invisible()
-  }
-  # Les doses sont-elles LES MEMES des deux cotes ? Si oui (cas intra-espece,
-  # le cas courant), on ne les ecrit qu'UNE fois : 292 Mo au format du projet,
-  # qu'il serait absurde de dupliquer, et l'alignement des colonnes pour les
-  # tests conjoints devient certain au lieu d'etre a verifier.
+  w <- .rx_bundle_writer(dir)
   fams <- names(Z)
-  partage <- length(fams) < 2 ||
+  shared <- length(fams) < 2 ||
     (identical(dim(marqueurs[[fams[1]]]), dim(marqueurs[[fams[2]]])) &&
        identical(marqueurs[[fams[1]]], marqueurs[[fams[2]]]))
   meta <- list(p = p)
   for (fam in fams) {
     S <- methods::as(methods::as(Z[[fam]], "CsparseMatrix"), "TsparseMatrix")
     pre <- paste0("scan_", fam)
-    put(paste0(pre, "_zi"), S@i, "i4")     # 0-based, comme rx_export
-    put(paste0(pre, "_zj"), S@j, "i4")
-    put(paste0(pre, "_zx"), S@x)
+    .rx_put(w, paste0(pre, "_zi"), S@i, "i4")
+    .rx_put(w, paste0(pre, "_zj"), S@j, "i4")
+    .rx_put(w, paste0(pre, "_zx"), S@x)
     meta[[paste0("q_", fam)]] <- ncol(Z[[fam]])
-    if (!partage) put(paste0("scan_M", fam), marqueurs[[fam]])
+    if (!shared) .rx_put(w, paste0("scan_M", fam), marqueurs[[fam]])
   }
-  if (partage) put("scan_M", marqueurs[[fams[1]]])
-  put("scan_garder", as.integer(garder), "i4")
+  if (shared) .rx_put(w, "scan_M", marqueurs[[fams[1]]])
+  .rx_put(w, "scan_garder", as.integer(keep_snp), "i4")
   if (!is.null(carte)) {
-    if (!is.null(carte$snp)) put("scan_snp", carte$snp, "str")
-    if (!is.null(carte$chr)) put("scan_chr", carte$chr, "str")
-    if (!is.null(carte$pos)) put("scan_pos", as.double(carte$pos))
+    if (!is.null(carte$snp)) .rx_put(w, "scan_snp", carte$snp, "str")
+    if (!is.null(carte$chr)) .rx_put(w, "scan_chr", carte$chr, "str")
+    if (!is.null(carte$pos)) .rx_put(w, "scan_pos", as.double(carte$pos))
   } else if (!is.null(colnames(marqueurs[[names(Z)[1]]]))) {
-    put("scan_snp", colnames(marqueurs[[names(Z)[1]]]), "str")
+    .rx_put(w, "scan_snp", colnames(marqueurs[[names(Z)[1]]]), "str")
   }
-  writeLines(jsonlite::toJSON(list(arrays = man, meta = meta),
-                              auto_unbox = TRUE),
+  writeLines(jsonlite::toJSON(list(arrays = w$manifest, meta = meta), auto_unbox = TRUE),
              file.path(dir, "scan_manifest.json"))
-
-  # ---- appel du solveur ----------------------------------------------------
-  # TROISIEME PIEGE, et le plus sournois : `system2` construit une ligne de
-  # commande et la fait passer par un SHELL. Or une specification de test
-  # conditionnel contient une barre verticale - `"ind|dir+sim"` - que le shell
-  # lit comme un TUBE : la commande est coupee en deux, la seconde moitie
-  # (`dir+sim ...`) n'existe pas, et le tout rend 127 « commande introuvable ».
-  # L'erreur ne dit rien du tube ; elle est indechiffrable si on ne sait pas.
-  # Les valeurs partent donc protegees, y compris le chemin du paquet, qui peut
-  # contenir des espaces.
-  sol <- rx_scan_solver_args()
-  args <- c(shQuote(sol$args), shQuote(dir),
-            "--tests", shQuote(paste(tests, collapse = ",")),
-            "--backend", backend, "--theta-in", "--maxiter", "0",
-            "--bloc", as.character(as.integer(bloc)))
-  if (!verbose) args <- c(args, "--quiet")
-  code <- .rx_system2(rx_python_cmd(), args, stdout = "", stderr = "", env = sol$env)
-  if (!identical(as.integer(code), 0L)) {
-    # On DESARME le nettoyage : le message dit ou est le paquet, il faut donc
-    # qu'il y soit encore. Sans cela on annonce un chemin qu'on vient
-    # d'effacer, ce qui rend le diagnostic impossible.
-    garde_paquet <- TRUE
-    stop("rx_scan : le solveur a rendu le code ", code,
-         ". Paquet conserve pour diagnostic dans ", dir,
-         "\n  relancer a la main : ", paste(c(rx_python_cmd(), args), collapse = " "),
-         call. = FALSE)
-  }
-
-  # check.names = FALSE EST OBLIGATOIRE : sans lui, R remplace `+` et `|` par
-  # des points, donc `p_dir+ind+sim` devient `p_dir.ind.sim` et
-  # `p_sim|dir+ind` devient `p_sim.dir.ind`. Les colonnes deviennent
-  # introuvables sous le nom du test qui les a produites, et un appelant qui
-  # boucle sur `tests` saute alors les tests composes SANS RIEN DIRE - defaut
-  # mesure : trois tests sur six absents du recapitulatif.
-  out <- utils::read.csv(file.path(dir, "scan_resultats.csv"),
-                         stringsAsFactors = FALSE, check.names = FALSE)
-  attr(out, "meta") <- jsonlite::fromJSON(file.path(dir, "scan_meta.json"))
-  out
 }
 
-
-# Seuil de Bonferroni sur les SNP effectivement testes
-# @param res sortie de `rx_scan`
-# @param test nom du test, tel que passe a `tests`
-# @param alpha risque global
+# Bonferroni threshold over the SNPs actually tested.
 rx_scan_seuil <- function(res, test, alpha = 0.05) {
   col <- paste0("p_", test)
   if (is.null(res[[col]]))

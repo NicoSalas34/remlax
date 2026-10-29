@@ -1,51 +1,74 @@
+# ==============================================================================
+# print.R - print method of an rx_fit object
+# ==============================================================================
+
 print.rx_fit <- function(x, ...) {
+  .rx_print_header(x)
+  .rx_print_sigmas(x)
+  .rx_print_flat_directions(x)
+  .rx_print_lag(x)
+  .rx_print_vpredict(x)
+  .rx_print_wald(x)
+  .rx_bayes_print(x)
+  invisible(x)
+}
+
+# First line: the REML fit and its convergence diagnostics or, for the
+# Bayesian route without REML, the values at the posterior mode.
+.rx_print_header <- function(x) {
   if (identical(x[["depart_bayes"]], "map")) {
-    # voie bayesienne sans REML : valeurs au MODE A POSTERIORI, pas d'optimum
-    # REML ni de diagnostic de convergence REML a afficher
     mp <- x[["mode_posterieur"]]
     cat(sprintf("Mode a posteriori (%s), sans ajustement REML : logLik REML au mode %.6f | %d parametres | %d obs | %.1f s\n",
                 x$backend, x$logLik, x$n_par, x$n_obs, (mp$secondes %||% NA)))
-  } else {
+    return(invisible())
+  }
   cat(sprintf("Ajustement REML (%s) : logLik %.6f | %d parametres | %d obs | %.1f s\n",
               x$backend, x$logLik, x$n_par, x$n_obs, x$secondes))
   cat(sprintf("  max|grad| %.2e | decrement de Newton %.2e | %d valeur(s) propre(s) negative(s)\n",
               x$max_grad, x$newton_decrement %||% NA, x$n_neg_eig %||% NA))
-  }
+}
+
+# Diagonal of each Sigma, then the residual: one line per dsum() section.
+.rx_print_sigmas <- function(x) {
   for (nm in names(x$sigmas)) {
     S <- x$sigmas[[nm]]
     cat(sprintf("  Sigma[%s] %dx%d, diagonale : %s\n", nm, nrow(S), ncol(S),
                 paste(format(diag(S), digits = 4), collapse = " ")))
   }
-  # Residuelle : une ligne par section. Avec dsum, n'afficher que la premiere
-  # laissait croire a une residuelle unique.
   sr <- x$sigmas_res
   if (length(sr) > 1L) {
     for (nm in names(sr))
       cat(sprintf("  residuelle[%s] : %s\n", nm,
                   paste(format(diag(as.matrix(sr[[nm]])), digits = 4), collapse = " ")))
   } else if (!is.null(x[["sigma_res"]]))
-    # [[ et non $ : `x$sigma_res` s'appariait partiellement sur `sigma_res_dims`
-    # quand la residuelle est absente ("none"), et imprimait une ligne vide.
     cat(sprintf("  residuelle : %s\n", paste(format(diag(as.matrix(x[["sigma_res"]])), digits = 4), collapse = " ")))
   else cat("  residuelle : aucune\n")
-  # Entrees non identifiees separement (meme motif dans V) : on le dit, avec
-  # le nombre de parametres identifies, celui qui compte pour un LRT.
+}
+
+# Entries with the same pattern in V are identified only through their sum;
+# the number of identified parameters is the one that counts for a LRT.
+.rx_print_flat_directions <- function(x) {
   if (isTRUE(x[["n_plat_attendu"]] > 0))
     cat(sprintf("  %d direction(s) plate(s) par construction (entrees de meme motif, seule leur somme est identifiee) : %d parametres identifies\n",
                 as.integer(x[["n_plat_attendu"]]), as.integer(x[["n_par_identifies"]])))
+}
+
+# Psi of a spatial lag, receiver in rows, with its standard errors.
+.rx_print_lag <- function(x) {
   Lg <- x[["lag"]]
-  if (!is.null(Lg) && !is.null(Lg[["Psi"]])) {
-    cat(sprintf("  Psi (receveur en ligne, emetteur en colonne ; unites de W) | critere %s | log|det A| %.6f | rayon spectral de M %.4f%s\n",
-                Lg[["criterion"]], Lg[["logdet_A"]], Lg[["rayon_spectral"]],
-                if (isFALSE(Lg[["admissible"]])) " | HORS REGION ADMISSIBLE" else ""))
-    P <- Lg[["Psi"]]; S <- Lg[["Psi_se"]]
-    m <- matrix(sprintf("%10.5f", P), nrow(P))
-    if (!is.null(S)) m[] <- ifelse(is.na(S), paste0(m, "          "), sprintf("%s (%7.5f)", m, S))
-    dimnames(m) <- list(paste0("    ", rownames(P), " <-"), colnames(P))
-    print(noquote(m))
-  }
-  # Correspondance V1, V2, ... des expressions vpredict, pour qu'on sache ce
-  # que l'on a divise par quoi.
+  if (is.null(Lg) || is.null(Lg[["Psi"]])) return(invisible())
+  cat(sprintf("  Psi (receveur en ligne, emetteur en colonne ; unites de W) | critere %s | log|det A| %.6f | rayon spectral de M %.4f%s\n",
+              Lg[["criterion"]], Lg[["logdet_A"]], Lg[["rayon_spectral"]],
+              if (isFALSE(Lg[["admissible"]])) " | HORS REGION ADMISSIBLE" else ""))
+  P <- Lg[["Psi"]]; S <- Lg[["Psi_se"]]
+  m <- matrix(sprintf("%10.5f", P), nrow(P))
+  if (!is.null(S)) m[] <- ifelse(is.na(S), paste0(m, "          "), sprintf("%s (%7.5f)", m, S))
+  dimnames(m) <- list(paste0("    ", rownames(P), " <-"), colnames(P))
+  print(noquote(m))
+}
+
+# The components V1, V2, ... of the vpredict expressions, then their values.
+.rx_print_vpredict <- function(x) {
   cp <- x$vpredict$composantes
   if (!is.null(cp) && NROW(cp))
     cat("  composantes (vpredict) : ",
@@ -58,13 +81,13 @@ print.rx_fit <- function(x, ...) {
                   if (is.na(pr$se[i])) "  (n.d.)" else sprintf("%8.5f", pr$se[i]),
                   pr$expression[i]))
   }
-  if (!is.null(x$wald) && length(x$wald$tests)) {
-    cat("  Wald (conditionnel, chi2/ddl) :\n")
-    tw <- x$wald$tests
-    for (i in seq_len(nrow(tw)))
-      cat(sprintf("    %-14s ddl %2d   F %9.3f   p %.4g\n",
-                  tw$terme[i], tw$ddl[i], tw$F[i], tw$p[i]))
-  }
-  .rx_bayes_print(x)
-  invisible(x)
+}
+
+.rx_print_wald <- function(x) {
+  if (is.null(x$wald) || !length(x$wald$tests)) return(invisible())
+  cat("  Wald (conditionnel, chi2/ddl) :\n")
+  tw <- x$wald$tests
+  for (i in seq_len(nrow(tw)))
+    cat(sprintf("    %-14s ddl %2d   F %9.3f   p %.4g\n",
+                tw$terme[i], tw$ddl[i], tw$F[i], tw$p[i]))
 }
