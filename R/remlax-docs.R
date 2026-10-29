@@ -1,13 +1,12 @@
 # ==============================================================================
-# remlax-docs.R : documentation Rd du paquet, SEPAREE du code.
-# ------------------------------------------------------------------------------
-# Les pages d'aide vivent ici, separees du code, sous forme de blocs roxygen sans objet
-# (`NULL`), rattaches par @name. Le NAMESPACE est ecrit a la main : aucun
-# @export n'apparait ici, et roxygen2 ne produit que man/*.Rd.
+# remlax-docs.R - Rd documentation of the package, kept apart from the code
+# ==============================================================================
+# The help pages live here as roxygen blocks on NULL, attached by @name. The
+# NAMESPACE is written by hand: roxygen2 only produces man/*.Rd.
 #
-# La reference longue, avec la grammaire complete des formules et la
-# correspondance avec asreml, est docs/api-r.md a la racine du depot. Les pages
-# ci-dessous en sont la forme courte, accessible par ?rx_reml.
+# The long reference, with the full grammar of the formulas and the
+# correspondence with asreml, is docs/api-r.md at the root of the repository.
+# The pages below are its short form, reached through ?rx_reml.
 # ==============================================================================
 
 #' remlax: a generic, differentiable REML solver for linear mixed models
