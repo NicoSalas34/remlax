@@ -5,22 +5,22 @@ import pytest
 import outils_dispositifs  # noqa: F401  (chemin vers inst/python)
 
 from remlax import _x64  # noqa: F401
-from remlax.finition import _pas_rc, decrement, finir
+from remlax.finition import _trust_region_step, decrement, finish
 from remlax.fit import fit_reml
 
 
 def test_pas_rc_newton_et_bord():
     rng = np.random.default_rng(0)
     A = rng.normal(size=(5, 5)); H = A @ A.T + np.eye(5); g = rng.normal(size=5)
-    d, pred = _pas_rc(g, H, 1e6)                     # region large : pas de Newton
+    d, pred = _trust_region_step(g, H, 1e6)                     # region large : pas de Newton
     assert np.allclose(d, -np.linalg.solve(H, g))
-    d, pred = _pas_rc(g, H, 0.1)                     # region petite : sur le bord
+    d, pred = _trust_region_step(g, H, 0.1)                     # region petite : sur le bord
     assert abs(np.linalg.norm(d) - 0.1) < 1e-8 and pred > 0
 
 
 def test_pas_rc_courbure_negative():
     H = np.diag([2.0, -1.0, 1e-12]); g = np.array([1.0, 0.5, 1e-3])
-    d, pred = _pas_rc(g, H, 0.5)
+    d, pred = _trust_region_step(g, H, 0.5)
     assert np.linalg.norm(d) <= 0.5 + 1e-10 and pred > 0
 
 
@@ -35,7 +35,7 @@ def test_finir_direction_plate_et_plancher():
     def hess(x):
         return np.diag([2.0, 2e-6, 4 * np.exp(2 * x[2])])
     lo, hi = np.full(3, -12.0), np.full(3, 12.0)
-    x, info = finir(fj, np.array([0.0, 0.0, 0.0]), lo, hi, hess, verbose=False)
+    x, info = finish(fj, np.array([0.0, 0.0, 0.0]), lo, hi, hess, verbose=False)
     assert info["success"]
     assert abs(x[0] - 1) < 1e-6
     assert x[2] == -12.0                              # plaque au plancher

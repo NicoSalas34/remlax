@@ -697,12 +697,12 @@ def _check_ai_saddle(obj, theta, r, bornes, floor, ceil, hessian, maxiter, tol, 
 
 def _finish_trust_region(obj, theta, bornes, verbose):
     """Trust-region Newton finish (finition.py), recorded in hist."""
-    from .finition import finir
+    from .finition import finish
     lo_ = np.array([b_[0] for b_ in bornes], dtype=np.float64)
     hi_ = np.array([b_[1] for b_ in bornes], dtype=np.float64)
-    theta, info_fin = finir(obj.fun_jac, theta, lo_, hi_,
-                            hessien=lambda th: hessian_fd(obj.fun_jac, th, floor=lo_, ceil=hi_),
-                            verbose=verbose, compteur=obj.hist)
+    theta, info_fin = finish(obj.fun_jac, theta, lo_, hi_,
+                             hessian=lambda th: hessian_fd(obj.fun_jac, th, floor=lo_, ceil=hi_),
+                             verbose=verbose, counter=obj.hist)
     obj.hist["finition"] = info_fin
     return theta
 
