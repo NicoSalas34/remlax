@@ -142,11 +142,10 @@ Status: `covered (existing)`, `covered (new)`, `covered (existing + new)`, `not 
 | `rx_scan` refusals (unknown family, unknown term, wrong nrow, missing matrix, t > 1 without index, index out of range); `rx_scan_seuil` | R/remlax_scan.R | — | tests/testthat/test-scan.R (refuse...) | covered (new) |
 | `rx_scan` on a simulated set: columns per test, causal SNP first, meta, non-centred doses refused for sim | R/remlax_scan.R | — | tests/testthat/test-scan.R (jeu simule) | covered (new) |
 
-## 8. Sparsity diagnostic (sparsity.py) and parameter counts
+## 8. Parameter counts
 
 | feature | where implemented | test (existing) | test (new) | status |
 |---|---|---|---|---|
-| `symbolic_cholesky_nnz` on tridiagonal / full / arrow patterns; `mme_pattern` dimensions and blocks; `incidence_fill`; `dense_cost`; `sparsity_report` | sparsity.py | — | tests-python/test_sparsity.py | covered (new) |
 | `rx_n_theta` equals model$n_par for every structure | R/remlax.R rx_n_theta | tests/testthat/test-comptages.R (iid only) | tests/testthat/test-grammaire.R (every formula) | covered (existing + new) |
 
 ## 9. R interface: grammar, rx_term, rx_model, rx_reml, rx_spl2d, rx_predict, print methods

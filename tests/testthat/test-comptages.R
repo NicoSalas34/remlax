@@ -59,4 +59,5 @@ test_that("le solveur Python livre avec le paquet est present", {
   cli <- system.file("python", "remlax", "cli.py", package = "remlax")
   expect_true(nzchar(cli))
   expect_true(file.exists(system.file("python", "remlax", "__init__.py", package = "remlax")))
+  expect_true(file.exists(system.file("python", "remlax_run.py", package = "remlax")))
 })

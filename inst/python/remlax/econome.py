@@ -46,18 +46,11 @@ import numpy as np
 import jax
 import jax.numpy as jnp
 
-try:
-    from .model import (split_theta, res_sections, sec_n_params, support_groups,
-                        restrict_Z, prefold_fixed_K, orthonormal_X, term_factor,
-                        _section_V, _section_S, section_matvec)
-    from .core import _reml_fwd
-    from .ai import _sigma_et_K
-except ImportError:
-    from model import (split_theta, res_sections, sec_n_params, support_groups,  # noqa: F401
-                       restrict_Z, prefold_fixed_K, orthonormal_X, term_factor,
-                       _section_V, _section_S, section_matvec)
-    from core import _reml_fwd
-    from ai import _sigma_et_K
+from .model import (split_theta, res_sections, sec_n_params, support_groups,
+                    restrict_Z, prefold_fixed_K, orthonormal_X, term_factor,
+                    _section_V, _section_S, section_matvec)
+from .core import _reml_fwd
+from .ai import _sigma_et_K
 
 # Un groupe dont le support couvre au moins cette fraction des lignes est etendu
 # a toute la hauteur (point 4 de l'en-tete). En dessous, la dispersion d'un bloc
@@ -309,7 +302,6 @@ def make_objective_econome(plan, scale=None, adjoint=None):
     def fun_jac(theta):
         v, g = fun_jac_scaled(theta)
         return v * sc, g * sc
-    fun_jac.compile_args = (fg, Zr)        # pour l'analyse memoire (compilation seule)
     return fun_jac_scaled, fun_jac, sc
 
 
@@ -384,7 +376,6 @@ def make_fga_econome(plan, adjoint=None):
 
     def fga_appel(theta):
         return _fga(jnp.asarray(theta), Zr)
-    fga_appel.compile_args = (_fga, Zr)    # pour l'analyse memoire (compilation seule)
     return fga_appel
 
 

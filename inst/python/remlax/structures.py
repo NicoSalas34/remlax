@@ -17,18 +17,15 @@ non defini positif, meme loin de l'optimum.
   fa(r)   Sigma = Lambda Lambda' + diag(exp(2*psi))         nload(t,r) + t
           Lambda trapezoidale inferieure (identifiabilite : sans la
           contrainte triangulaire, Lambda n'est definie qu'a une rotation pres)
-  fixed   Sigma = valeur fournie, 0 parametre (pour tester a Sigma impose)
 """
-try:                       # active float64, y compris en import direct
-    from . import _x64     # noqa: F401
-except ImportError:
-    import _x64            # noqa: F401
+# active float64, y compris en import direct
+from . import _x64     # noqa: F401
 import jax
 import jax.numpy as jnp
 import jax.scipy.linalg
 import numpy as np
 
-STRUCTURES = ("iid", "diag", "us", "fa", "rr", "chol", "ante", "corh", "fixed")
+STRUCTURES = ("iid", "diag", "us", "fa", "rr", "chol", "ante", "corh")
 
 
 def sigma_loadings(theta, struct, t, rank):
@@ -104,8 +101,6 @@ def n_params(struct, t, rank=0):
         return int((k + 1) * (t - k / 2.0))
     if struct == "corh":
         return t + 1
-    if struct == "fixed":
-        return 0
     raise ValueError("structure inconnue : %s" % struct)
 
 
@@ -131,7 +126,7 @@ def _tril_indices(t):
     return np.array(ii), np.array(jj)
 
 
-def chol_sigma(theta, struct, t, rank=0, fixed=None):
+def chol_sigma(theta, struct, t, rank=0):
     """Facteur L tel que Sigma = L L' (t x t ou t x k).
 
     On rend le FACTEUR et non Sigma : l'assemblage de V s'en sert directement
@@ -150,7 +145,6 @@ def chol_sigma(theta, struct, t, rank=0, fixed=None):
     if struct == "fa":
         nl = n_loadings(t, rank)
         lam = jnp.zeros((t, rank))
-        idx = 0
         rows, cols = [], []
         for i in range(t):
             for j in range(min(i + 1, rank)):
@@ -202,15 +196,12 @@ def chol_sigma(theta, struct, t, rank=0, fixed=None):
         C = (1.0 - r) * jnp.eye(t) + r * jnp.ones((t, t))
         Lc = jnp.linalg.cholesky(C + 1e-12 * jnp.eye(t))
         return sd[:, None] * Lc
-    if struct == "fixed":
-        S = jnp.asarray(fixed)
-        return jnp.linalg.cholesky(S + 1e-12 * jnp.eye(t))
     raise ValueError("structure inconnue : %s" % struct)
 
 
-def build_sigma(theta, struct, t, rank=0, fixed=None):
+def build_sigma(theta, struct, t, rank=0):
     """Sigma = L L' (t x t)."""
-    L = chol_sigma(theta, struct, t, rank, fixed)
+    L = chol_sigma(theta, struct, t, rank)
     return L @ L.T
 
 
@@ -239,6 +230,4 @@ def theta0(struct, t, rank=0, var=1.0):
         return np.concatenate([np.zeros(nb), np.full(t, s if struct == "chol" else -s)])
     if struct == "corh":
         return np.concatenate([np.full(t, s), np.zeros(1)])
-    if struct == "fixed":
-        return np.zeros(0)
     raise ValueError("structure inconnue : %s" % struct)

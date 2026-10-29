@@ -1,5 +1,17 @@
 # remlax (development version)
 
+* The solver, the persistent server and the scan are started through a
+  launcher, `inst/python/remlax_run.py`. It imports the shipped `remlax` as a
+  package, so every module has a single name, and it never searches the
+  current directory of the R session, where a local `jax.py` or `numpy.py`
+  could otherwise shadow a dependency. `RX_CLI` still selects another entry
+  point.
+* `optimizer = "ai_theta"`, the earlier average information variant with
+  steps on the Cholesky scale, is removed; `optimizer = "ai"` remains.
+* The `remlax.sparsity` diagnostic module, which the solver never used, is
+  removed, together with the `"fixed"` `Sigma` structure of the Python
+  catalogue, which no model could reach.
+
 * The RTMB engine is removed: `rx_fit_sparse()`, `rx_sparse_scope()` and
   `rx_tmb_available()` no longer exist, and RTMB and TMB leave Suggests. The
   mixed model equations engine (`engine = "mme"`) covers its scope, sparse
@@ -220,8 +232,7 @@
   undamped run stalled after twelve iterations and fell back to L-BFGS-B
   (9.1 s), the damped run converges by AI alone (2.3 s) to the same
   log-likelihood. After an AI success, the curvature check of the Hessian
-  (`hessian = TRUE`) detects saddle points. `optimizer = "ai_theta"` keeps the
-  earlier variant with steps on the Cholesky scale. The default optimiser can
+  (`hessian = TRUE`) detects saddle points. The default optimiser can
   be set with `options(remlax.optimizer = )` or `RX_OPTIMIZER`.
 * Both engines replace `X` by the orthonormal factor of its QR decomposition
   and add `2 log|det R|` to the criterion: a fixed covariate on a large scale

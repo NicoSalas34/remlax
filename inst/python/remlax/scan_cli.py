@@ -64,7 +64,7 @@ def _coo(paquet, man, pre, n, q):
 def main(argv=None):
     from remlax.bundle import Bundle
     from remlax.fit import fit_reml
-    from remlax.device import pick_device, device_report
+    from remlax.device import pick_device
     from remlax.scan import projeter, scan, lambda_gc, familles_requises
 
     ap = argparse.ArgumentParser(

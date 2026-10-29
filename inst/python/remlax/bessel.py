@@ -43,10 +43,7 @@ DOMAINE. z est borne en bas a 1e-12 : au-dela le pic de l'integrande
 (u* = log(2 nu/z)) sortirait de la grille et la troncature mordrait. A z = 1e-12
 la correlation vaut deja 1 a 1e-12 pres pour tout nu >= 0.5.
 """
-try:
-    from . import _x64  # noqa: F401
-except ImportError:
-    import _x64          # noqa: F401
+from . import _x64  # noqa: F401
 import numpy as np
 import jax.numpy as jnp
 from jax.scipy.special import gammaln

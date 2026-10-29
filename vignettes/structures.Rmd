@@ -57,7 +57,6 @@ n_loadings(w, k) = sum_{i=1..w} min(i, k)
 | `chol(k)` | `chol(k)` | `L D L'`, `L` unit lower triangular of band `k` | `(k+1)(w - k/2)` | band entries free, `D = diag(exp(2 th))` |
 | `ante(k)` | `ante(k)` | `Sigma^-1 = U D U'`, `U` unit upper triangular of band `k` | `(k+1)(w - k/2)` | band entries free, `D = diag(exp(2 th))` |
 | `corh` | `corh` | `D C D`, `C` uniform correlation | `w + 1` | `D = diag(exp(th))`, correlation bounded (below) |
-| `fixed` | none | supplied matrix | 0 | Cholesky of the given `Sigma` |
 
 Counts, computed by `remlax.structures.n_params`:
 

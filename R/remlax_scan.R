@@ -26,41 +26,15 @@
 # construction.
 # ==============================================================================
 
-# Comment atteindre `remlax.scan_cli`.
-#
-# ATTENTION, PIEGE : `rx_solver_args()` ne rend PAS un interpreteur, il rend
-# deja les arguments du point d'entree de l'AJUSTEMENT - `c("-m",
-# "remlax.cli")`, ou le chemin de `cli.py`, ou le contenu de $RX_CLI. Le
-# reutiliser tel quel ici enchainerait deux modules sur la meme ligne de
-# commande (`-m remlax.cli -m remlax.scan_cli`) et Python n'executerait que le
-# premier : le scan ne tournerait jamais, et l'ajustement tournerait a sa place
-# avec des arguments qu'il ne comprend pas. On refait donc la meme logique pour
-# NOTRE point d'entree, avec sa propre variable d'environnement.
-# SECOND PIEGE, mesure celui-la : lancer `scan_cli.py` PAR SON CHEMIN ne suffit
-# pas. Python met alors `inst/python/remlax/` sur sys.path, pas `inst/python/`, donc
-# `from remlax.bundle import Bundle` echoue par ModuleNotFoundError. Il faut
-# soit le paquet installe, soit dire ou il est. On rend donc les arguments ET
-# l'environnement, et l'appelant passe le second a .rx_system2(env=), qui le
-# pose par Sys.setenv() : system2(env=) serait ignore sous Windows.
+# Arguments and environment that select the scan entry point: $RX_SCAN_CLI when
+# set, otherwise the shipped launcher followed by "scan_cli". It cannot reuse
+# rx_solver_args(), which already names the fitting entry point.
 rx_scan_solver_args <- function() {
   if (nzchar(Sys.getenv("RX_SCAN_CLI")))
     return(list(args = strsplit(Sys.getenv("RX_SCAN_CLI"), " +")[[1]], env = character(0)))
   py <- rx_python_cmd()
   .rx_python_assurer(py)
-  # Comme rx_solver_args() : la copie livree avec le paquet, jamais un remlax
-  # installe par pip sous cet interpreteur, pour que l'interface et le moteur
-  # soient de la meme version.
-  # Paquet installe : scan_cli.py importe `remlax.bundle`, donc il faut le
-  # repertoire qui CONTIENT remlax/ sur PYTHONPATH, soit inst/python/.
-  inst <- system.file("python", package = "remlax")
-  if (nzchar(inst) && file.exists(file.path(inst, "remlax", "scan_cli.py"))) {
-    anc <- Sys.getenv("PYTHONPATH")
-    return(list(args = c("-m", "remlax.scan_cli"),
-                env = c(PYTHONPATH = if (nzchar(anc)) paste(inst, anc, sep = .Platform$path.sep)
-                                     else inst)))
-  }
-  stop("remlax.scan_cli introuvable dans le paquet installe (inst/python/remlax). ",
-       "Reinstaller remlax, ou definir RX_SCAN_CLI.", call. = FALSE)
+  list(args = c(.rx_launcher(), "scan_cli"), env = character(0))
 }
 
 
@@ -240,7 +214,7 @@ rx_scan <- function(fit, model, marqueurs, carte = NULL,
   # Les valeurs partent donc protegees, y compris le chemin du paquet, qui peut
   # contenir des espaces.
   sol <- rx_scan_solver_args()
-  args <- c(sol$args, shQuote(dir),
+  args <- c(shQuote(sol$args), shQuote(dir),
             "--tests", shQuote(paste(tests, collapse = ",")),
             "--backend", backend, "--theta-in", "--maxiter", "0",
             "--bloc", as.character(as.integer(bloc)))

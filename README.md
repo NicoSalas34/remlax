@@ -231,9 +231,9 @@ Environment variables:
 | variable | meaning | default |
 |---|---|---|
 | `RX_PY` | how to start Python, space-separated | `python3` |
-| `RX_CLI` | another solver entry point (a `cli.py` path, or `-m remlax.cli`) | the shipped copy |
+| `RX_CLI` | another solver entry point, for instance `-m remlax.cli` with a `remlax` importable by Python | the launcher of the shipped copy |
 | `RX_ENGINE` | default `engine` of `rx_reml()` and `rx_fit()` (`dense`, `mme`, `blocks`, `auto`) | `dense` |
-| `RX_OPTIMIZER` | default `optimizer` of `rx_reml()` and `rx_fit()` (`lbfgsb`, `ai`, `ai_theta`, `auto`) | `lbfgsb` |
+| `RX_OPTIMIZER` | default `optimizer` of `rx_reml()` and `rx_fit()` (`lbfgsb`, `ai`, `auto`) | `lbfgsb` |
 | `RX_MEMORY` | default `memory` of `rx_reml()` and `rx_fit()` (`standard`, `low`) | `standard` |
 | `REMLAX_JAX_CACHE` | folder of the persistent XLA compilation cache; `0` disables it | `<user cache>/remlax/jax` |
 | `REMLAX_BLAS_NUMPY` | `garder` keeps NumPy's OpenBLAS threads during mixed model equations fits | one thread |
@@ -285,7 +285,6 @@ number of columns, `k` the rank or band order.
 | `chol(k)` | `chol(k)` | `L D L'`, band `k` | `(k+1)(w - k/2)` |
 | `ante(k)` | `ante(k)` | `Sigma^-1 = U D U'`, band `k` | `(k+1)(w - k/2)` |
 | `corh` | `corh` | heterogeneous variances, uniform correlation | `w + 1` |
-| `fixed` | none | supplied matrix | 0 |
 
 Correlation structures between the `q` levels of a term. The variance lives in
 `Sigma`; these contribute a correlation matrix only, which is the `Sigma_h = D C D`

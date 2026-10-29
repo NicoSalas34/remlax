@@ -1,7 +1,7 @@
 """Point d'entree du solveur : lit un dispositif serialise, ajuste, ecrit.
 
-    python3 -m remlax.cli <repertoire> [--backend auto|gpu|cpu] [--maxiter N]
-                           [--polish N] [--no-hessian] [--no-blups] [--quiet]
+    python3 remlax_run.py cli <repertoire> [--backend auto|gpu|cpu] [--maxiter N]
+                              [--polish N] [--no-hessian] [--no-blups] [--quiet]
 
 Ecrit dans le meme repertoire : result.json (scalaires et dimensions) et des
 binaires out_*.bin (theta, beta, Sigma, BLUPs) relus par R. Le format de sortie
@@ -9,14 +9,13 @@ est le miroir exact du format d'entree, pour que R n'ait besoin d'aucune
 dependance Python et Python d'aucune dependance R.
 """
 import time
-_T_DEBUT = time.time()          # avant tout import lourd : fin du demarrage de l'interpreteur
 import argparse  # noqa: E402
 import json  # noqa: E402
 import os  # noqa: E402
 import sys  # noqa: E402
 
-_HERE = os.path.dirname(os.path.abspath(__file__))
-sys.path.insert(0, os.path.dirname(_HERE))
+# fin du demarrage de l'interpreteur, notee par remlax_run.py avant tout import lourd
+_T_DEBUT = float(os.environ.get("RX_T_DEBUT", time.time()))
 
 # FILS BORNES AUX COEURS ALLOUES, avant l'import de NumPy et de JAX qui
 # dimensionnent leurs groupes de fils sur l'affinite du processus (fils.py).
@@ -59,7 +58,7 @@ def main(argv=None):
     ap.add_argument("--backend", default="auto", choices=["auto", "gpu", "cpu"])
     ap.add_argument("--maxiter", type=int, default=3000)
     ap.add_argument("--polish", type=int, default=25)
-    ap.add_argument("--optimiseur", default="lbfgsb", choices=["lbfgsb", "ai", "ai_theta", "auto"])
+    ap.add_argument("--optimiseur", default="lbfgsb", choices=["lbfgsb", "ai", "auto"])
     ap.add_argument("--moteur", default="dense", choices=["dense", "mme", "blocs", "auto"])
     ap.add_argument("--inversion", default="auto", choices=["auto", "dense", "creuse", "hybride"])
     ap.add_argument("--finition", default="newton", choices=["newton", "rc"],

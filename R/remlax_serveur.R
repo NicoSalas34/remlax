@@ -35,8 +35,8 @@
 
 # Demarre le serveur pour la commande Python `py` ; rend TRUE s'il ecoute.
 .rx_serveur_demarrer <- function(py) {
-  srv <- system.file("python", "remlax", "serveur.py", package = "remlax")
-  if (!nzchar(srv)) return(FALSE)
+  srv <- tryCatch(c(.rx_launcher(), "serveur"), error = function(e) NULL)
+  if (is.null(srv)) return(FALSE)
   f <- tempfile("rx_serveur_")
   jeton <- paste(sample(c(letters, LETTERS, 0:9), 40, TRUE), collapse = "")
   journal <- tempfile("rx_serveur_journal_")
@@ -60,7 +60,6 @@
   .rx_serveur$jeton <- jeton; .rx_serveur$py <- paste(py, collapse = " ")
   .rx_serveur$fils <- .rx_threads()
   .rx_serveur$proprietaire <- Sys.getpid()
-  .rx_serveur$journal <- journal
   if (is.null(.rx_serveur$finaliseur)) {
     reg.finalizer(.rx_serveur, function(e) rx_server_stop(), onexit = TRUE)
     .rx_serveur$finaliseur <- TRUE

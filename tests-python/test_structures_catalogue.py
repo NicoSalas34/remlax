@@ -27,14 +27,14 @@ def _attendu(struct, t, r):
         "iid": 1, "diag": t, "us": t * (t + 1) // 2,
         "fa": _n_load(t, r) + t, "rr": _n_load(t, r),
         "chol": int((r + 1) * (t - r / 2.0)), "ante": int((r + 1) * (t - r / 2.0)),
-        "corh": t + 1, "fixed": 0,
+        "corh": t + 1,
     }[struct]
 
 
 CAS = [("iid", 1, 0), ("iid", 3, 0), ("diag", 3, 0), ("us", 2, 0), ("us", 4, 0),
        ("fa", 4, 1), ("fa", 4, 2), ("rr", 4, 1), ("rr", 4, 2), ("rr", 5, 3),
        ("chol", 4, 1), ("chol", 4, 3), ("ante", 4, 1), ("ante", 4, 3),
-       ("corh", 3, 0), ("corh", 5, 0), ("fixed", 3, 0)]
+       ("corh", 3, 0), ("corh", 5, 0)]
 
 
 @pytest.mark.parametrize("struct,t,r", CAS)
@@ -46,12 +46,9 @@ def test_n_params_suit_annexe_c(struct, t, r):
 def test_sigma_symetrique_psd_a_theta_quelconque(struct, t, r):
     p = S.n_params(struct, t, r)
     th = jnp.asarray(RNG.normal(0, 0.8, p))
-    fixed = None
-    if struct == "fixed":
-        A = RNG.normal(size=(t, t)); fixed = A @ A.T + np.eye(t)
-    L = S.chol_sigma(th, struct, t, r, fixed=fixed)
+    L = S.chol_sigma(th, struct, t, r)
     assert L.shape[0] == t
-    Sig = np.asarray(S.build_sigma(th, struct, t, r, fixed=fixed))
+    Sig = np.asarray(S.build_sigma(th, struct, t, r))
     assert Sig.shape == (t, t)
     assert np.allclose(Sig, Sig.T, atol=1e-12)
     w = np.linalg.eigvalsh(Sig)
@@ -59,13 +56,11 @@ def test_sigma_symetrique_psd_a_theta_quelconque(struct, t, r):
     if struct == "rr":
         # rang reduit PUR : exactement `r` valeurs propres non nulles
         assert int(np.sum(w > 1e-10 * w.max())) == min(r, t)
-    elif struct == "fixed":
-        assert np.allclose(Sig, fixed, atol=1e-8)
     else:
         assert w.min() > 0
 
 
-@pytest.mark.parametrize("struct,t,r", [c for c in CAS if c[0] != "fixed"])
+@pytest.mark.parametrize("struct,t,r", CAS)
 def test_theta0_donne_var_fois_identite_ou_presque(struct, t, r):
     th = S.theta0(struct, t, r, var=2.5)
     assert th.shape == (S.n_params(struct, t, r),)

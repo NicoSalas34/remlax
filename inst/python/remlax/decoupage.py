@@ -29,12 +29,8 @@ import numpy as np
 import scipy.sparse as sp
 from scipy.sparse.csgraph import connected_components
 
-try:
-    from .model import res_sections
-    from .structures import chol_sigma, theta0 as struct_theta0
-except ImportError:
-    from model import res_sections
-    from structures import chol_sigma, theta0 as struct_theta0
+from .model import res_sections
+from .structures import chol_sigma, theta0 as struct_theta0
 
 
 def _k_identite(tm):
@@ -221,30 +217,3 @@ class Decoupage:
                     cout_dense=dict(ops=float(self.n) ** 3, mem=3.0 * float(self.n) ** 2),
                     espace=espace,
                     blocs=self.blocs(G))
-
-
-def ordre_niveaux_mme(terms, n, p, globaux, blocs):
-    """Ordre d'elimination des inconnues de C (effets fixes puis niveaux, rangees
-    comme dans mme.MME) : niveaux des termes locaux groupes par bloc, puis
-    niveaux des termes globaux et effets fixes, qui forment le separateur.
-
-    Le bloc d'un niveau local est celui de ses observations (unique par
-    construction du decoupage). Rend la permutation (liste d'indices de C).
-    """
-    cle = []                       # (bloc ou +inf, indice)
-    for j in range(p):
-        cle.append((np.inf, j))
-    off = p
-    for k, tm in enumerate(terms):
-        tq = int(tm["t"]) * int(tm["q"])
-        if k in globaux:
-            cle += [(np.inf, off + c) for c in range(tq)]
-        else:
-            zi = np.asarray(tm["zi"], dtype=np.int64)
-            zj = np.asarray(tm["zj"], dtype=np.int64)
-            b = np.full(tq, np.inf)
-            b[zj] = blocs[zi]
-            cle += [(b[c], off + c) for c in range(tq)]
-        off += tq
-    cle.sort(key=lambda x: (x[0], x[1]))
-    return np.array([c[1] for c in cle], dtype=np.int64)

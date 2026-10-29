@@ -34,10 +34,7 @@ from scipy.sparse.csgraph import connected_components
 import jax
 import jax.numpy as jnp
 
-try:
-    from .blocs import _paquets
-except ImportError:
-    from blocs import _paquets
+from .blocs import _paquets
 
 TAILLE_MAX_BLOC = 8000
 
@@ -197,9 +194,6 @@ class FacteurHybride:
             raise np.linalg.LinAlgError("C n'est pas definie positive (hybride)")
         self._etat = (Ls, Qs, Lsch)
         return ld
-
-    def factoriser(self, C):
-        raise NotImplementedError("FacteurHybride : utiliser factoriser_valeurs(x)")
 
     def resoudre(self, B):
         B = np.asarray(B, dtype=np.float64)

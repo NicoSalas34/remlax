@@ -166,7 +166,7 @@ rx_bayes_available <- function() {
 # loi a priori -> JSON lu par bayes._resoudre_prior
 .rx_prior_json <- function(pr) {
   fam <- function(x) if (identical(x, "uniform")) "uniforme" else x
-  sd_spec <- function(o, base = NULL) {
+  sd_spec <- function(o) {
     s <- list()
     if (!is.null(o$sd)) s$famille <- fam(o$sd)
     if (!is.null(o$df)) s$df <- o$df

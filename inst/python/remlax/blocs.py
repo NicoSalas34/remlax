@@ -46,16 +46,10 @@ import numpy as np
 import jax
 import jax.numpy as jnp
 
-try:
-    from .model import split_theta, res_sections, orthonormal_X, _section_S, sec_n_params
-    from .structures import chol_sigma, n_params
-    from .levels import level_chol
-    from .decoupage import Decoupage, largeur_facteur
-except ImportError:
-    from model import split_theta, res_sections, orthonormal_X, _section_S, sec_n_params
-    from structures import chol_sigma, n_params
-    from levels import level_chol
-    from decoupage import Decoupage, largeur_facteur
+from .model import split_theta, res_sections, orthonormal_X, _section_S, sec_n_params
+from .structures import chol_sigma, n_params
+from .levels import level_chol
+from .decoupage import Decoupage, largeur_facteur
 
 LOG2PI = float(np.log(2.0 * np.pi))
 PAQUETS_MAX = 4
@@ -188,7 +182,7 @@ class PlanBlocs:
 
     # ------------------------------------------------------------------ paquet
     def _paquet(self, idx_blocs, lab, tailles, Xq, y, Zfull, secs, code_off, octets_lot):
-        terms, n, p, r = self.terms, self.n, self.p, self.r
+        terms, n, r = self.terms, self.n, self.r
         nb = len(idx_blocs)
         m = int(tailles[idx_blocs].max())
         lignes = -np.ones((nb, m), dtype=np.int64)
@@ -429,5 +423,4 @@ def make_objective_blocs(plan, scale=None):
     def fun_jac(theta):
         v, g = fun_jac_scaled(theta)
         return v * sc, g * sc
-    fun_jac.compile_args = (fg, tabs)
     return fun_jac_scaled, fun_jac, sc

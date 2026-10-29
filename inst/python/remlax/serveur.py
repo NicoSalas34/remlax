@@ -6,7 +6,7 @@ de l'ordre de 1,5 s, plus que le calcul d'un petit modele. Ce module garde un
 processus ouvert pour la session R : les imports sont faits une fois, et chaque
 ajustement n'est plus qu'une requete sur un socket local.
 
-    python serveur.py <fichier_port> <jeton> [<pid du processus R>]
+    python remlax_run.py serveur <fichier_port> <jeton> [<pid du processus R>]
 
 Ecrit "<port> <pid>" dans <fichier_port> (de facon atomique) des qu'il ecoute,
 sur 127.0.0.1 seulement. Chaque connexion porte UNE requete, une ligne JSON :
@@ -33,8 +33,6 @@ import socket
 import sys
 import traceback
 
-_HERE = os.path.dirname(os.path.abspath(__file__))
-sys.path.insert(0, os.path.dirname(_HERE))
 
 
 class _Flux:

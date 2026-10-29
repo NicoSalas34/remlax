@@ -30,36 +30,18 @@ VRAISEMBLANCE
     a la facon dont V a ete batie : toute parametrisation lisse de V est donc
     differentiee gratuitement.
 """
-try:
-    from . import _x64  # noqa: F401
-except ImportError:
-    import _x64          # noqa: F401
-import os
-import sys
-
-from functools import partial
+from . import _x64  # noqa: F401
 
 import jax
 import jax.numpy as jnp
 import numpy as np
 
-try:
-    from .core import reml_from_V, ml_from_V
-except ImportError:
-    from core import reml_from_V, ml_from_V  # noqa: F401  (import direct, hors paquet)
-try:
-    from .lag import (prepare_lag, lag_n_params, ystar as lag_ystar, lag_terms,
-                      PENALITE as LAG_PENALITE)
-except ImportError:
-    from lag import (prepare_lag, lag_n_params, ystar as lag_ystar, lag_terms,  # noqa: F401
-                     PENALITE as LAG_PENALITE)
+from .core import reml_from_V, ml_from_V
+from .lag import (prepare_lag, lag_n_params, ystar as lag_ystar, lag_terms,
+                  PENALITE as LAG_PENALITE)
 
-try:
-    from .structures import chol_sigma, n_params
-    from .levels import level_chol, n_level_params, level_corr, _acf, _toeplitz
-except ImportError:
-    from structures import chol_sigma, n_params
-    from levels import level_chol, n_level_params, level_corr, _acf, _toeplitz
+from .structures import chol_sigma, n_params
+from .levels import level_chol, n_level_params, level_corr, _acf, _toeplitz
 
 
 def term_n_params(tm):

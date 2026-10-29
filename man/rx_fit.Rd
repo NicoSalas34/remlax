@@ -77,7 +77,7 @@ iteration and one per Newton polishing step.}
 
 \item{keep}{keep \code{dir} after the fit.}
 
-\item{optimizer}{\code{"lbfgsb"} (default), \code{"ai"}, \code{"ai_theta"} or \code{"auto"}
+\item{optimizer}{\code{"lbfgsb"} (default), \code{"ai"} or \code{"auto"}
 (\code{"ai"} with the mixed model equations engine, \code{"lbfgsb"} otherwise). \code{"ai"} is
 AI-REML with steps taken on the variance scale (the entries of each
 \code{Sigma}), as in ASReml. A \code{us} block whose optimum is rank deficient is
@@ -85,8 +85,7 @@ handled by an active set on the positive semidefinite cone. When halving
 the step six times does not decrease \verb{-2 logL}, the step is damped in the
 manner of Levenberg and Marquardt (\verb{AI + mu I}, \code{mu} increasing), which
 turns it towards the gradient. An AI run that cannot certify its optimum
-hands over to L-BFGS-B. \code{"ai_theta"} takes the AI steps on the Cholesky
-scale of \code{theta} (earlier variant). The default can be set with
+hands over to L-BFGS-B. The default can be set with
 \code{options(remlax.optimizer = )} or the environment variable
 \code{RX_OPTIMIZER}.}
 

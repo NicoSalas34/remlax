@@ -56,16 +56,10 @@ import jax
 import jax.numpy as jnp
 import numpy as np
 
-try:
-    from .model import make_neg2, term_n_params, res_sections, sec_n_params
-    from .structures import n_params, n_loadings, build_sigma
-    from .levels import n_level_params
-    from .inference import components_from_theta, component_names
-except ImportError:                                             # appel hors paquet
-    from model import make_neg2, term_n_params, res_sections, sec_n_params
-    from structures import n_params, n_loadings, build_sigma
-    from levels import n_level_params
-    from inference import components_from_theta, component_names
+from .model import make_neg2, term_n_params, res_sections, sec_n_params
+from .structures import n_params, n_loadings, build_sigma
+from .levels import n_level_params
+from .inference import components_from_theta, component_names
 
 # parametres entre niveaux dont la valeur est tanh(theta) (ou une image affine
 # de tanh, comme la correlation uniforme `cor`) : uniforme sur la correlation
@@ -558,10 +552,7 @@ def sample_posterior(terms, res, y, X, theta_hat, H=None, Hu=None, prior=None, c
     # --- beta et effets aleatoires, par Rao-Blackwell ---------------------------
     effets = None
     if n_effets and n_effets > 0:
-        try:
-            from .fit import effets_denses
-        except ImportError:
-            from fit import effets_denses
+        from .fit import effets_denses
         t1 = time.time()
         k = int(min(n_effets, C * D))
         choix = np.unique(np.linspace(0, C * D - 1, k).round().astype(int))

@@ -41,10 +41,7 @@ HORS PERIMETRE (bascule vers le moteur dense, cf. hors_perimetre) : residuelle
 "none" (les equations exigent R^-1), structure rr (Sigma singuliere, sans
 inverse) et decalage spatial (y transforme par un parametre).
 """
-try:
-    from . import _x64  # noqa: F401
-except ImportError:
-    import _x64          # noqa: F401
+from . import _x64  # noqa: F401
 import time
 
 import jax
@@ -52,18 +49,11 @@ import jax.numpy as jnp
 import numpy as np
 import scipy.sparse as sp
 
-try:
-    from .model import (orthonormal_X, split_theta, term_n_params, res_sections,
-                        sec_n_params, _section_V)
-    from .structures import build_sigma, n_params
-    from .levels import level_chol
-    from .selinv import FacteurCreux
-except ImportError:
-    from model import (orthonormal_X, split_theta, term_n_params, res_sections,  # noqa: F401
-                       sec_n_params, _section_V)
-    from structures import build_sigma, n_params
-    from levels import level_chol
-    from selinv import FacteurCreux
+from .model import (orthonormal_X, split_theta, term_n_params, res_sections,
+                    sec_n_params, _section_V)
+from .structures import build_sigma, n_params
+from .levels import level_chol
+from .selinv import FacteurCreux
 
 LOG2PI = float(np.log(2.0 * np.pi))
 
@@ -198,10 +188,6 @@ class _NiveauxCreux:
         rho = np.tanh(np.asarray(th, dtype=np.float64))
         d = self.fac[self.ar1[i]][1]
         return -(self.q // d) * (d - 1) * 2.0 * rho[i]       # d/dtheta, rho' = 1 - rho^2
-
-    def appliquer_K(self, th, B):
-        """K B sans matrice q x q (i = None dans appliquer_dK)."""
-        return self.appliquer_dK(th, None, B)
 
     def appliquer_dK(self, th, i, B):
         """(dK / dtheta_i) B sans matrice q x q : facteur par facteur ; K B si i est None."""
@@ -373,9 +359,6 @@ class MME:
                                      % (lvl, tm["name"]))
                 d.update(forme="creux", niv=nc, parts=nc.parts)
             else:
-                kw = dict(order=tm.get("lvl_order", 0), coord=tm.get("coord"), dims=tm.get("dims"),
-                          opts=tm.get("lvl_opts"), expr=tm.get("lvl_expr"), parts=tm.get("lvl_parts"))
-
                 # K EXACTEMENT COMME LE MOTEUR DENSE : par le facteur de
                 # level_chol, jitter compris. level_corr seul donnerait une autre
                 # matrice des que le jitter compte, donc une autre vraisemblance.
@@ -553,7 +536,6 @@ class MME:
                     # SuperLU refuse un facteur trop rempli : C est presque pleine
                     F, remp = None, 1.0
                 inversion = "dense" if remp > 0.5 else "creuse"
-                self.remplissage = remp
                 if inversion == "creuse":
                     self.facteur = F
         elif inversion == "creuse":
@@ -562,12 +544,8 @@ class MME:
             # SEPARATEUR DENSE + BLOCS DENSES PAR LOTS (mme_hybride.py) : le
             # separateur est fait des effets fixes et des termes globaux trouves
             # par decoupage.py ; hors perimetre, retour au choix automatique.
-            try:
-                from .mme_hybride import FacteurHybride, ensemble_dense, HorsPerimetre
-                from .decoupage import Decoupage
-            except ImportError:
-                from mme_hybride import FacteurHybride, ensemble_dense, HorsPerimetre
-                from decoupage import Decoupage
+            from .mme_hybride import FacteurHybride, ensemble_dense, HorsPerimetre
+            from .decoupage import Decoupage
             if self._separateur is not None:
                 noms = [tm["name"] for tm in self.terms]
                 glob = [noms.index(nm) for nm in self._separateur]
@@ -578,7 +556,6 @@ class MME:
                 self.facteur = FacteurHybride(self.ci, self.cj, m,
                                               ensemble_dense(self.T, self.p_sortie, glob),
                                               verbose=self.verbose)
-                self.globaux = [self.T[k]["name"] for k in glob]
             except HorsPerimetre as e:
                 if self.verbose:
                     print("  [mme] hybride hors perimetre (%s) -> inversion automatique" % e, flush=True)

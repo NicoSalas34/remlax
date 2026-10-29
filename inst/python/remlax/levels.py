@@ -57,17 +57,11 @@ CORRELATIONS PARTIELLES (chacune dans (-1,1) par tanh, sans contrainte), et on
 en deduit les phi par Levinson-Durbin. La bijection PACF <-> region stationnaire
 est exacte, et les phi rapportes restent ceux d'asreml.
 """
-try:
-    from . import _x64  # noqa: F401
-except ImportError:
-    import _x64          # noqa: F401
+from . import _x64  # noqa: F401
 import jax.numpy as jnp
 import numpy as np
 
-try:
-    from .bessel import matern as _matern
-except ImportError:
-    from bessel import matern as _matern
+from .bessel import matern as _matern
 
 # nom -> nombre de parametres (None = variable, cf. n_level_params)
 LEVEL_STRUCTURES = {

@@ -50,18 +50,11 @@ import jax
 import jax.numpy as jnp
 import numpy as np
 
-try:
-    from .model import (split_theta, term_n_params, res_sections, sec_n_params,
-                        support_groups, restrict_Z, assemble_V_groupes, prefold_fixed_K,
-                        orthonormal_X, section_matvec)
-    from .structures import chol_sigma, n_params
-    from .levels import level_chol, level_corr
-except ImportError:
-    from model import (split_theta, term_n_params, res_sections, sec_n_params,  # noqa: F401
-                       support_groups, restrict_Z, assemble_V_groupes, prefold_fixed_K,
-                        orthonormal_X, section_matvec)
-    from structures import chol_sigma, n_params
-    from levels import level_chol, level_corr
+from .model import (split_theta, term_n_params, res_sections, sec_n_params,
+                    support_groups, restrict_Z, assemble_V_groupes, prefold_fixed_K,
+                    orthonormal_X, section_matvec)
+from .structures import chol_sigma, n_params
+from .levels import level_chol
 
 
 def _sigma_et_K(theta_k, term):
@@ -203,14 +196,8 @@ def make_fga(terms, res, y, X):
         for k in ks:
             if _gram_rentable(terms[k], rows):
                 G[k] = Zr[k] @ Zr[k].T
-    try:
-        from .model import _section_V
-    except ImportError:
-        from model import _section_V
-    try:
-        from .model import term_factor, sec_n_params as _snp
-    except ImportError:
-        from model import term_factor, sec_n_params as _snp
+    from .model import _section_V
+    from .model import term_factor, sec_n_params as _snp
 
     # Un bloc qui couvre TOUTES les lignes dans l'ordre s'ajoute sans
     # dispersion : la dispersion dans un zeros(n, n) et sa transposee (un
@@ -297,186 +284,7 @@ def make_fga(terms, res, y, X):
 
     def fga_appel(theta):
         return _fga(theta, Zr_dev, G_dev)
-    fga_appel.compile_args = (_fga, Zr_dev, G_dev)   # analyse memoire (compilation seule)
     return fga_appel
-
-
-def ai_reml_fga(fga, th0, bornes, maxiter=200, tol_dec=1e-6, verbose=True,
-                pas_max=1.0, tol_fin=1e-3, compteur=None):
-    """AI-REML amorti dont le pas est pris en THETA (facteur de Cholesky a
-    diagonale logarithmique) : variante "ai_theta", anterieure a ai_reml_var.
-
-    UNE evaluation fga par iteration. L'etat porte (f, g, AI) au point courant.
-    Un pas refuse ne recalcule rien : seul l'amortissement change.
-    """
-    lo = np.array([b[0] for b in bornes], dtype=np.float64)
-    hi = np.array([b[1] for b in bornes], dtype=np.float64)
-    theta = np.clip(np.asarray(th0, dtype=np.float64), lo, hi)
-
-    def evaluer(th):
-        if compteur is not None:
-            compteur["n_eval"] += 1
-        f_, g_, A_ = fga(jnp.asarray(th))
-        return float(f_), np.asarray(g_, dtype=np.float64), np.asarray(A_, dtype=np.float64)
-
-    f, g, AI = evaluer(theta)
-    mu, n_it, msg, ok, rejets = 1e-4, 0, "maxiter atteint", False, 0
-    t0 = time.time()
-    for it in range(int(maxiter)):
-        if not (np.isfinite(f) and np.all(np.isfinite(AI))):
-            msg = "valeur ou matrice AI non finie"
-            break
-        fixe = (hi - lo) <= 0
-        libre = ~(fixe | ((theta <= lo + 1e-12) & (g > 0)) | ((theta >= hi - 1e-12) & (g < 0)))
-        if not libre.any():
-            msg, ok = "tous les parametres sont a leur borne", True
-            break
-        Af, gf = AI[np.ix_(libre, libre)], g[libre]
-        w, Vv = np.linalg.eigh(Af)
-        lam = max(1e-12, 1e-10 * abs(w).max())
-        dec = 0.5 * float(gf @ (Vv @ ((Vv.T @ gf) / np.where(w > lam, w, lam))))
-        if dec < tol_dec:
-            msg, ok = "decrement AI sous le seuil", True
-            break
-        D = np.maximum(np.diag(Af), lam)
-        try:
-            pas = -np.linalg.solve(Af + mu * np.diag(D) + lam * np.eye(len(D)), gf)
-        except np.linalg.LinAlgError:
-            mu *= 10.0
-            continue
-        amp = float(np.max(np.abs(pas)))
-        if amp > pas_max:
-            pas = pas * (pas_max / amp)
-        cand = theta.copy()
-        cand[libre] = np.clip(theta[libre] + pas, lo[libre], hi[libre])
-        f_c, g_c, AI_c = evaluer(cand)
-        n_it += 1
-        accepte = np.isfinite(f_c) and f_c < f - 1e-12
-        if accepte:
-            gain = f - f_c
-            theta, f, g, AI = cand, f_c, g_c, AI_c
-            mu, rejets = max(mu / 10.0, 1e-8), 0
-        else:
-            mu *= 10.0
-            rejets += 1
-        if verbose:
-            print("  ai   %4d | -2logL %14.6f | decrement %.3e | mu %.1e | %6.1f s%s"
-                  % (n_it, f, dec, mu, time.time() - t0,
-                     "" if accepte else " | pas refuse"), flush=True)
-        if not accepte:
-            if dec < tol_fin and rejets >= 2:
-                # Succes seulement sous le seuil du diagnostic final de fit.py
-                # (SEUIL_DECREMENT = 1e-4) : sinon fit_reml saute le polissage
-                # sur un point qu'il declarera ensuite non converge. Verifie par
-                # simulation (lvr, melange IGE) : arret a 2e-5 a 1,7e-4 de logLik.
-                msg = "decrement %.1e sous %.0e et pas refuses : precision atteinte" % (dec, tol_fin)
-                ok = dec < SEUIL_SUCCES
-                break
-            if mu > 1e8:
-                msg, ok = "aucun pas n'ameliore -2logL loin de l'optimum (decrement %.1e)" % dec, False
-                break
-            continue
-        if gain < 1e-12 * max(1.0, abs(f)):
-            msg, ok = "gain relatif negligeable", True
-            break
-    return theta, dict(nit=n_it, success=ok, message="AI-REML (theta) : %s" % msg)
-
-
-def ai_reml(fun_jac, ai_fn, th0, bornes, maxiter=200, tol_dec=1e-6, verbose=True,
-            hist=None, pas_max=1.0, tol_fin=1e-3):
-    """Boucle AI-REML amortie, a bornes par composante.
-
-    fun_jac(theta) -> (-2logL, gradient) a l'echelle naturelle ; ai_fn(theta) ->
-    matrice AI. Un parametre a sa borne et pousse vers l'exterieur par le
-    gradient est retire du pas (ensemble actif), comme L-BFGS-B le ferait.
-    L'arret porte sur le decrement g' AI^-1 g / 2 (unites de -2logL), puis sur
-    l'absence de pas accepte avec l'amortissement maximal.
-
-    pas_max : borne de la plus grande composante du pas, en unites de theta. Les
-    theta diagonaux sont des log d'ecart-type : sans cette borne, un seul pas
-    envoyait une variance au plancher, ou sa derivee s'annule et d'ou elle ne
-    remonte plus. Mesure sur la hauteur : arret 0,79 unite de logLik sous
-    L-BFGS-B, apres un pas au decrement de 1e8.
-
-    tol_fin : PRES DE L'OPTIMUM, UN PAS REFUSE EST DE L'ARRONDI. Sous ce decrement
-    (unites de -2logL), deux pas refuses de suite suffisent a conclure : le gain
-    attendu est inferieur a ce que l'arithmetique distingue. Sans cette regle,
-    l'amortissement montait jusqu'a 1e8, une evaluation par palier, pour rien
-    (mesure : 5 a 20 s perdues en fin de boucle sur les univaries IGE). Au-dessus
-    de tol_fin, une absence de pas accepte reste un ECHEC declare (success False),
-    et fit_reml garde alors le polissage de Newton.
-    """
-    lo = np.array([b[0] for b in bornes], dtype=np.float64)
-    hi = np.array([b[1] for b in bornes], dtype=np.float64)
-    theta = np.clip(np.asarray(th0, dtype=np.float64), lo, hi)
-    f, g = fun_jac(theta)
-    mu, n_it, msg, ok = 1e-4, 0, "maxiter atteint", False
-    t0 = time.time()
-    for it in range(int(maxiter)):
-        AI = np.asarray(ai_fn(jnp.asarray(theta)), dtype=np.float64)
-        if not np.all(np.isfinite(AI)):
-            msg = "matrice AI non finie"
-            break
-        fixe = (hi - lo) <= 0
-        bord_bas = (theta <= lo + 1e-12) & (g > 0)
-        bord_haut = (theta >= hi - 1e-12) & (g < 0)
-        libre = ~(fixe | bord_bas | bord_haut)
-        if not libre.any():
-            msg, ok = "tous les parametres sont a leur borne", True
-            break
-        Af, gf = AI[np.ix_(libre, libre)], g[libre]
-        w, Vv = np.linalg.eigh(Af)
-        lam = max(1e-12, 1e-10 * abs(w).max())
-        w_reg = np.where(w > lam, w, lam)
-        dec = 0.5 * float(gf @ (Vv @ ((Vv.T @ gf) / w_reg)))
-        if dec < tol_dec:
-            msg, ok = "decrement AI sous le seuil", True
-            break
-        D = np.maximum(np.diag(Af), lam)
-        accepte, n_rejet = False, 0
-        while mu <= 1e8:
-            H = Af + mu * np.diag(D) + lam * np.eye(len(D))
-            try:
-                pas = -np.linalg.solve(H, gf)
-            except np.linalg.LinAlgError:
-                mu *= 10.0
-                continue
-            amp = float(np.max(np.abs(pas)))
-            if amp > pas_max:
-                pas = pas * (pas_max / amp)
-            cand = theta.copy()
-            cand[libre] = np.clip(theta[libre] + pas, lo[libre], hi[libre])
-            f_try, g_try = fun_jac(cand)
-            if np.isfinite(f_try) and f_try < f - 1e-12:
-                gain = f - f_try
-                theta, f, g = cand, f_try, g_try
-                mu = max(mu / 10.0, 1e-8)
-                accepte = True
-                break
-            mu *= 10.0
-            n_rejet += 1
-            if dec < tol_fin and n_rejet >= 2:
-                break
-        n_it += 1
-        if verbose:
-            print("  ai   %4d | -2logL %14.6f | decrement %.3e | mu %.1e | %6.1f s%s"
-                  % (n_it, f, dec, mu, time.time() - t0,
-                     "" if accepte else " | aucun pas accepte"), flush=True)
-        if not accepte:
-            if dec < tol_fin:
-                # Succes seulement sous le seuil du diagnostic final de fit.py
-                # (SEUIL_DECREMENT = 1e-4) : sinon fit_reml saute le polissage
-                # sur un point qu'il declarera ensuite non converge. Verifie par
-                # simulation (lvr, melange IGE) : arret a 2e-5 a 1,7e-4 de logLik.
-                msg = "decrement %.1e sous %.0e et pas refuses : precision atteinte" % (dec, tol_fin)
-                ok = dec < SEUIL_SUCCES
-            else:
-                msg, ok = "aucun pas n'ameliore -2logL loin de l'optimum (decrement %.1e)" % dec, False
-            break
-        if gain < 1e-12 * max(1.0, abs(f)):
-            msg, ok = "gain relatif negligeable", True
-            break
-    return theta, dict(nit=n_it, success=ok, message="AI-REML : " + msg)
 
 
 # ==============================================================================

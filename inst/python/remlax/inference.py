@@ -22,10 +22,7 @@ le Hessien soit inversible sur le sous-espace libre. Un parametre a une borne
 active n'en a pas, et une direction de courbure nulle rend la delta method
 muette plutot que fausse : on rend NaN, jamais un chiffre invente.
 """
-try:
-    from . import _x64  # noqa: F401
-except ImportError:
-    import _x64          # noqa: F401
+from . import _x64  # noqa: F401
 import jax
 import jax.numpy as jnp
 import numpy as np
@@ -43,10 +40,6 @@ def component_names(terms, res, lag=None):
     (Psi[receveur<-emetteur], receveur par receveur) : les numeros des
     composantes de variance ne bougent donc pas quand on ajoute un decalage.
     """
-    try:
-        from .structures import n_params
-    except ImportError:
-        from structures import n_params
     noms = []
     for tm in terms:
         t = tm["t"]
@@ -60,10 +53,7 @@ def component_names(terms, res, lag=None):
         nl = _n_niv(tm)
         for k in range(nl):
             noms.append("%s!%s%s" % (tm["name"], kind, "" if nl == 1 else str(k + 1)))
-    try:
-        from .model import res_sections
-    except ImportError:
-        from model import res_sections
+    from .model import res_sections
     secs = res_sections(res, 0)
     for sec in secs:
         pre = sec.get("name", "residuelle") if len(secs) > 1 else "residuelle"
@@ -79,20 +69,14 @@ def component_names(terms, res, lag=None):
         for k in range(nl):
             noms.append("%s!%s%s" % (pre, kind, "" if nl == 1 else str(k + 1)))
     if lag is not None:
-        try:
-            from .lag import lag_component_names
-        except ImportError:
-            from lag import lag_component_names
+        from .lag import lag_component_names
         noms.extend(lag_component_names(lag))
     return noms
 
 
 def _n_niv(tm):
     """Parametres de la structure ENTRE NIVEAUX d'un terme ou d'une section."""
-    try:
-        from .levels import n_level_params
-    except ImportError:
-        from levels import n_level_params
+    from .levels import n_level_params
     kind = tm.get("lvl") or ("fixed" if tm.get("LK") is not None else "id")
     return n_level_params(kind, tm.get("lvl_order", 0), tm.get("lvl_parts"),
                           opts=tm.get("lvl_opts"))
@@ -115,10 +99,7 @@ _NIV_PORTEE = ("sph", "cir", "lvr", "ilv")
 
 def _niv_naturel(th_niv, tm):
     """Parametres de niveaux sur leur echelle NATURELLE, en JAX (differentiable)."""
-    try:
-        from .levels import MTRN_PARAMS
-    except ImportError:
-        from levels import MTRN_PARAMS
+    from .levels import MTRN_PARAMS
     kind = tm.get("lvl") or ("fixed" if tm.get("LK") is not None else "id")
     nl = _n_niv(tm)
     if nl == 0:
@@ -151,14 +132,8 @@ def components_from_theta(theta, terms, res, lag=None):
     ecrite en JAX de bout en bout, et rendre les composantes DANS L'ORDRE de
     component_names().
     """
-    try:
-        from .structures import build_sigma, n_params
-        from .model import split_theta
-        from .levels import level_params_report
-    except ImportError:
-        from structures import build_sigma, n_params
-        from model import split_theta
-        from levels import level_params_report
+    from .structures import build_sigma, n_params
+    from .model import split_theta
     th_terms, th_res, _ = split_theta(theta, terms, res)
     out = []
     for k, tm in enumerate(terms):
@@ -176,10 +151,7 @@ def components_from_theta(theta, terms, res, lag=None):
         _nv = _niv_naturel(th_terms[k][ns:], tm)
         if len(_nv):
             out.append(jnp.stack([jnp.asarray(v_) for v_ in _nv]))
-    try:
-        from .model import res_sections, sec_n_params
-    except ImportError:
-        from model import res_sections, sec_n_params
+    from .model import res_sections, sec_n_params
     o = 0
     for sec in res_sections(res, 0):
         p_s = sec_n_params(sec)
@@ -448,7 +420,7 @@ def _info_reml(D, P_mat):
     return I
 
 
-def kenward_roger(theta, terms, res, y, X, H=None, termes_fixes=None):
+def kenward_roger(theta, terms, res, y, X, termes_fixes=None):
     """Ajustement de Kenward & Roger (1997) : variance de beta et ddl du denominateur.
 
     CE QUE CORRIGE LA METHODE. Le test de Wald ordinaire traite V comme CONNUE.
@@ -494,10 +466,7 @@ def kenward_roger(theta, terms, res, y, X, H=None, termes_fixes=None):
     parametre de variance, puis appariees deux a deux pour l'information. C'est
     O(p_theta^2 n^2) et c'est le prix de la methode, pas un choix.
     """
-    try:
-        from .model import assemble_V, dense_Z
-    except ImportError:
-        from model import assemble_V, dense_Z
+    from .model import assemble_V, dense_Z
     theta = np.asarray(theta, dtype=float)
     n, p = X.shape
     k = len(theta)
@@ -595,11 +564,8 @@ def kenward_roger(theta, terms, res, y, X, H=None, termes_fixes=None):
             d["note"] = note
         tests.append(d)
     niv = sum(_n_niv(t) for t in terms)
-    try:
-        from .model import res_sections
-        niv += sum(_n_niv(s) for s in res_sections(res, n))
-    except ImportError:
-        pass
+    from .model import res_sections
+    niv += sum(_n_niv(s) for s in res_sections(res, n))
     return dict(disponible=True, tests=tests,
                 se_beta=[float(np.sqrt(max(v, 0))) for v in np.diag(Phi_A)],
                 se_beta_brut=[float(np.sqrt(max(v, 0))) for v in np.diag(Phi)],
@@ -635,14 +601,9 @@ def predict(theta, terms, res, y, X, L, M=None, vbeta=None):
     Aucun G^-1 n'est forme, et aucun Kronecker : G = Sigma (x) K n'intervient
     que par son ACTION sur M, soit Sigma M_mat K'.
     """
-    try:
-        from .model import assemble_V, dense_Z, split_theta
-        from .structures import build_sigma, n_params
-        from .levels import level_chol
-    except ImportError:
-        from model import assemble_V, dense_Z, split_theta
-        from structures import build_sigma, n_params
-        from levels import level_chol
+    from .model import assemble_V, dense_Z, split_theta
+    from .structures import build_sigma, n_params
+    from .levels import level_chol
     theta = np.asarray(theta, dtype=float)
     n, p = X.shape
     L = np.atleast_2d(np.asarray(L, dtype=float))

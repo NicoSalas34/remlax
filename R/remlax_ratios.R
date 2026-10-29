@@ -333,7 +333,6 @@ rx_ratios <- function(fit, components, exposure = NULL, model = NULL,
       for (i in seq_len(nt)) k_other[[i]] <- .rx_k_other(exposure[["k_other"]][[m[i]]])
   }
   if (!scaled) { E[, -1] <- 1; k_other <- stats::setNames(vector("list", nt), tg) }
-  term_of <- function(ref) ref$sigma
   # --- la carte theta -> quantites --------------------------------------------
   # les termes genetiques : ceux qui portent un effet direct ou un effet croise
   gen_terms <- unique(c(vapply(cible, function(z) z$d$sigma, ""),

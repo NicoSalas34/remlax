@@ -433,7 +433,7 @@ The fit. Arguments:
 | `seed` | RNG seed for the restarts |
 | `fixed_idx` | 0-based indices held at their starting value |
 | `lag` | spatial lag of the response (`remlax.lag`), dense engine only |
-| `optimizer` | `"lbfgsb"`, `"ai"` (average information on the variance scale, `remlax.ai.ai_reml_var`) or `"ai_theta"` (steps on `theta`) |
+| `optimizer` | `"lbfgsb"` or `"ai"` (average information on the variance scale, `remlax.ai.ai_reml_var`) |
 | `moteur` | `"dense"` (marginal `V`) or `"mme"` (mixed model equations, `remlax.mme`); a model outside the scope of `"mme"` falls back to `"dense"` |
 | `inversion` | with `moteur="mme"`: `"auto"`, `"dense"` or `"creuse"` (sparse selected inversion, `remlax.selinv`) |
 
@@ -799,7 +799,7 @@ R needs no Python dependency and Python needs no R dependency.
 |---|---|---|
 | `--backend auto\|gpu\|cpu` | `auto` | device; `gpu` refuses if none is visible |
 | `--maxiter N` | 3000 | optimiser iteration cap |
-| `--optimiseur lbfgsb\|ai\|ai_theta` | `lbfgsb` | optimiser |
+| `--optimiseur lbfgsb\|ai\|auto` | `lbfgsb` | optimiser |
 | `--moteur dense\|mme` | `dense` | engine |
 | `--inversion auto\|dense\|creuse` | `auto` | inversion of `C` with `--moteur mme` |
 | `--polish N` | 25 | Newton polishing steps |
@@ -888,10 +888,6 @@ rotate `U` in hundreds of small steps. The loop declares a failure, which
 `fit_reml` turns into an L-BFGS-B run from the point reached, in two cases:
 three gains in a row below `1e-6` with a decrement above
 `SEUIL_SUCCES = 1e-4`, or no admissible step.
-
-### `ai_reml_fga(...)`
-
-The earlier variant behind `optimizer = "ai_theta"`, with steps on `theta`.
 
 ## 12. `remlax.mme`
 

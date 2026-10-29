@@ -397,7 +397,7 @@ rx_fit(model, backend = c("auto", "gpu", "cpu"), dir = NULL,
 | `floor`, `ceil` | bounds on every `theta`, default `-12` and `12`. `theta` is a **log standard deviation** (`var = exp(2 theta)`), so the default floor is `var = 3.8e-11`. The values actually used come back as `fit$par_floor` and `fit$par_ceil`; read them there rather than recoding them |
 | `verbose` | passes the solver's output through |
 | `keep` | keep `dir` after the fit |
-| `optimizer` | `"lbfgsb"` (default), `"ai"` (average information REML on the variance scale) or `"ai_theta"`; default settable by `options(remlax.optimizer = )` or `RX_OPTIMIZER` |
+| `optimizer` | `"lbfgsb"` (default), `"ai"` (average information REML on the variance scale) or `"auto"`; default settable by `options(remlax.optimizer = )` or `RX_OPTIMIZER` |
 | `engine` | `"dense"` (default, marginal `V`) or `"mme"` (mixed model equations `C`); default settable by `options(remlax.engine = )` or `RX_ENGINE` |
 | `inversion` | with `engine = "mme"`: `"auto"`, `"dense"` or `"sparse"` (selected inversion of the sparse factor of `C`) |
 

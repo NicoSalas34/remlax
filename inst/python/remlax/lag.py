@@ -80,10 +80,7 @@ log-ecarts-types et evite qu'un W a petits poids (1/d^2) ne rende le gradient en
 Psi des ordres de grandeur plus grand que les autres. Les sorties sont en
 unites de W (Psi = theta_lag / s).
 """
-try:
-    from . import _x64  # noqa: F401
-except ImportError:
-    import _x64          # noqa: F401
+from . import _x64  # noqa: F401
 
 import numpy as np
 import jax

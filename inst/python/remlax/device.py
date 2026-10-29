@@ -3,10 +3,7 @@
 Le meme code tourne des deux cotes ; ce que change le peripherique, c'est la
 vitesse et l'ordre des reductions (donc les derniers bits), pas le modele.
 """
-try:
-    from . import _x64  # noqa: F401
-except ImportError:
-    import _x64          # noqa: F401
+from . import _x64  # noqa: F401
 import jax
 
 

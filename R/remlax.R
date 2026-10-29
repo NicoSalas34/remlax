@@ -395,7 +395,7 @@ rx_term <- function(name, Z, K = NULL, struct = "iid", rank = 0L,
       message("terme '", name, "' : Kinv est remplie a ",
               sprintf("%.0f %%", 100 * dens), ". Le moteur creux n'y gagnera ",
               "rien - c'est le cas d'une parente genomique, dont l'inverse est ",
-              "plein. Voir remlax.sparsity pour le diagnostic.")
+              "plein.")
   }
   structure(list(name = name, Zl = Zl, t = as.integer(t), q = as.integer(q),
                  struct = struct, rank = as.integer(rank), LK = LK,
@@ -782,7 +782,6 @@ rx_model <- function(y, X, terms, residual = rx_residual(), name = "modele", lag
       stop("dsum : les sections couvrent ", length(vus), " ligne(s) (",
            length(unique(vus)), " distinctes) pour ", n, " observations.")
   }
-  tr <- residual$trait
   t_res <- .t_de(residual)
   # X de rang plein : sinon log|X'V^-1X| est -Inf et la REML n'est pas definie.
   r <- qr(X)$rank
@@ -992,13 +991,12 @@ rx_fit <- function(model, backend = c("auto", "gpu", "cpu"), dir = NULL,
                    inversion = c("auto", "dense", "sparse", "hybrid"), bayes = NULL,
                    memory = getOption("remlax.memory", Sys.getenv("RX_MEMORY", "standard")),
                    finish = getOption("remlax.finish", Sys.getenv("RX_FINISH", "newton"))) {
-  # optimizer : "lbfgsb" (defaut), "ai" (AI-REML, pas pris en echelle des
-  # variances, a la maniere d'asreml) ou "ai_theta" (AI-REML, pas pris en theta
-  # de Cholesky, variante anterieure). Polissage, diagnostics et sorties ne
+  # optimizer : "lbfgsb" (defaut) ou "ai" (AI-REML, pas pris en echelle des
+  # variances, a la maniere d'asreml). Polissage, diagnostics et sorties ne
   # changent pas. Le defaut se regle sans toucher aux appels, par
   # options(remlax.optimizer = "ai") ou la variable d'environnement RX_OPTIMIZER :
   # c'est ce qui permet de rejouer une suite de validation entiere sous AI-REML.
-  optimizer <- match.arg(optimizer, c("lbfgsb", "ai", "ai_theta", "auto"))
+  optimizer <- match.arg(optimizer, c("lbfgsb", "ai", "auto"))
   # engine : "dense" (V formee) ou "mme" (equations du modele mixte). Un modele
   # hors du perimetre du moteur MME (residuelle none, rr, decalage) y bascule
   # vers le dense, avec un message du solveur.
@@ -1157,32 +1155,25 @@ rx_se_theta <- function(theta, hessian, par_floor = -12, par_ceil = 12,
   se
 }
 
-rx_here <- function() system.file(package = "remlax")
-
-# Repertoire de l'interface R, quelle que soit la facon dont elle a ete chargee.
-rx_pkg_dir <- function() system.file(package = "remlax")
-
-# Localisation du solveur Python : les arguments a passer AVANT le repertoire
-# du modele serialise.
-#
-# Deux voies, dans cet ordre :
-#   1. $RX_CLI            explicite : chemin d'un cli.py, ou "-m remlax.cli"
-#   2. la copie livree    inst/python/remlax/cli.py du paquet installe
-#
-# LA COPIE LIVREE PASSE AVANT UN PAQUET PYTHON INSTALLE. Une version precedente
-# preferait `-m remlax.cli` des que `import remlax` reussissait : un remlax
-# installe par pip sous l'interpreteur choisi repondait alors a la place du
-# moteur livre avec l'interface R, sans que rien ne dise laquelle des deux
-# versions avait calcule. L'interface et le moteur sont desormais toujours ceux
-# du meme paquet ; RX_CLI reste la voie pour en essayer un autre.
+# Arguments that select the solver entry point, placed before the bundle
+# directory on the command line: $RX_CLI when set, otherwise the launcher of the
+# copy shipped with this package followed by "cli". The shipped copy is used
+# even when a Python package `remlax` is importable, so that the R interface
+# and the solver always come from the same version.
 rx_solver_args <- function() {
   if (nzchar(Sys.getenv("RX_CLI"))) return(strsplit(Sys.getenv("RX_CLI"), " +")[[1]])
-  # cli.py place lui-meme son repertoire parent sur sys.path : le lancement par
-  # chemin suffit, sans PYTHONPATH.
-  inst <- system.file("python", "remlax", "cli.py", package = "remlax")
-  if (nzchar(inst)) return(inst)
-  stop("solveur Python introuvable dans le paquet installe (inst/python/remlax). ",
-       "Reinstaller remlax, ou definir RX_CLI.", call. = FALSE)
+  c(.rx_launcher(), "cli")
+}
+
+# Path of inst/python/remlax_run.py. The launcher runs one module of the shipped
+# `remlax` Python package, imported as a package, without searching the current
+# directory of the R session.
+.rx_launcher <- function() {
+  f <- system.file("python", "remlax_run.py", package = "remlax")
+  if (!nzchar(f))
+    stop("solveur Python introuvable dans le paquet installe (inst/python). ",
+         "Reinstaller remlax, ou definir RX_CLI.", call. = FALSE)
+  f
 }
 
 # Commande Python : $RX_PY, sinon $IGE_JAX_CMD, sinon $IGE_JAX_SIF, sinon python3
@@ -2289,7 +2280,7 @@ rx_predict <- function(fit, classify, levels = NULL, at = NULL,
 
   # --- estimabilite -----------------------------------------------------------
   X <- fit$model$X
-  qrX <- qr(X); proj <- qr.Q(qrX)[, seq_len(qrX$rank), drop = FALSE]
+  qrX <- qr(X)
   # L doit etre dans l'espace des LIGNES de X : on teste via la projection de
   # chaque ligne de L sur cet espace.
   Rx <- qr.R(qrX)[seq_len(qrX$rank), , drop = FALSE]

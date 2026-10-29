@@ -16,12 +16,13 @@ A character vector.
 the first of \code{RX_PY}, \code{IGE_JAX_CMD}, \code{IGE_JAX_SIF} (expanded to
 \verb{apptainer exec --nv <sif> python3}), \code{python3}. \code{rx_solver_args()} returns
 the arguments that select the solver entry point: \code{RX_CLI} if set,
-otherwise the copy shipped in \code{system.file("python", package = "remlax")}.
+otherwise the launcher \code{remlax_run.py} of the copy shipped in
+\code{system.file("python", package = "remlax")}, followed by \code{"cli"}.
 The shipped copy is used even when a Python package \code{remlax} is importable,
 so that the interface and the engine are always those of the same version.
 It stops with a message if the shipped copy is missing.
 }
 \examples{
 rx_python_cmd()
-basename(rx_solver_args())
+basename(rx_solver_args()[1])
 }

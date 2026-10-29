@@ -16,7 +16,7 @@ modifies none of them. It consumes the output of `fit_reml`.
 | file | role |
 |---|---|
 | `inst/python/remlax/scan.py` | the algebra: projection, covariate families, tests. Pure NumPy, no JAX required |
-| `inst/python/remlax/scan_cli.py` | entry point `python -m remlax.scan_cli`, beside `cli.py` |
+| `inst/python/remlax/scan_cli.py` | entry point, run by `inst/python/remlax_run.py scan_cli`, beside `cli.py` |
 | `R/remlax_scan.R` | `rx_scan()` / `rx_scan_seuil()`, beside `R/remlax.R` |
 | `R/remlax_scan_plus.R` | `rx_scan_loco()` / `rx_scan_exact()`, built on `rx_scan()` without modifying it |
 | `tests-python/test_scan.py` | the scan checked against the Wald test with the column added to X |
