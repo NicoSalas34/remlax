@@ -7,10 +7,10 @@ import pytest
 
 ICI = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "inst", "python")
 sys.path.insert(0, ICI)
-from remlax.fils import choisir_coeurs  # noqa: E402
+from remlax.fils import choose_cores  # noqa: E402
 
-CODE = ("import os, sys; sys.path.insert(0, %r); from remlax.fils import borner_fils; "
-        "m = borner_fils(verbose=False); import numpy; "
+CODE = ("import os, sys; sys.path.insert(0, %r); from remlax.fils import bound_threads; "
+        "m = bound_threads(verbose=False); import numpy; "
         "print(len(os.sched_getaffinity(0)), os.environ.get('OPENBLAS_NUM_THREADS'), m is not None)" % ICI)
 
 
@@ -54,6 +54,6 @@ def test_choix_dans_un_noeud_numa_et_coeurs_libres():
     masque = set(range(8))
     libres = {0: 0.1, 1: 0.9, 2: 0.8, 3: 0.2, 4: 1.0, 5: 1.0, 6: 0.95, 7: 0.05}
     noeuds = [{0, 1, 2, 3}, {4, 5, 6, 7}]
-    assert choisir_coeurs(masque, 3, libres, noeuds) == [4, 5, 6]
+    assert choose_cores(masque, 3, libres, noeuds) == [4, 5, 6]
     # aucun noeud n'a 5 coeurs : les 5 plus libres de tout le masque
-    assert choisir_coeurs(masque, 5, libres, noeuds) == [1, 2, 4, 5, 6]
+    assert choose_cores(masque, 5, libres, noeuds) == [1, 2, 4, 5, 6]

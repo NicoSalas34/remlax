@@ -30,10 +30,10 @@ the ancestor supernodes, which are already computed. A small C kernel
 (selinv_c.c) runs this loop when a C compiler is available. A NumPy loop
 gives the same result otherwise.
 
-Organisation. _c_kernel compiles and loads the C kernel. ordre_metis computes
-the METIS order. FacteurCreux holds the symbolic analysis (order, supernodes,
-extraction map) and the numeric steps (factoriser or factoriser_valeurs,
-resoudre, inverse_selective).
+Organisation. _c_kernel compiles and loads the C kernel. metis_order computes
+the METIS order. SparseFactor holds the symbolic analysis (order, supernodes,
+extraction map) and the numeric steps (factoriser or factorise_values,
+resoudre, selected_inverse).
 """
 import ctypes
 import hashlib
@@ -135,7 +135,7 @@ def _splu(A, order):
                      options=dict(SymmetricMode=True))
 
 
-def ordre_metis(A):
+def metis_order(A):
     """Nested dissection order (METIS, through pymetis) of the symmetric
     pattern A, or None when pymetis is missing.
 
@@ -162,18 +162,18 @@ def ordre_metis(A):
     return np.asarray(perm, dtype=np.int64)
 
 
-class FacteurCreux:
+class SparseFactor:
     """Successive factorisations of matrices with the SAME pattern.
 
     motif: symmetric sparse matrix (full pattern, both triangles).
     ii, jj: wanted entries of C^-1 (original indices, 0-based).
-    ordre: "auto" or "metis" (METIS when available), anything else for the
+    order: "auto" or "metis" (METIS when available), anything else for the
         minimum degree of SuperLU.
-    moteur: "auto" or "cholmod" (CHOLMOD when available), anything else for
+    backend: "auto" or "cholmod" (CHOLMOD when available), anything else for
         SuperLU.
     """
 
-    def __init__(self, motif, ii=None, jj=None, ordre="auto", moteur="auto"):
+    def __init__(self, motif, ii=None, jj=None, order="auto", backend="auto"):
         A = sp.csc_matrix(motif, dtype=np.float64).copy()
         A.data[:] = 1.0
         m = A.shape[0]
@@ -182,11 +182,11 @@ class FacteurCreux:
         dg = np.asarray(abs(A).sum(axis=1)).ravel() + 1.0
         A0 = (A - sp.diags(A.diagonal()) + sp.diags(dg)).tocsc()
         # Elimination order: METIS nested dissection when pymetis is installed
-        # (ordre="auto" or "metis"), minimum degree of SuperLU otherwise.
-        metis_perm = ordre_metis(A0) if ordre in ("auto", "metis") else None
-        if ordre == "metis" and metis_perm is None:
+        # (order="auto" or "metis"), minimum degree of SuperLU otherwise.
+        metis_perm = metis_order(A0) if order in ("auto", "metis") else None
+        if order == "metis" and metis_perm is None:
             raise ImportError("ordre METIS demande mais pymetis n'est pas installe")
-        self.ordre = "metis" if metis_perm is not None else "mmd"
+        self.order = "metis" if metis_perm is not None else "mmd"
         if metis_perm is not None:
             self.perm = metis_perm
         else:
@@ -202,27 +202,27 @@ class FacteurCreux:
         # it is installed, SuperLU otherwise. CHOLMOD uses the symmetry (one
         # factor, half the memory of an LU). It also lacks the internal limit
         # of SuperLU, which refuses factors larger than about 2 GB.
-        self.moteur = "superlu"
-        if moteur in ("auto", "cholmod"):
+        self.backend = "superlu"
+        if backend in ("auto", "cholmod"):
             try:
                 import cvxopt  # noqa: F401
                 from cvxopt import cholmod  # noqa: F401
-                self.moteur = "cholmod"
+                self.backend = "cholmod"
             except ImportError:
-                if moteur == "cholmod":
+                if backend == "cholmod":
                     raise
         Ap0 = A0[self.perm][:, self.perm].tocsc()
-        if self.moteur == "cholmod":
+        if self.backend == "cholmod":
             try:
                 self._init_cholmod(Ap0)
                 if ii is not None:
-                    self.preparer_extraction(ii, jj)
+                    self.prepare_extraction(ii, jj)
                     self._cholmod_entries(ii, jj)
                 return
             except RuntimeError:
-                if moteur == "cholmod":
+                if backend == "cholmod":
                     raise
-                self.moteur = "superlu"           # fallback: SuperLU, same order
+                self.backend = "superlu"           # fallback: SuperLU, same order
         lu1 = _splu(Ap0, "NATURAL")
         if not (np.array_equal(lu1.perm_c, np.arange(m)) and np.array_equal(lu1.perm_r, np.arange(m))):
             # SuperLU permuted again (postorder of the tree): compose the two.
@@ -237,7 +237,7 @@ class FacteurCreux:
         self._build_supernodes(L)
         self.lu = None
         if ii is not None:
-            self.preparer_extraction(ii, jj)
+            self.prepare_extraction(ii, jj)
 
     # ------------------------------------------------------------------ CHOLMOD
     @staticmethod
@@ -317,7 +317,7 @@ class FacteurCreux:
         if not (np.array_equal(Ic, Iu) and np.array_equal(Jc, Ju)):
             raise RuntimeError("CHOLMOD : ordre CCS de cvxopt inattendu")
 
-    def factoriser_valeurs(self, x):
+    def factorise_values(self, x):
         """Factorise C given by its values at the entries (ii, jj). Returns log|C|."""
         from cvxopt import matrix
         v = np.bincount(self._entry_pos, weights=np.asarray(x, dtype=np.float64),
@@ -492,7 +492,7 @@ class FacteurCreux:
                 groups.append((int(K), pr, pc, rK, cK))
             self._gather.append(groups)
 
-    def preparer_extraction(self, ii, jj):
+    def prepare_extraction(self, ii, jj):
         """Positions, in the flat block storage, of the wanted entries of C^-1."""
         pi_, pj_ = self.pinv[np.asarray(ii, dtype=np.int64)], self.pinv[np.asarray(jj, dtype=np.int64)]
         lo, co = np.maximum(pi_, pj_), np.minimum(pi_, pj_)
@@ -507,10 +507,10 @@ class FacteurCreux:
         self._extract = self.off[K] + r + self.nrow[K] * (co - self.sup[K])
 
     # ----------------------------------------------------------------- numeric
-    def factoriser(self, C):
+    def factorise(self, C):
         """Factorise C (same pattern as at construction). Returns log|C|."""
         Cp = sp.csc_matrix(C)[self.perm][:, self.perm].tocsc()
-        if self.moteur == "cholmod":
+        if self.backend == "cholmod":
             from cvxopt import matrix
             T = sp.tril(Cp).tocoo()
             return self._cholmod_numeric(self._cvx(T.data, matrix(T.row.astype(np.int64)),
@@ -524,10 +524,10 @@ class FacteurCreux:
         self.lu, self.d = lu, d
         return float(np.sum(np.log(d)))
 
-    def resoudre(self, B):
+    def solve(self, B):
         """C^-1 B from the current factorisation (B a vector or a matrix)."""
         B = np.asarray(B, dtype=np.float64)
-        if self.moteur == "cholmod":
+        if self.backend == "cholmod":
             Xp = self._solve_supernodes(B[self.perm])
             X = np.empty_like(Xp); X[self.perm] = Xp
             return X
@@ -535,9 +535,9 @@ class FacteurCreux:
         X = np.empty_like(Xp); X[self.perm] = Xp
         return X
 
-    def inverse_selective(self):
-        """C^-1 at the prepared entries (preparer_extraction)."""
-        if self.moteur == "cholmod":
+    def selected_inverse(self):
+        """C^-1 at the prepared entries (prepare_extraction)."""
+        if self.backend == "cholmod":
             return self._selinv_flat(self._flat.copy())
         L = sp.csc_matrix(self.lu.L)
         L.sort_indices()

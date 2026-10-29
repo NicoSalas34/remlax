@@ -13,7 +13,7 @@ The standard mode keeps several large objects that this mode avoids.
   (dense_Z, n x sum of t q) on the GPU in make_neg2 and keeps them until the
   BLUPs at the end of the fit. They serve no purpose during the optimisation.
   Here they are never formed on the GPU. The BLUPs build the incidence of one
-  term at a time, on the host (z_hote).
+  term at a time, on the host (z_on_host).
 - Dense residual without structure between units (lvl "id"). _section_V
   builds the unit-equality matrix (n_s x n_s), Sigma[tr, tr] and their
   product, and its backward pass gathers dV[idx, idx]. A residual us(trait)
@@ -34,10 +34,10 @@ The algebra is unchanged, and V is the same matrix. The order of the
 floating-point sums differs, so equality with the standard mode is tested to
 a relative tolerance.
 
-Organisation. PlanEconome holds everything that does not depend on theta and
+Organisation. LowMemoryPlan holds everything that does not depend on theta and
 assembles V. reml_from_V_cho and reml_from_V_inv map V to -2 logL with a
-custom backward pass. make_objective_econome and make_fga_econome build the
-objective and the AI evaluator. V_hote and z_hote serve the end-of-fit
+custom backward pass. make_objective_low_memory and make_fga_low_memory build the
+objective and the AI evaluator. V_on_host and z_on_host serve the end-of-fit
 outputs on the host. Memory measurements on large models are in
 dev/notes.md.
 """
@@ -82,7 +82,7 @@ def _unit_pairs(sec):
     return np.concatenate(I_), np.concatenate(J_)
 
 
-def z_hote(term, n):
+def z_on_host(term, n):
     """Full-height incidence of one term, in NumPy on the host (see incidence.dense_Z)."""
     Z = np.zeros((n, term["t"] * term["q"]))
     np.add.at(Z, (np.asarray(term["zi"], dtype=np.int64),
@@ -90,7 +90,7 @@ def z_hote(term, n):
     return Z
 
 
-class PlanEconome:
+class LowMemoryPlan:
     """Everything that does not depend on theta, computed once.
 
     terms: terms after folding the fixed kinship into the incidence
@@ -199,7 +199,7 @@ class PlanEconome:
                 V = V + M
         return V
 
-    def resume(self):
+    def summary(self):
         """Short text with the modes chosen, for the log."""
         from collections import Counter
         s = Counter(d["mode"] for d in self.plan_secs)
@@ -207,7 +207,7 @@ class PlanEconome:
         return ("residuelle %s ; groupes %s ; adjoint %s"
                 % (", ".join("%s %d" % kv for kv in sorted(s.items())) or "aucune",
                    ", ".join("%s %d" % kv for kv in sorted(g.items())) or "aucun",
-                   adjoint_choisi()))
+                   chosen_adjoint()))
 
 
 # ==============================================================================
@@ -225,7 +225,7 @@ class PlanEconome:
 # limit it. Hence the adjoint mode: "inv" (minimal memory) on GPU, "cho"
 # (fewer operations) on CPU. The environment variable REMLAX_ADJOINT forces
 # either one. Timings and memory: dev/notes.md.
-def adjoint_choisi():
+def chosen_adjoint():
     import os
     v = os.environ.get("REMLAX_ADJOINT", "").strip().lower()
     if v in ("inv", "cho"):
@@ -275,9 +275,9 @@ reml_from_V_inv.defvjp(_fwd_cho, lambda res, g: _bwd_shared(res, g, "inv"))
 # ==============================================================================
 # Objective (value and gradient), same contract as model.make_objective
 # ==============================================================================
-def make_neg2_econome(plan, adjoint=None):
+def make_neg2_low_memory(plan, adjoint=None):
     """-2logL (constant included) as a pure JAX function of (theta, Zr)."""
-    kernel = reml_from_V_cho if (adjoint or adjoint_choisi()) == "cho" else reml_from_V_inv
+    kernel = reml_from_V_cho if (adjoint or chosen_adjoint()) == "cho" else reml_from_V_inv
 
     def f(theta, Zr_a):
         V = plan.V(jnp.asarray(theta), Zr_a)
@@ -285,10 +285,10 @@ def make_neg2_econome(plan, adjoint=None):
     return f
 
 
-def make_objective_econome(plan, scale=None, adjoint=None):
+def make_objective_low_memory(plan, scale=None, adjoint=None):
     """Return (fun_jac_scaled, fun_jac, sc), scaled by n as in model.make_objective."""
     sc = float(plan.n) if scale is None else float(scale)
-    f_raw = make_neg2_econome(plan, adjoint=adjoint)
+    f_raw = make_neg2_low_memory(plan, adjoint=adjoint)
     fg = jax.jit(jax.value_and_grad(lambda th, Z: f_raw(th, Z) / sc))
     Zr = plan.Zr
 
@@ -305,7 +305,7 @@ def make_objective_econome(plan, scale=None, adjoint=None):
 # ==============================================================================
 # AI: value, gradient and AI matrix from one factorisation (see ai.make_fga)
 # ==============================================================================
-def make_fga_econome(plan, adjoint=None):
+def make_fga_low_memory(plan, adjoint=None):
     """fga(theta) -> (-2logL, gradient, AI), as ai.make_fga.
 
     The columns of Q follow the same formulas as ai.make_ai (term_columns,
@@ -315,7 +315,7 @@ def make_fga_econome(plan, adjoint=None):
     n, terms, secs, res = plan.n, plan.terms, plan.secs, plan.res
     yj, Xj = plan.yj, plan.Xj
     p_x = Xj.shape[1]
-    adjoint_mode = adjoint or adjoint_choisi()
+    adjoint_mode = adjoint or chosen_adjoint()
     rows_of = [jnp.asarray(r) for r in plan.rows_of]
 
     def term_columns(th_k, term, Z, rows, v):
@@ -361,7 +361,7 @@ def make_fga_econome(plan, adjoint=None):
         PQ = solve(Q) - ViXA @ (ViX.T @ Q)
         AI = Q.T @ PQ
         # Adjoint of V, formed last: L is needed only for it from here on. The
-        # memory/operations trade-off follows adjoint_choisi().
+        # memory/operations trade-off follows chosen_adjoint().
         W = _V_inverse(L, adjoint_mode)
         W = W - jnp.concatenate([ViXA, Py[:, None]], axis=1) \
             @ jnp.concatenate([ViX, Py[:, None]], axis=1).T
@@ -379,7 +379,7 @@ def make_fga_econome(plan, adjoint=None):
 # ==============================================================================
 # End-of-fit outputs (beta, BLUP, PEV), see effects.dense_effects
 # ==============================================================================
-def V_hote(plan, theta):
+def V_on_host(plan, theta):
     """V at theta, brought back to the host (NumPy). The GPU memory is freed afterwards."""
     Vf = jax.jit(plan.V)
     V = np.asarray(Vf(jnp.asarray(theta), plan.Zr))

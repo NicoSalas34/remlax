@@ -26,8 +26,8 @@ has full rank and cannot go into U.
 
 Organisation. The helper functions turn each term and each residual section
 into edges between observations and local nodes, then contract them to one
-edge per observation. Decoupage keeps these contracted couplings and offers
-blocs (labels for a given set of global terms), cout and cout_niveaux (cost
+edge per observation. BlockSplit keeps these contracted couplings and offers
+blocs (labels for a given set of global terms), cout and level_cost (cost
 models of the V and MME forms) and chercher (greedy search of the global
 terms).
 """
@@ -46,7 +46,7 @@ def _identity_K(tm):
     return lvl in ("id", "", None) and tm.get("LK") is None and tm.get("Kinv") is None
 
 
-def largeur_facteur(tm):
+def factor_width(tm):
     """Columns of the factor B = Z (L_Sigma (x) L_K): m q, with m the number
     of columns of L_Sigma."""
     t, rk = int(tm["t"]), int(tm["rank"])
@@ -89,7 +89,7 @@ def _contract(obs, node, n_nodes, n):
     return rows, comp, int(comp.max()) + 1
 
 
-class Decoupage:
+class BlockSplit:
     """Precomputed couplings. blocs(globaux) and cout(globaux) on demand."""
 
     def __init__(self, terms, res, n):
@@ -102,9 +102,9 @@ class Decoupage:
         # (dev/notes.md).
         self.ar_t = [_contract(*_term_edges(tm), self.n) for tm in terms]
         self.ar_r = [_contract(*a, self.n) for a in _residual_edges(res, self.n)]
-        self.w = np.array([largeur_facteur(tm) for tm in terms], dtype=np.int64)
+        self.w = np.array([factor_width(tm) for tm in terms], dtype=np.int64)
 
-    def blocs(self, globaux):
+    def block_labels(self, globaux):
         """Block label of each observation once `globaux` are removed."""
         n = self.n
         I_, J_, off = [], [], n
@@ -122,14 +122,14 @@ class Decoupage:
         _, lab_obs = np.unique(lab[:n], return_inverse=True)
         return lab_obs
 
-    def cout(self, globaux):
+    def cost(self, globaux):
         """Operations and memory (in doubles) of the V form by blocks.
 
         Operations: Cholesky and inverse of each block, n_b^3; A^-1 U,
         2 n_b^2 w; U'A^-1U, 2 n w^2; Cholesky of the capacitance matrix,
         w^3 / 3. Memory: blocks, U and A^-1 U, capacitance matrix.
         """
-        lab = self.blocs(globaux)
+        lab = self.block_labels(globaux)
         nb = np.bincount(lab).astype(np.float64)
         w = float(self.w[list(globaux)].sum()) if globaux else 0.0
         n = float(self.n)
@@ -137,7 +137,7 @@ class Decoupage:
         mem = float((nb ** 2).sum() + 2.0 * n * w + w * w)
         return dict(ops=ops, mem=mem, n_blocs=int(len(nb)), plus_grand=int(nb.max()), w=int(w))
 
-    def cout_niveaux(self, globaux, p=0):
+    def level_cost(self, globaux, p=0):
         """Operations and memory of the hybrid inversion of C (mme_hybride.py).
 
         The separator holds p fixed effects and the t q levels of each global
@@ -146,7 +146,7 @@ class Decoupage:
         Q = Css^-1 Csd and the Schur complement, 2 q_b^2 nD; Q Sch^-1 and its
         correction, 2 q_b nD^2; Cholesky of the separator, nD^3 / 3.
         """
-        lab = self.blocs(globaux)
+        lab = self.block_labels(globaux)
         nB = int(lab.max()) + 1
         qb = np.zeros(nB)
         for k, tm in enumerate(self.terms):
@@ -164,7 +164,7 @@ class Decoupage:
         mem = float((qb ** 2).sum() + 2.0 * qb.sum() * nD + nD * nD)
         return dict(ops=ops, mem=mem, n_blocs=int((qb > 0).sum()), plus_grand=int(qb.max()), w=int(nD))
 
-    def chercher(self, critere="ops", verbose=False, espace="observations", p=0):
+    def search(self, critere="ops", verbose=False, espace="observations", p=0):
         """Global terms by a forward and a backward greedy search. The better
         result is returned.
 
@@ -182,7 +182,7 @@ class Decoupage:
         for the hybrid inversion of C (mme_hybride.py), with p fixed effects.
         """
         all_terms = [k for k in range(len(self.terms)) if len(self.ar_t[k][0])]
-        cost = self.cout if espace == "observations" else (lambda G: self.cout_niveaux(G, p))
+        cost = self.cost if espace == "observations" else (lambda G: self.level_cost(G, p))
 
         def forward():
             # One forward step costs one evaluation per term. The search
@@ -231,4 +231,4 @@ class Decoupage:
         return dict(globaux=G, noms=[self.terms[k]["name"] for k in G], cout=c,
                     cout_dense=dict(ops=float(self.n) ** 3, mem=3.0 * float(self.n) ** 2),
                     espace=espace,
-                    blocs=self.blocs(G))
+                    blocs=self.block_labels(G))

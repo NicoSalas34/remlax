@@ -54,7 +54,7 @@ from .incidence import orthonormal_X
 from .residual import _section_V
 from .structures import build_sigma, n_params
 from .levels import level_chol
-from .selinv import FacteurCreux
+from .selinv import SparseFactor
 
 LOG2PI = float(np.log(2.0 * np.pi))
 
@@ -549,7 +549,7 @@ class MME:
         fills more than 30 % of a triangle, or when the sparse factor would
         fill more than half of it; sparse otherwise."""
         m = self.m
-        self.facteur = None
+        self.factor = None
         self._block_mode = False
         n_U = self.nU + getattr(self, "_n_block_entries", 0)       # deferred blocks included
         if inversion == "auto" and m > 1000 and n_U <= 0.3 * m * (m + 1) / 2 \
@@ -562,33 +562,33 @@ class MME:
                 inversion = "dense"
             else:
                 try:
-                    F = FacteurCreux(self._pattern(), self.ci, self.cj)
+                    F = SparseFactor(self._pattern(), self.ci, self.cj)
                     fill = F.off[-1] / (m * (m + 1) / 2)
                 except MemoryError:
                     # SuperLU refuses a factor that fills too much: C is nearly full.
                     F, fill = None, 1.0
                 inversion = "dense" if fill > 0.5 else "creuse"
                 if inversion == "creuse":
-                    self.facteur = F
+                    self.factor = F
         elif inversion == "creuse":
-            self.facteur = FacteurCreux(self._pattern(), self.ci, self.cj)
+            self.factor = SparseFactor(self._pattern(), self.ci, self.cj)
         elif inversion == "hybride":
             # Dense separator (fixed effects and the global terms found by
             # decoupage.py) and dense blocks in batches (mme_hybride.py); out of
             # scope, back to the automatic choice.
-            from .mme_hybride import FacteurHybride, ensemble_dense, HorsPerimetre
-            from .decoupage import Decoupage
+            from .mme_hybride import HybridFactor, dense_set, OutOfScope
+            from .decoupage import BlockSplit
             if self._separateur is not None:
                 names = [tm["name"] for tm in self.terms]
                 glob = [names.index(nm) for nm in self._separateur]
             else:
-                glob = Decoupage(self.terms, self.res, self._n_obs0).chercher(
+                glob = BlockSplit(self.terms, self.res, self._n_obs0).search(
                     espace="niveaux", p=self.p_sortie)["globaux"]
             try:
-                self.facteur = FacteurHybride(self.ci, self.cj, m,
-                                              ensemble_dense(self.T, self.p_sortie, glob),
+                self.factor = HybridFactor(self.ci, self.cj, m,
+                                              dense_set(self.T, self.p_sortie, glob),
                                               verbose=self.verbose)
-            except HorsPerimetre as e:
+            except OutOfScope as e:
                 if self.verbose:
                     print("  [mme] hybride hors perimetre (%s) -> inversion automatique" % e, flush=True)
                 return self._choose_inversion("auto")
@@ -1015,15 +1015,15 @@ class MME:
                 sol = np.asarray(jax.scipy.linalg.cho_solve((L, True), jnp.asarray(r)))
                 et["L"] = L
             elif self.inversion == "hybride":
-                ldC = self.facteur.factoriser_valeurs(x)
-                sol = self.facteur.resoudre(r)
-            elif getattr(self.facteur, "moteur", "") == "cholmod":
+                ldC = self.factor.factorise_values(x)
+                sol = self.factor.solve(r)
+            elif getattr(self.factor, "backend", "") == "cholmod":
                 # CHOLMOD: the values go directly in the permuted order.
-                ldC = self.facteur.factoriser_valeurs(x)
-                sol = self.facteur.resoudre(r)
+                ldC = self.factor.factorise_values(x)
+                sol = self.factor.solve(r)
             else:
-                ldC = self.facteur.factoriser(self._pattern(x))
-                sol = self.facteur.resoudre(r)
+                ldC = self.factor.factorise(self._pattern(x))
+                sol = self.factor.solve(r)
         except (np.linalg.LinAlgError, RuntimeError):
             raise _Inadmissible()
         return ldC, sol
@@ -1036,7 +1036,7 @@ class MME:
             return _sl.cho_solve((et["L"], True), np.asarray(B, dtype=np.float64), check_finite=False)
         if self.inversion == "dense":
             return np.asarray(jax.scipy.linalg.cho_solve((et["L"], True), jnp.asarray(B)))
-        return self.facteur.resoudre(B)
+        return self.factor.solve(B)
 
     def _cinv_pattern(self, et):
         """Entries of C^-1 on the pattern of C (ci, cj)."""
@@ -1051,7 +1051,7 @@ class MME:
         if self.inversion == "dense":
             Ci = jax.scipy.linalg.cho_solve((et["L"], True), jnp.eye(self.m))
             return np.asarray(Ci[self._jci, self._jcj])
-        return self.facteur.inverse_selective()
+        return self.factor.selected_inverse()
 
     def _derivatives(self, et, termes, sections, sol, val):
         """Gradient and AI matrix in theta: the scores and working columns of

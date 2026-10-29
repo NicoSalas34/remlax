@@ -16,7 +16,7 @@ import pytest
 import outils_dispositifs as od
 from remlax import _x64  # noqa: F401
 from remlax.model import make_objective
-from remlax.blocs import PlanBlocs, make_objective_blocs, hors_perimetre, _paquets
+from remlax.blocs import BlockPlan, make_objective_blocks, out_of_scope, _paquets
 from remlax.fit import fit_reml, initial_theta
 from test_econome import cas_ige, cas_ar1, cas_sections_bloc, _chol_spd, _rel
 
@@ -75,10 +75,10 @@ def _thetas(terms, res, y, k=3, graine=11):
 @pytest.mark.parametrize("nom", list(CAS))
 def test_objectif_identique(nom):
     terms, res, y, X = CAS[nom]()
-    plan = PlanBlocs(terms, res, y, X)
-    assert plan.n_blocs >= 2
+    plan = BlockPlan(terms, res, y, X)
+    assert plan.n_blocks >= 2
     _, fj_std, _, _ = make_objective(terms, res, y, X)
-    _, fj_blo, _ = make_objective_blocs(plan)
+    _, fj_blo, _ = make_objective_blocks(plan)
     for th in _thetas(terms, res, y):
         v1, g1 = fj_std(th)
         v2, g2 = fj_blo(th)
@@ -88,18 +88,18 @@ def test_objectif_identique(nom):
 
 def test_plan_essais():
     terms, res, y, X = cas_essais()
-    plan = PlanBlocs(terms, res, y, X)
+    plan = BlockPlan(terms, res, y, X)
     noms = {terms[k]["name"] for k in plan.globaux}
     assert {"geno", "geno_ar1", "rang_e0"} <= noms        # rang_e0 : local AR1 rendu global
-    assert plan.n_blocs >= 4
+    assert plan.n_blocks >= 4
 
 
 def test_lots_identiques():
     """Traiter un paquet par lots de 1 bloc (scan) ou d'un coup (vmap) : meme valeur."""
     terms, res, y, X = cas_essais()
     th = _thetas(terms, res, y)[1]
-    v_un = make_objective_blocs(PlanBlocs(terms, res, y, X, octets_lot=1))[1](th)
-    v_tout = make_objective_blocs(PlanBlocs(terms, res, y, X))[1](th)
+    v_un = make_objective_blocks(BlockPlan(terms, res, y, X, octets_lot=1))[1](th)
+    v_tout = make_objective_blocks(BlockPlan(terms, res, y, X))[1](th)
     assert abs(v_un[0] - v_tout[0]) <= TOL_F * abs(v_un[0])
     assert _rel(v_un[1], v_tout[1]) <= TOL_G
 
@@ -113,7 +113,7 @@ def test_paquets():
 @pytest.mark.parametrize("fab", [cas_ar1, cas_sections_bloc])
 def test_hors_perimetre(fab):
     terms, res, y, X = fab()
-    assert hors_perimetre(terms, res) is not None
+    assert out_of_scope(terms, res) is not None
 
 
 def test_ajustement_identique():
@@ -153,7 +153,7 @@ def test_bascule_sans_decoupage():
 
 def test_reproductible():
     terms, res, y, X = cas_ige()
-    _, fj, _ = make_objective_blocs(PlanBlocs(terms, res, y, X))
+    _, fj, _ = make_objective_blocks(BlockPlan(terms, res, y, X))
     th = _thetas(terms, res, y)[1]
     a, b = fj(th), fj(th)
     assert a[0] == b[0] and np.array_equal(a[1], b[1])

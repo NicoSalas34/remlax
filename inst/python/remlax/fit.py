@@ -32,7 +32,7 @@ from .diagnostics import hessian_fd, diagnostic, gradient_diagnostic
 def _chrono(nom):
     """Stage mark (chrono.py)."""
     from . import chrono
-    chrono.marque(nom)
+    chrono.mark(nom)
 
 
 # Relative gradient above which an MME fit not declared converged is resumed
@@ -42,7 +42,7 @@ GRAD_REL_DENSE_RESTART = 1e-5
 N_MAX_DENSE_RESTART = 20000
 
 
-_BLAS_ONE_THREAD = [False]        # BlasNumpyUnFil context already entered
+_BLAS_ONE_THREAD = [False]        # NumpyBlasOneThread context already entered
 
 
 def fit_reml(terms, res, y, X, *args, poids=None, **kwargs):
@@ -66,10 +66,10 @@ def fit_reml(terms, res, y, X, *args, poids=None, **kwargs):
     if kwargs.get("moteur") == "mme" and not _BLAS_ONE_THREAD[0]:
         # MME engine: thin NumPy products, heavy work in LAPACK (SciPy); the two
         # OpenBLAS libraries must not compete for the cores (device.py).
-        from .device import BlasNumpyUnFil
+        from .device import NumpyBlasOneThread
         _BLAS_ONE_THREAD[0] = True
         try:
-            with BlasNumpyUnFil():
+            with NumpyBlasOneThread():
                 return fit_reml(terms, res, y, X, *args, poids=poids, **kwargs)
         finally:
             _BLAS_ONE_THREAD[0] = False
@@ -176,7 +176,7 @@ def _fit_model(terms, res, y, X, theta_init=None, maxiter=3000,
 
     eng = _build_engine(terms, res, y, X, lag, moteur, inversion, memoire, optimizer,
                         floor, verbose)
-    floor, moteur, memoire = eng.floor, eng.moteur, eng.memoire
+    floor, moteur, memoire = eng.floor, eng.engine, eng.memory
     th0, p_cov, p = _start_theta(theta_init, terms, res, y, X, lag)
     _check_start(th0, terms, res, X, n, lag, p_cov, eng)
     obj = _Objective(eng, th0, p, verbose,
@@ -275,7 +275,7 @@ def _build_engine(terms, res, y, X, lag, moteur, inversion, memoire, optimizer, 
     None), and the engine objects M_mme, fga_mme, plan_eco, plan_blocs."""
     from types import SimpleNamespace
     n = len(y)
-    eng = SimpleNamespace(moteur=moteur, memoire=memoire, floor=floor, Zs=None,
+    eng = SimpleNamespace(engine=moteur, memory=memoire, floor=floor, Zs=None,
                           M_mme=None, fga_mme=None, plan_eco=None, plan_blocs=None)
     if moteur == "mme" and lag is None and res.get("struct") != "none":
         # Variance floor of the MME engine, which uses Sigma^-1: a variance of
@@ -284,11 +284,11 @@ def _build_engine(terms, res, y, X, lag, moteur, inversion, memoire, optimizer, 
         _res = y - X @ np.linalg.lstsq(X, y, rcond=None)[0]
         _vy = float(_res @ _res) / max(n - X.shape[1], 1)
         eng.floor = max(floor, 0.5 * float(np.log(1e-8 * _vy)))
-    if eng.moteur == "mme":
+    if eng.engine == "mme":
         _mme_fallback(eng, terms, res, lag, verbose)
-    if eng.moteur == "blocs":
+    if eng.engine == "blocs":
         _blocs_fallback(eng, terms, res, y, X, lag, optimizer, verbose)
-    if eng.moteur == "mme":
+    if eng.engine == "mme":
         from .mme import make_fga_mme
         eng.fga_mme, eng.fun_jac, eng.M_mme = make_fga_mme(terms, res, y, X,
                                                            inversion=inversion,
@@ -299,9 +299,9 @@ def _build_engine(terms, res, y, X, lag, moteur, inversion, memoire, optimizer, 
             v_, g_ = _fj(theta)
             return v_ / _sc, g_ / _sc
         eng.fun_sc = fun_sc
-    elif eng.moteur == "blocs":
-        from .blocs import make_objective_blocs
-        eng.fun_sc, eng.fun_jac, eng.sc = make_objective_blocs(eng.plan_blocs)
+    elif eng.engine == "blocs":
+        from .blocs import make_objective_blocks
+        eng.fun_sc, eng.fun_jac, eng.sc = make_objective_blocks(eng.plan_blocs)
     else:
         _dense_objective(eng, terms, res, y, X, lag, verbose)
     return eng
@@ -320,44 +320,44 @@ def _mme_fallback(eng, terms, res, lag, verbose):
                          "parente. Fournir K." % reason)
     if verbose:
         print("  [moteur] MME hors perimetre (%s) -> moteur dense" % reason, flush=True)
-    eng.moteur = "dense"
+    eng.engine = "dense"
 
 
 def _blocs_fallback(eng, terms, res, y, X, lag, optimizer, verbose):
     """The block plan, or the low-memory dense engine when the model is out of
     scope, splits into a single block, or asks for AI-REML."""
-    from .blocs import hors_perimetre as hp_blocs, PlanBlocs
+    from .blocs import out_of_scope as hp_blocs, BlockPlan
     reason = hp_blocs(terms, res, lag)
     if reason is None:
-        eng.plan_blocs = PlanBlocs(terms, res, y, X, verbose=verbose)
-        if eng.plan_blocs.n_blocs < 2:
+        eng.plan_blocs = BlockPlan(terms, res, y, X, verbose=verbose)
+        if eng.plan_blocs.n_blocks < 2:
             reason = "aucun decoupage en blocs (un seul bloc)"
     if reason is None and optimizer == "ai":
         reason = "optimiseur AI non pris en charge par le moteur par blocs"
     if reason:
         if verbose:
             print("  [moteur] blocs : %s -> moteur dense econome" % reason, flush=True)
-        eng.moteur, eng.memoire = "dense", "econome"
+        eng.engine, eng.memory = "dense", "econome"
 
 
 def _dense_objective(eng, terms, res, y, X, lag, verbose):
     """Objective of the dense engine, standard or low-memory (econome.py, not
     available with a spatial lag)."""
-    if eng.memoire == "econome" and lag is not None:
+    if eng.memory == "econome" and lag is not None:
         if verbose:
             print("  [memoire] mode econome sans decalage spatial -> mode standard",
                   flush=True)
-        eng.memoire = "standard"
-    if eng.memoire == "econome":
-        from .econome import PlanEconome, make_objective_econome
-        eng.plan_eco = PlanEconome(terms, res, y, X)
-        eng.fun_sc, eng.fun_jac, eng.sc = make_objective_econome(eng.plan_eco)
+        eng.memory = "standard"
+    if eng.memory == "econome":
+        from .econome import LowMemoryPlan, make_objective_low_memory
+        eng.plan_eco = LowMemoryPlan(terms, res, y, X)
+        eng.fun_sc, eng.fun_jac, eng.sc = make_objective_low_memory(eng.plan_eco)
         if verbose:
-            print("  [memoire] econome : %s" % eng.plan_eco.resume(), flush=True)
-    elif eng.memoire == "standard":
+            print("  [memoire] econome : %s" % eng.plan_eco.summary(), flush=True)
+    elif eng.memory == "standard":
         eng.fun_sc, eng.fun_jac, eng.sc, eng.Zs = make_objective(terms, res, y, X, lag=lag)
     else:
-        raise ValueError("memoire : 'standard' ou 'econome', pas %r" % (eng.memoire,))
+        raise ValueError("memoire : 'standard' ou 'econome', pas %r" % (eng.memory,))
 
 
 # ------------------------------------------------------------------------------
@@ -402,10 +402,10 @@ def _check_start(th0, terms, res, X, n, lag, p_cov, eng):
                 "Psi initial hors de la region admissible : I - M est singuliere ou de "
                 "determinant negatif (pas d'equilibre). Partir de Psi = 0 ou d'une valeur "
                 "plus petite.")
-    if res.get("struct") == "none" and eng.moteur == "dense":
-        if eng.memoire == "econome":
-            from .econome import V_hote
-            V0 = V_hote(eng.plan_eco, th0)
+    if res.get("struct") == "none" and eng.engine == "dense":
+        if eng.memory == "econome":
+            from .econome import V_on_host
+            V0 = V_on_host(eng.plan_eco, th0)
         else:
             V0 = np.asarray(assemble_V(jnp.asarray(th0), terms, eng.Zs, res, n))
         try:
@@ -613,7 +613,7 @@ def _optimise_ai(obj, th0, bornes, terms, res, y, X, lag, eng, maxiter, tol, flo
     if lag is not None:
         raise ValueError("optimizer='ai' : modele structurel (lag) non pris en charge.")
     fga, f_only = _ai_functions(obj, eng, terms, res, y, X)
-    floor_us = 1e-8 if eng.moteur == "mme" else 1e-10
+    floor_us = 1e-8 if eng.engine == "mme" else 1e-10
     th_ai, info = ai_reml_var(fga, th0, bornes, terms, res, maxiter=maxiter,
                               verbose=verbose, counter=obj.hist, us_floor=floor_us,
                               fun_sc=obj.fun_sc, f_only=f_only)
@@ -646,14 +646,14 @@ def _ai_functions(obj, eng, terms, res, y, X):
     in use, and the value alone for the step trials (the MME engine without
     derivatives; elsewhere value and gradient)."""
     from .ai import make_fga
-    if eng.moteur == "mme":
+    if eng.engine == "mme":
         fga = eng.fga_mme
-    elif eng.memoire == "econome":
-        from .econome import make_fga_econome
-        fga = make_fga_econome(eng.plan_eco)
+    elif eng.memory == "econome":
+        from .econome import make_fga_low_memory
+        fga = make_fga_low_memory(eng.plan_eco)
     else:
         fga = make_fga(terms, res, y, X)
-    if eng.moteur == "mme":
+    if eng.engine == "mme":
         M_mme = eng.M_mme
         f_only = lambda th_: M_mme.evaluate(np.asarray(th_), full=False)["f"]
     else:
@@ -783,7 +783,7 @@ def _result_core(obj, eng, theta, r, f_end, g_end, X, y, n, p, maxiter, floor, c
     # MME engine, of its full evaluations); compilation is the excess of the
     # first call over it.
     _t_eval = float(np.median(hist["t_eval"])) if hist["t_eval"] else float(obj.t_first)
-    if eng.moteur == "mme" and getattr(eng.M_mme, "_durations", None):
+    if eng.engine == "mme" and getattr(eng.M_mme, "_durations", None):
         _t_eval = float(np.median(eng.M_mme._durations))
     _t_compil = max(obj.t_first - _t_eval, 0.0)
     n_p = int(np.linalg.matrix_rank(X))
@@ -915,11 +915,11 @@ def _add_effects(out, eng, theta, terms, res, y, y_fit, X, n, blups, hessian, pe
     mixed model equations without forming V; the blocks engine and the
     low-memory mode form V once on the device and bring it to the host (a
     block-wise output remains to be written)."""
-    moteur, memoire = eng.moteur, eng.memoire
+    moteur, memoire = eng.engine, eng.memory
     out["moteur"] = moteur
     out["memoire"] = memoire if moteur == "dense" else "standard"
     if moteur == "blocs":
-        out["blocs"] = eng.plan_blocs.resume()
+        out["blocs"] = eng.plan_blocs.summary()
     if moteur == "mme":
         so = eng.M_mme.outputs(theta, pev=(pev if blups else ()))
         out["beta"], out["vbeta"], out["V_singuliere"] = so["beta"], so["vbeta"], False
@@ -930,11 +930,11 @@ def _add_effects(out, eng, theta, terms, res, y, y_fit, X, n, blups, hessian, pe
         out["inversion"] = eng.M_mme.inversion
     if moteur in ("dense", "blocs") and (blups or hessian) and (memoire == "econome"
                                                                  or moteur == "blocs"):
-        from .econome import V_hote, z_hote, PlanEconome
-        plan_eco = PlanEconome(terms, res, y, X) if moteur == "blocs" else eng.plan_eco
+        from .econome import V_on_host, z_on_host, LowMemoryPlan
+        plan_eco = LowMemoryPlan(terms, res, y, X) if moteur == "blocs" else eng.plan_eco
         out.update(dense_effects(theta, terms, None, res, y_fit, X, blups=blups, pev=pev,
-                                 V=V_hote(plan_eco, theta),
-                                 z_de=lambda k: z_hote(terms[k], n)))
+                                 V=V_on_host(plan_eco, theta),
+                                 z_de=lambda k: z_on_host(terms[k], n)))
     elif moteur == "dense" and (blups or hessian):
         out.update(dense_effects(theta, terms, eng.Zs, res, y_fit, X, blups=blups, pev=pev))
 

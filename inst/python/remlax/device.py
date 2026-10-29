@@ -6,7 +6,7 @@ order of reductions, and therefore the last bits, but leaves the model
 unchanged.
 
 The module also holds the start-up helpers used by cli.py
-(activer_cache_compilation, sans_greffons_gpu) and the BlasNumpyUnFil context
+(enable_compilation_cache, without_gpu_plugins) and the NumpyBlasOneThread context
 used by fit.py.
 """
 from . import _x64  # noqa: F401
@@ -60,7 +60,7 @@ def device_report():
     return out
 
 
-def activer_cache_compilation():
+def enable_compilation_cache():
     """Turn on the persistent cache of programs compiled by XLA.
 
     A fit recompiles its functions each time the solver is launched. With this
@@ -100,7 +100,7 @@ def activer_cache_compilation():
     return None
 
 
-def sans_greffons_gpu():
+def without_gpu_plugins():
     """CPU-only computation: JAX does not load the CUDA plugin.
 
     JAX discovers and initialises its plugins (jax_plugins) before it looks at
@@ -125,7 +125,7 @@ def sans_greffons_gpu():
         pass
 
 
-class BlasNumpyUnFil:
+class NumpyBlasOneThread:
     """Context: the OpenBLAS of NumPy runs on one thread, SciPy's is unchanged.
 
     The NumPy and SciPy wheels each ship their own OpenBLAS, each with its own

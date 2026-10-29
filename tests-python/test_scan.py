@@ -9,7 +9,7 @@ SNP a ete AJOUTEE A X. Les deux doivent coincider a la precision machine.
 
 CE TEST NE DEMANDE PAS JAX. `scan.py` consomme la sortie de `fit_reml` — Vi,
 vbeta, Py — et rien d'autre. Le dispositif est donc monte en numpy, V est
-assemblee a la main, et le dict passe a `projeter` est construit EXACTEMENT
+assemblee a la main, et le dict passe a `project` est construit EXACTEMENT
 comme `fit_reml` le construit (lignes 504-530 de fit.py). Le test tourne sur
 n'importe quelle machine, sans GPU et sans conteneur.
 
@@ -24,7 +24,7 @@ import numpy as np
 
 sys.path.insert(0, "inst/python")
 try:
-    from remlax.scan import projeter, scan, lambda_gc, familles_requises
+    from remlax.scan import project, scan, lambda_gc, required_families
 except ImportError:
     # `remlax/__init__.py` importe `_x64`, donc JAX. `scan.py` n'en a pas
     # besoin : on le charge alors par son chemin, ce qui garde ce test
@@ -36,8 +36,8 @@ except ImportError:
     _sp = importlib.util.spec_from_file_location("remlax_scan", _p)
     _m = importlib.util.module_from_spec(_sp)
     _sp.loader.exec_module(_m)
-    projeter, scan = _m.projeter, _m.scan
-    lambda_gc, familles_requises = _m.lambda_gc, _m.familles_requises
+    project, scan = _m.project, _m.scan
+    lambda_gc, required_families = _m.lambda_gc, _m.required_families
 
 RNG = np.random.default_rng(31415)
 TOL = 1e-8
@@ -160,7 +160,7 @@ CAS = [
 def scan_egale_wald(n_snp=25, verbose=True):
     d = dispositif()
     V, y, fit = ajuste(d)
-    proj = projeter(fit, d["X"], {"dir": d["Zdir"], "ind": d["Zind"]})
+    proj = project(fit, d["X"], {"dir": d["Zdir"], "ind": d["Zind"]})
     res = scan(proj, {"dir": d["Mdir"], "ind": d["Mind"]},
                tests=[c[0] for c in CAS])
 
@@ -190,7 +190,7 @@ def correlation_conditionnelle(n_snp=15, verbose=True):
     """r_dir_ind est-il la vraie correlation entre covariables sachant V et X ?"""
     d = dispositif()
     V, y, fit = ajuste(d)
-    proj = projeter(fit, d["X"], {"dir": d["Zdir"], "ind": d["Zind"]})
+    proj = project(fit, d["X"], {"dir": d["Zdir"], "ind": d["Zind"]})
     res = scan(proj, {"dir": d["Mdir"], "ind": d["Mind"]}, tests=["dir+ind"])
     Vi, X, vbeta = fit["Vi"], d["X"], fit["vbeta"]
     P = Vi - (Vi @ X) @ vbeta @ (X.T @ Vi)
@@ -210,7 +210,7 @@ def test_refus_doses_non_centrees():
     """La famille sim doit REFUSER un codage 0/1/2 plutot que rendre du bruit."""
     d = dispositif(p=40)
     _, _, fit = ajuste(d)
-    proj = projeter(fit, d["X"], {"dir": d["Zdir"], "ind": d["Zind"]})
+    proj = project(fit, d["X"], {"dir": d["Zdir"], "ind": d["Zind"]})
     M012 = (d["Mdir"] + 1.0)          # 0 / 2 : non centre
     try:
         scan(proj, {"dir": M012, "ind": M012}, tests=["sim"])
@@ -225,7 +225,7 @@ def test_refus_conjoint_inter_especes():
     """Deux jeux de SNP differents : le test conjoint n'a pas de sens."""
     d = dispositif(p=40, q2=57)
     _, _, fit = ajuste(d)
-    proj = projeter(fit, d["X"], {"dir": d["Zdir"], "ind": d["Zind"]})
+    proj = project(fit, d["X"], {"dir": d["Zdir"], "ind": d["Zind"]})
     try:
         scan(proj, {"dir": d["Mdir"], "ind": d["Mind"]}, tests=["dir+ind"])
     except ValueError as e:
@@ -240,15 +240,15 @@ def test_refus_conjoint_inter_especes():
 
 
 def test_analyse_specifications():
-    assert familles_requises(["sim|dir+ind"]) == ["dir", "ind", "sim"]
-    assert familles_requises(["ind"]) == ["ind"]
+    assert required_families(["sim|dir+ind"]) == ["dir", "ind", "sim"]
+    assert required_families(["ind"]) == ["ind"]
     # "dir|" est VALIDE et vaut "dir" : rien a droite de la barre, donc rien
     # sur quoi conditionner. Ce qui doit etre refuse, c'est une famille
     # inconnue ou l'absence de terme teste a GAUCHE.
-    assert familles_requises(["dir|"]) == ["dir"]
+    assert required_families(["dir|"]) == ["dir"]
     for mauvais in ["", "abc", "|dir", "dir+truc"]:
         try:
-            familles_requises([mauvais])
+            required_families([mauvais])
         except ValueError:
             continue
         raise AssertionError("specification '%s' acceptee" % mauvais)

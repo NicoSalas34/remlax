@@ -115,8 +115,8 @@ def main(argv=None):
         sys.stdout = sys.stderr = stream
         try:
             # chrono reset: the origin is the launch on the R side, if passed
-            cli.chrono.raz(req.get("t_lancement"))
-            cli.chrono.marque("transmission")
+            cli.chrono.reset(req.get("t_lancement"))
+            cli.chrono.mark("transmission")
             code = cli.main([str(a) for a in req.get("argv", [])])
         except SystemExit as e:
             code = e.code if isinstance(e.code, int) else 1

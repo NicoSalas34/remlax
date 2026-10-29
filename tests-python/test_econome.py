@@ -18,7 +18,7 @@ import outils_dispositifs as od
 from remlax import _x64  # noqa: F401
 from remlax.model import make_objective, n_theta
 from remlax.ai import make_fga
-from remlax.econome import PlanEconome, make_objective_econome, make_fga_econome
+from remlax.econome import LowMemoryPlan, make_objective_low_memory, make_fga_low_memory
 from remlax.fit import fit_reml, initial_theta
 
 TOL_F = 1e-11
@@ -145,7 +145,7 @@ def _rel(a, b):
 def test_objectif_identique(nom, adjoint):
     terms, res, y, X = CAS[nom]()
     _, fj_std, _, _ = make_objective(terms, res, y, X)
-    _, fj_eco, _ = make_objective_econome(PlanEconome(terms, res, y, X), adjoint=adjoint)
+    _, fj_eco, _ = make_objective_low_memory(LowMemoryPlan(terms, res, y, X), adjoint=adjoint)
     for th in _thetas(terms, res, y):
         v1, g1 = fj_std(th)
         v2, g2 = fj_eco(th)
@@ -158,7 +158,7 @@ def test_objectif_identique(nom, adjoint):
 def test_ai_identique(nom, adjoint):
     terms, res, y, X = CAS[nom]()
     fga_std = make_fga(terms, res, y, X)
-    fga_eco = make_fga_econome(PlanEconome(terms, res, y, X), adjoint=adjoint)
+    fga_eco = make_fga_low_memory(LowMemoryPlan(terms, res, y, X), adjoint=adjoint)
     for th in _thetas(terms, res, y):
         f1, g1, A1 = fga_std(th)
         f2, g2, A2 = fga_eco(th)
@@ -168,12 +168,12 @@ def test_ai_identique(nom, adjoint):
 
 
 def test_plan_couvre_tous_les_modes():
-    p = PlanEconome(*cas_ige())
+    p = LowMemoryPlan(*cas_ige())
     assert {d["mode"] for d in p.plan_grp} == {"plein", "haut", "bloc"}
     assert {d["mode"] for d in p.plan_secs} == {"paires"}
-    p2 = PlanEconome(*cas_ar1())
+    p2 = LowMemoryPlan(*cas_ar1())
     assert [d["mode"] for d in p2.plan_secs] == ["plein"]
-    p3 = PlanEconome(*cas_sections_bloc())
+    p3 = LowMemoryPlan(*cas_sections_bloc())
     assert [d["mode"] for d in p3.plan_secs] == ["paires", "bloc"]
 
 
@@ -217,7 +217,7 @@ def test_sorties_identiques_au_meme_theta(nom):
 def test_reproductible_a_l_identique():
     """Deux evaluations du mode econome au meme point rendent les memes bits."""
     terms, res, y, X = cas_ige()
-    _, fj, _ = make_objective_econome(PlanEconome(terms, res, y, X))
+    _, fj, _ = make_objective_low_memory(LowMemoryPlan(terms, res, y, X))
     th = _thetas(terms, res, y)[1]
     v1, g1 = fj(th)
     v2, g2 = fj(th)

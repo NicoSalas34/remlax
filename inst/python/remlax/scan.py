@@ -111,7 +111,7 @@ def _dense(Z):
     return np.asarray(Z, dtype=np.float64)
 
 
-def projeter(fit, X, incidences):
+def project(fit, X, incidences):
     """Project P on the incidences, once for all families.
 
     Parameters
@@ -199,7 +199,7 @@ def _parse_test(spec):
     return model, tested
 
 
-def familles_requises(tests):
+def required_families(tests):
     """The covariate families to compute for this list of tests."""
     needed = []
     for spec in tests:
@@ -263,7 +263,7 @@ def scan(proj, M, tests=("dir", "ind", "sim"), garder=None, bloc=1024,
 
     Parameters
     ----------
-    proj    : `Projection` returned by `projeter`.
+    proj    : `Projection` returned by `project`.
     M       : matrix (q x p) of genotype doses, or dict family -> matrix.
               For the `sim` family the doses must be centred (typically +/-1
               coding). Otherwise the product is not a similarity.
@@ -298,7 +298,7 @@ def scan(proj, M, tests=("dir", "ind", "sim"), garder=None, bloc=1024,
     """
     from scipy.stats import chi2 as _chi2
     xp = np if xp is None else xp
-    needed = familles_requises(tests)
+    needed = required_families(tests)
     Mf, p = _markers(M, needed)
 
     joint = [t for t in tests if len(_parse_test(t)[0]) > 1]

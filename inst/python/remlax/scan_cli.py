@@ -66,7 +66,7 @@ def main(argv=None):
     from remlax.bundle import Bundle
     from remlax.fit import fit_reml
     from remlax.device import pick_device
-    from remlax.scan import projeter, scan, lambda_gc, familles_requises
+    from remlax.scan import project, scan, lambda_gc, required_families
 
     ap = argparse.ArgumentParser(
         prog="remlax-scan",
@@ -95,7 +95,7 @@ def main(argv=None):
         print("[scan] backend retenu : %s (%s)" % (plat, dev), flush=True)
 
     tests = [t.strip() for t in a.tests.split(",") if t.strip()]
-    needed = familles_requises(tests)
+    needed = required_families(tests)
 
     b = Bundle(a.bundle)
     terms, res, y, X = b.terms(), b.residual(), b.y, b.X
@@ -149,7 +149,7 @@ def main(argv=None):
 
     # ---- projection, then scan --------------------------------------------
     t0 = time.time()
-    proj = projeter(fit, X, incid)
+    proj = project(fit, X, incid)
     t_proj = time.time() - t0
     t0 = time.time()
     r = scan(proj, M, tests=tests, bloc=a.bloc, verbose=not a.quiet,

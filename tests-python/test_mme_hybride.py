@@ -10,7 +10,7 @@ import pytest
 import outils_dispositifs  # noqa: F401
 from remlax import _x64  # noqa: F401
 from remlax.mme import MME
-from remlax.mme_hybride import FacteurHybride, HorsPerimetre, ensemble_dense
+from remlax.mme_hybride import HybridFactor, OutOfScope, dense_set
 from remlax.fit import initial_theta
 from test_econome import cas_ige, _rel
 from test_blocs import cas_essais
@@ -25,7 +25,7 @@ def test_valeur_gradient_ai_identiques(nom):
     terms, res, y, X = fab()
     Md = MME(terms, res, y, X, inversion="dense", verbose=False)
     Mh = MME(terms, res, y, X, inversion="hybride", verbose=False, separateur=sep)
-    assert Mh.inversion == "hybride" and len(Mh.facteur.paquets) >= 1
+    assert Mh.inversion == "hybride" and len(Mh.factor.batches) >= 1
     rng = np.random.default_rng(5)
     th0 = initial_theta(terms, res, y)
     for th in [th0, th0 + rng.normal(0, 0.3, len(th0))]:
@@ -51,12 +51,12 @@ def test_sorties_identiques(nom):
 def test_hors_perimetre_composante_trop_grande():
     terms, res, y, X = cas_ige()
     M = MME(terms, res, y, X, inversion="dense", verbose=False)
-    with pytest.raises(HorsPerimetre):
-        FacteurHybride(M.ci, M.cj, M.m, ensemble_dense(M.T, M.p_sortie, [0, 1]), taille_max=10)
+    with pytest.raises(OutOfScope):
+        HybridFactor(M.ci, M.cj, M.m, dense_set(M.T, M.p_sortie, [0, 1]), taille_max=10)
 
 
 def test_choix_automatique_sur_petit_modele():
     """Sans separateur impose, un petit modele reste en dense (moins cher)."""
     terms, res, y, X = cas_ige()
     M = MME(terms, res, y, X, inversion="hybride", verbose=False)
-    assert M.inversion == "hybride" and M.facteur.paquets == []
+    assert M.inversion == "hybride" and M.factor.batches == []

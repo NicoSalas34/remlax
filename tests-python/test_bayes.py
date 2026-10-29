@@ -38,7 +38,7 @@ def _prior_seul(terms, res, prior, n_par, chaines=8, tirages=500, seed=0):
     p = B._resoudre_prior(prior, terms, res, y, X)
     lp, _, _ = B.make_log_prior(terms, res, p)
     z0 = 0.5 * np.random.default_rng(seed).standard_normal((chaines, n_par))
-    z, diag = B.echantillonner(lp, z0, warmup=300, draws=tirages, seed=seed, verbose=False)
+    z, diag = B.run_sampler(lp, z0, warmup=300, draws=tirages, seed=seed, verbose=False)
     assert diag["divergences"] == 0
     return z.reshape(-1, n_par)
 
@@ -85,6 +85,6 @@ def test_prior_terme_inconnu_refuse():
 def test_rhat_emboite():
     rng = np.random.default_rng(0)
     melange = rng.standard_normal((8, 200))
-    assert abs(B.rhat_emboite(melange, 4) - 1.0) < 0.02
+    assert abs(B.nested_rhat(melange, 4) - 1.0) < 0.02
     decale = melange + np.repeat(np.arange(4), 2)[:, None]       # super-chaines en desaccord
-    assert B.rhat_emboite(decale, 4) > 1.5
+    assert B.nested_rhat(decale, 4) > 1.5

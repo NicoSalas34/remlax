@@ -13,7 +13,7 @@ import time
 _marks = []
 
 
-def raz(t0=None):
+def reset(t0=None):
     """Start again from zero. t0 (seconds since the epoch) dates the origin."""
     del _marks[:]
     if t0 is None:
@@ -25,19 +25,19 @@ def raz(t0=None):
         _marks.append(("origine", t0))
 
 
-def marque(name):
+def mark(name):
     """Set a mark and return its instant."""
     t = time.time()
     _marks.append((name, t))
     return t
 
 
-def poser(name, t):
+def set_at(name, t):
     """Set a mark dated at an instant already read (t, seconds since the epoch)."""
     _marks.append((name, float(t)))
 
 
-def etapes():
+def stages():
     """[(name, seconds since the previous mark)]. Consecutive marks with the
     same name are summed."""
     out = []
@@ -50,12 +50,12 @@ def etapes():
     return out
 
 
-def dict_etapes():
+def stages_dict():
     """The stages as a dict {name: seconds}, rounded to the microsecond."""
     out = {}
-    for n, d in etapes():
+    for n, d in stages():
         out[n] = round(out.get(n, 0.0) + float(d), 6)
     return out
 
 
-raz()
+reset()

@@ -1003,7 +1003,7 @@ preparation no longer builds them, and an evaluation no longer gathers them.
 
 Threads. The wheels of NumPy and SciPy each ship an OpenBLAS whose threads
 wait actively. During a fit of this engine, NumPy's OpenBLAS runs on one
-thread (`device.BlasNumpyUnFil`), while the LAPACK calls of SciPy keep theirs.
+thread (`device.NumpyBlasOneThread`), while the LAPACK calls of SciPy keep theirs.
 
 ### `make_fga_mme(terms, res, y, X, inversion="auto", verbose=True)`
 
@@ -1015,18 +1015,18 @@ for L-BFGS-B; and the `MME` object, used after the fit for the BLUPs.
 
 Sparse Cholesky factorisation of `C` and selected inversion.
 
-### `class FacteurCreux(motif, ii, jj, ordre="auto", moteur="auto")`
+### `class SparseFactor(motif, ii, jj, order="auto", backend="auto")`
 
 Built once from the pattern of `C`. The elimination order is the nested
-dissection of METIS when `pymetis` is installed (`ordre="metis"`), else the
-minimum degree of SuperLU (`MMD_AT_PLUS_A`, `ordre="mmd"`). Nested dissection
+dissection of METIS when `pymetis` is installed (`order="metis"`), else the
+minimum degree of SuperLU (`MMD_AT_PLUS_A`, `order="mmd"`). Nested dissection
 cuts the graph of `C` into two halves along a small separator, numbers the
 separator last and recurses on each half. On a `C` that is locally dense, as
 with the IGE terms of mvD7, minimum degree gives an almost dense factor and
 nested dissection a much smaller one.
 
 The numeric factorisation uses CHOLMOD, through `cvxopt`, when it is installed
-(`moteur="cholmod"`), else SuperLU (`moteur="superlu"`). CHOLMOD computes a
+(`backend="cholmod"`), else SuperLU (`backend="superlu"`). CHOLMOD computes a
 supernodal Cholesky factor `C_p = L L'`, half the memory of an LU, and has no
 internal size limit. SuperLU factorises `C_p = L D L'` without pivoting and
 refuses factors above about 2 GB: on mvD7 it runs out of memory even with the
@@ -1044,8 +1044,8 @@ packages are optional, and every combination of order and engine gives the
 dense values to 1e-14.
 
 Fundamental supernodes are merged when the extra zeros stay small (relaxed
-amalgamation). `factoriser(C)` returns `log|C|`; `resoudre(B)` solves
-`C x = B`; `inverse_selective()` returns the entries of `C^-1` on the pattern
+amalgamation). `factorise(C)` returns `log|C|`; `solve(B)` solves
+`C x = B`; `selected_inverse()` returns the entries of `C^-1` on the pattern
 of the factor, by the supernodal Takahashi recurrence
 
 ```
@@ -1053,7 +1053,7 @@ Z_RJ = - Z_RR L_RJ L_JJ^-1
 Z_JJ = (L_JJ L_JJ')^-1 - (L_RJ L_JJ^-1)' Z_RJ
 ```
 
-### `_noyau_c()`
+### `_c_kernel()`
 
 The recurrence runs in a C kernel, `selinv_c.c`, compiled at first use with the
 system C compiler into a cache (`REMLAX_CACHE`, else `~/.cache/remlax`, else
@@ -1078,7 +1078,7 @@ residual without structure between units as a dense `n_s x n_s` matrix, keeps
 the factors `B_k` between the forward and backward passes, and gathers a copy
 of `dV` on the support of every group. The econome mode avoids each of these.
 
-### `class PlanEconome(terms, res, y, X)`
+### `class LowMemoryPlan(terms, res, y, X)`
 
 Everything that does not depend on `theta`, computed once. Each residual
 section gets a mode:
@@ -1098,14 +1098,14 @@ factor is then extended to the full height, so the backward pass computes
 `B B'` of every group is computed under `jax.checkpoint`: `B` is recomputed in
 the backward pass instead of being kept.
 
-### `make_objective_econome(plan)`, `make_fga_econome(plan)`
+### `make_objective_low_memory(plan)`, `make_fga_low_memory(plan)`
 
 Same contracts as `model.make_objective` and `ai.make_fga`. In the AI
 function, `P Q` is obtained by triangular solves before the adjoint
 `V^-1 - ...` is formed, so the Cholesky factor dies before the adjoint is
 born.
 
-### `adjoint_choisi()`
+### `chosen_adjoint()`
 
 The backward pass needs `V^-1`. Two ways give the same matrix: `L^-1` then
 `L^-T L^-1` (3 n^3 operations), or `cho_solve` (2 n^3). On the GPU, XLA does
@@ -1115,7 +1115,7 @@ longer fit a 10 GB slice. The first way is therefore used on the GPU, the
 second on the CPU, where memory is plentiful and the objective is 34 % faster
 than in the standard mode. `REMLAX_ADJOINT=inv` or `cho` forces either.
 
-### `V_hote(plan, theta)`, `z_hote(term, n)`
+### `V_on_host(plan, theta)`, `z_on_host(term, n)`
 
 At the end of a fit, `V` is assembled on the device and brought back to the
 host, and the full-height incidence of a term is built on the host only when

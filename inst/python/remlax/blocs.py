@@ -37,13 +37,13 @@ Scope (version 1). Local terms have K = I (any structure between traits) or
 a given K. A local term with a parametrised structure between levels (ar1,
 ...) is made global. Global terms may be of any kind. The residual may have
 sections without structure between units (lvl "id"), with any structure
-between traits. Outside this scope, hors_perimetre() returns the reason, and
+between traits. Outside this scope, out_of_scope() returns the reason, and
 fit_reml falls back to the low-memory dense engine (econome.py).
 
-Organisation. hors_perimetre() checks the scope. _paquets() groups the blocks
-into buckets. PlanBlocs builds the padded host arrays once.
-make_neg2_blocs() returns -2 logL as a pure JAX function, and
-make_objective_blocs() wraps it with its gradient.
+Organisation. out_of_scope() checks the scope. _paquets() groups the blocks
+into buckets. BlockPlan builds the padded host arrays once.
+make_neg2_blocks() returns -2 logL as a pure JAX function, and
+make_objective_blocks() wraps it with its gradient.
 """
 
 import math
@@ -57,7 +57,7 @@ from .incidence import orthonormal_X
 from .residual import _section_S
 from .structures import chol_sigma, n_params
 from .levels import level_chol
-from .decoupage import Decoupage, largeur_facteur
+from .decoupage import BlockSplit, factor_width
 
 LOG2PI = float(np.log(2.0 * np.pi))
 # Maximum number of buckets.
@@ -81,7 +81,7 @@ def _term_kind(tm):
     return "id" if lvl in ("", None) else lvl
 
 
-def hors_perimetre(terms, res, lag=None):
+def out_of_scope(terms, res, lag=None):
     """Reason why the model is outside the scope of this engine, or None."""
     if lag is not None:
         return "decalage spatial"
@@ -136,7 +136,7 @@ def _z_dense(tm, n):
     return Z
 
 
-class PlanBlocs:
+class BlockPlan:
     """Block split, buckets and padded arrays, computed once on the host.
 
     Attributes read by other modules: n_blocs, globaux (indices of the global
@@ -149,20 +149,20 @@ class PlanBlocs:
         Xq, self.ldRx = orthonormal_X(X)
         p = Xq.shape[1]
         self.p = p
-        D = decoupage or Decoupage(terms, res, n).chercher()
+        D = decoupage or BlockSplit(terms, res, n).search()
         G = set(D["globaux"])
         # A local term with a parametrised structure between levels becomes global.
         for k, tm in enumerate(terms):
             if k not in G and _term_kind(tm) not in ("id", "fixed"):
                 G.add(k)
         if G != set(D["globaux"]):
-            D = dict(D, blocs=Decoupage(terms, res, n).blocs(sorted(G)))
+            D = dict(D, blocs=BlockSplit(terms, res, n).block_labels(sorted(G)))
         self.globaux = sorted(G)
         self.local_terms = [k for k in range(len(terms)) if k not in G and len(terms[k]["zi"])]
         labels = np.asarray(D["blocs"])
-        self.n_blocs = int(labels.max()) + 1
+        self.n_blocks = int(labels.max()) + 1
         sizes = np.bincount(labels)
-        self.w = int(sum(largeur_facteur(terms[k]) for k in self.globaux))
+        self.w = int(sum(factor_width(terms[k]) for k in self.globaux))
         r = self.w + p + 1
         self.r = r
 
@@ -203,7 +203,7 @@ class PlanBlocs:
                                                    np.asarray(y, float), Zfull, secs,
                                                    code_offset, octets_lot))
         if verbose:
-            print("  [blocs] %s" % self.resume(), flush=True)
+            print("  [blocs] %s" % self.summary(), flush=True)
 
     # Buckets
     def _build_bucket(self, block_ids, labels, sizes, Xq, y, Zfull, secs, code_offset,
@@ -365,10 +365,10 @@ class PlanBlocs:
             Er[a, np.arange(L), C_[a]] = 1.0          # padding pairs: zero row
         return Ip, Jp, Er
 
-    def resume(self):
+    def summary(self):
         txt = ", ".join("%d x %d" % (P["nb"], P["m"]) for P in self.buckets)
         return ("%d blocs en %d paquets (%s) ; globaux %s, w = %d"
-                % (self.n_blocs, len(self.buckets), txt,
+                % (self.n_blocks, len(self.buckets), txt,
                    [self.terms[k]["name"] for k in self.globaux], self.w))
 
     # Device arrays
@@ -395,7 +395,7 @@ class PlanBlocs:
 # ==============================================================================
 # -2 logL
 # ==============================================================================
-def make_neg2_blocs(plan):
+def make_neg2_blocks(plan):
     """f(theta, arrays) -> -2 logL REML (constant included), a pure JAX function."""
     terms, res, p, w, r = plan.terms, plan.res, plan.p, plan.w, plan.r
     n = plan.n
@@ -467,10 +467,10 @@ def make_neg2_blocs(plan):
     return f
 
 
-def make_objective_blocs(plan, scale=None):
+def make_objective_blocks(plan, scale=None):
     """(fun_jac_scaled, fun_jac, sc), with the same contract as model.make_objective."""
     sc = float(plan.n) if scale is None else float(scale)
-    f = make_neg2_blocs(plan)
+    f = make_neg2_blocks(plan)
     tabs = plan.device_arrays()
     fg = jax.jit(jax.value_and_grad(lambda th, tb: f(th, tb) / sc))
 

@@ -11,7 +11,7 @@ This module does not protect against an overloaded node. Unconfined jobs on
 the same node can spill onto the allocated cores and make timings unstable.
 Only a reserved node (--exclusive) then gives reliable times (dev/notes.md).
 
-borner_fils() restricts the affinity of the process to the requested number
+bound_threads() restricts the affinity of the process to the requested number
 of cores, before NumPy and JAX are imported. The number comes from
 REMLAX_THREADS, then SLURM_CPUS_PER_TASK, then OMP_NUM_THREADS. Without any of
 these variables, nothing changes. REMLAX_THREADS=tous turns the bounding off.
@@ -99,7 +99,7 @@ def _numa_nodes():
     return out
 
 
-def choisir_coeurs(mask, n, idle, nodes):
+def choose_cores(mask, n, idle, nodes):
     """The n most idle cores of the mask. They come from a single NUMA node if
     one offers n of them (the most idle in sum), otherwise from the whole mask."""
     by_idleness = lambda cs: sorted(cs, key=lambda c: (-idle.get(c, 0.0), c))
@@ -113,7 +113,7 @@ def choisir_coeurs(mask, n, idle, nodes):
     return sorted(by_idleness(mask)[:n])
 
 
-def borner_fils(verbose=True):
+def bound_threads(verbose=True):
     """Restrict the affinity of the process to n cores if the mask offers more.
     Call it before NumPy and JAX are imported. Returns the message issued, or
     None."""
@@ -131,7 +131,7 @@ def borner_fils(verbose=True):
         return None
     if len(mask) <= n:
         return None
-    cores = choisir_coeurs(mask, n, _idle_fractions(mask), _numa_nodes())
+    cores = choose_cores(mask, n, _idle_fractions(mask), _numa_nodes())
     try:
         os.sched_setaffinity(0, cores)
     except OSError as e:

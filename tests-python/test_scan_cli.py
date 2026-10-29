@@ -3,7 +3,7 @@
 Le paquet (rx_export) et les tableaux du scan (scan_manifest.json) sont ecrits
 ici a la main. Le CLI est lance avec --theta-in --maxiter 0, comme le fait
 rx_scan cote R, et sa table CSV est comparee a un appel direct de
-scan.projeter / scan.scan sur le meme ajustement.
+scan.project / scan.scan sur le meme ajustement.
 """
 import json
 import os
@@ -16,7 +16,7 @@ import outils_dispositifs as od
 from test_bundle_cli import Ecrivain
 from remlax.bundle import Bundle
 from remlax.fit import fit_reml
-from remlax.scan import projeter, scan
+from remlax.scan import project, scan
 
 RNG = np.random.default_rng(123)
 
@@ -83,7 +83,7 @@ def test_scan_cli_egale_scan_direct(tmp_path):
     assert meta["neg2_reml"] == pytest.approx(f["neg2_reml"], rel=1e-10)
     # accord avec le scan direct
     Zd = od.dense_Z_np(terms[0], d["n"]); Zi = od.dense_Z_np(terms[1], d["n"])
-    proj = projeter(f, bd.X, {"dir": Zd, "ind": Zi})
+    proj = project(f, bd.X, {"dir": Zd, "ind": Zi})
     garder = np.ones(d["p"], bool); garder[-1] = False
     ref = scan(proj, d["M"], tests=tests.split(","), garder=garder, bloc=7)
     col = entete.index("chi2_dir")

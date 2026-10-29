@@ -15,7 +15,7 @@ Elimination (same algebra as kmmr, Melsen et al. 2026, sections 3.3 to 3.6):
   C^-1:  dd = Sch^-1;  sd = -Q Sch^-1;  ss = Css^-1 + Q Sch^-1 Q'
 Since Cds Css^-1 r_s = Q' r_s, Csd need not be kept after the factorisation.
 Only the entries of C^-1 on the pattern of C are returned
-(inverse_selective), as for the sparse inversion. The ss blocks are computed
+(selected_inverse), as for the sparse inversion. The ss blocks are computed
 densely, block by block.
 
 Difference with kmmr. kmmr chooses the dense part by a fixed rule (a dense
@@ -24,14 +24,14 @@ the separator comes from the automatic split. The sparse part, made of
 independent blocks, stays on the GPU in dense batches.
 
 Scope. The components of Css must stay of moderate size (TAILLE_MAX_BLOC).
-Otherwise HorsPerimetre is raised and the MME engine keeps its dense or
+Otherwise OutOfScope is raised and the MME engine keeps its dense or
 sparse inversion.
 
-Organisation. ensemble_dense lists the unknowns of the separator.
-FacteurHybride builds the batches and the index tables once (__init__),
+Organisation. dense_set lists the unknowns of the separator.
+HybridFactor builds the batches and the index tables once (__init__),
 compiles the factorisation, solve and inversion with JAX (_compile), then
-offers the interface of selinv.FacteurCreux (factoriser_valeurs, resoudre,
-inverse_selective).
+offers the interface of selinv.SparseFactor (factorise_values, resoudre,
+selected_inverse).
 """
 
 import numpy as np
@@ -45,12 +45,12 @@ from .blocs import _paquets
 TAILLE_MAX_BLOC = 8000
 
 
-class HorsPerimetre(Exception):
+class OutOfScope(Exception):
     """The hybrid inversion does not apply to this model (component too large)."""
     pass
 
 
-def ensemble_dense(MME_T, p_dense, globaux):
+def dense_set(MME_T, p_dense, globaux):
     """Indices of C in the separator: fixed effects [0, p_dense) and the
     levels of the global terms (indices in the order of the terms of
     mme.MME)."""
@@ -61,13 +61,13 @@ def ensemble_dense(MME_T, p_dense, globaux):
     return np.unique(np.concatenate(idx))
 
 
-class FacteurHybride:
-    """Same interface as selinv.FacteurCreux: factoriser_valeurs, resoudre,
-    inverse_selective (entries of C^-1 at the positions (ci, cj) of the
+class HybridFactor:
+    """Same interface as selinv.SparseFactor: factorise_values, resoudre,
+    selected_inverse (entries of C^-1 at the positions (ci, cj) of the
     pattern).
 
     ci, cj: positions of the stored entries of C (upper triangle); m: order
-    of C; dense_idx: unknowns of the separator (ensemble_dense); taille_max:
+    of C; dense_idx: unknowns of the separator (dense_set); taille_max:
     largest component of Css accepted.
 
     paquets: one dict per batch of blocks, with nb (number of blocks), m
@@ -94,7 +94,7 @@ class FacteurHybride:
         nc, lab = connected_components(G, directed=False)
         sizes = np.bincount(lab, minlength=nc)
         if nS and sizes.max() > taille_max:
-            raise HorsPerimetre("composante de %d inconnues apres retrait du separateur (max %d)"
+            raise OutOfScope("composante de %d inconnues apres retrait du separateur (max %d)"
                                 % (sizes.max(), taille_max))
 
         def cost(t):
@@ -103,7 +103,7 @@ class FacteurHybride:
         # Position of each unknown of S: (batch, slot, local rank).
         batch_of = np.full(nS, -1, dtype=np.int64); slot = np.zeros(nS, dtype=np.int64)
         loc = np.zeros(nS, dtype=np.int64)
-        self.paquets = []
+        self.batches = []
         for g_i, comps in enumerate(groups):
             nmax = int(sizes[comps].max())
             rows = -np.ones((len(comps), nmax), dtype=np.int64)
@@ -111,7 +111,7 @@ class FacteurHybride:
                 members = np.flatnonzero(lab == c)
                 batch_of[members] = g_i; slot[members] = a; loc[members] = np.arange(len(members))
                 rows[a, :len(members)] = members
-            self.paquets.append(dict(nb=len(comps), m=nmax, rows=rows,
+            self.batches.append(dict(nb=len(comps), m=nmax, rows=rows,
                                      mask=(rows >= 0).astype(np.float64)))
         # Entries of the pattern, by class.
         self.e_dd = np.flatnonzero(cls_dd)
@@ -121,7 +121,7 @@ class FacteurHybride:
         d_of = np.where(is_dense[ci[es]], ci[es], cj[es])
         self.sd = []
         self.ss = []
-        for g_i in range(len(self.paquets)):
+        for g_i in range(len(self.batches)):
             sel = batch_of[spos[s_of]] == g_i
             self.sd.append(dict(e=es[sel], b=slot[spos[s_of[sel]]], i=loc[spos[s_of[sel]]], d=dpos[d_of[sel]]))
             sel2 = batch_of[spos[ci[e]]] == g_i
@@ -135,8 +135,8 @@ class FacteurHybride:
         self._compile()
         if verbose:
             print("  [mme] hybride : separateur %d inconnues | %d blocs en %d paquets (%s)"
-                  % (nD, nc, len(self.paquets),
-                     ", ".join("%d x %d" % (P["nb"], P["m"]) for P in self.paquets)), flush=True)
+                  % (nD, nc, len(self.batches),
+                     ", ".join("%d x %d" % (P["nb"], P["m"]) for P in self.batches)), flush=True)
 
     # ------------------------------------------------------------------ computation
     def _compile(self):
@@ -153,7 +153,7 @@ class FacteurHybride:
             dd=tuple(i32(a) for a in (self.e_dd, self.dd_r, self.dd_c)),
             sd=[{k: i32(v) for k, v in d.items()} for d in self.sd],
             ss=[{k: i32(v) for k, v in d.items()} for d in self.ss],
-            mask=[jnp.asarray(p["mask"]) for p in self.paquets])
+            mask=[jnp.asarray(p["mask"]) for p in self.batches])
         n_ent = self.n_entrees
 
         def batched_cho_solve(L, B):
@@ -206,7 +206,7 @@ class FacteurHybride:
         self._f_res = jax.jit(solve)
         self._f_inv = jax.jit(inverse)
 
-    def factoriser_valeurs(self, x):
+    def factorise_values(self, x):
         """x: values of C on the pattern (ci, cj). Returns log|C|."""
         ld, Ls, Qs, Lsch = self._f_fact(jnp.asarray(x), self._idx)
         ld = float(ld)
@@ -215,7 +215,7 @@ class FacteurHybride:
         self._state = (Ls, Qs, Lsch)
         return ld
 
-    def resoudre(self, B):
+    def solve(self, B):
         """C^-1 B from the current factorisation (B a vector or a matrix)."""
         B = np.asarray(B, dtype=np.float64)
         is_vector = B.ndim == 1
@@ -224,7 +224,7 @@ class FacteurHybride:
         Ls, Qs, Lsch = self._state
         Bd = jnp.asarray(B[self.D])
         Bs = []
-        for P in self.paquets:
+        for P in self.batches:
             rows = P["rows"]
             sel = np.where(rows >= 0, self.S[np.maximum(rows, 0)], 0)
             Bb = B[sel]
@@ -233,12 +233,12 @@ class FacteurHybride:
         Ts, Td = self._f_res(Ls, Qs, Lsch, Bs, Bd)
         X = np.zeros_like(B)
         X[self.D] = np.asarray(Td)
-        for P, T in zip(self.paquets, Ts):
+        for P, T in zip(self.batches, Ts):
             rows = P["rows"]; ok = rows >= 0
             X[self.S[rows[ok]]] = np.asarray(T)[ok]
         return X[:, 0] if is_vector else X
 
-    def inverse_selective(self):
+    def selected_inverse(self):
         """C^-1 at the positions (ci, cj) of the pattern."""
         Ls, Qs, Lsch = self._state
         return np.asarray(self._f_inv(Ls, Qs, Lsch, self._idx))

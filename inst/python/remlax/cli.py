@@ -33,8 +33,8 @@ _T_DEBUT = float(os.environ.get("RX_T_DEBUT", time.time()))
 
 # Threads bounded to the allocated cores, before NumPy and JAX size their
 # thread pools on the affinity of the process (fils.py).
-from remlax.fils import borner_fils, _ETAT as _FILS  # noqa: E402
-borner_fils()
+from remlax.fils import bound_threads, _ETAT as _FILS  # noqa: E402
+bound_threads()
 
 import numpy as np  # noqa: E402
 
@@ -51,16 +51,16 @@ if "--memoire=econome" in sys.argv or "--moteur=blocs" in sys.argv or "--inversi
 from remlax import _x64  # noqa: F401,E402
 from remlax import chrono  # noqa: E402
 from remlax.bundle import Bundle  # noqa: E402
-from remlax.device import pick_device, device_report, activer_cache_compilation, sans_greffons_gpu  # noqa: E402
+from remlax.device import pick_device, device_report, enable_compilation_cache, without_gpu_plugins  # noqa: E402
 from remlax.fit import fit_reml  # noqa: E402
 
 # Timing by stages (chrono.py). "demarrage" runs from the launch by R
 # (RX_T_LANCEMENT) to the first line of this file; "imports" covers numpy, JAX
 # and the solver. In server mode, serveur.py resets the timer at each request
 # and both stages disappear.
-chrono.raz()
-chrono.poser("demarrage", _T_DEBUT)
-chrono.marque("imports")
+chrono.reset()
+chrono.set_at("demarrage", _T_DEBUT)
+chrono.mark("imports")
 
 
 class _Refusal(Exception):
@@ -90,7 +90,7 @@ def _run(a, plat):
     r, Hu_map, prior = _fit(a, inp, fixed)
     _inference(a, r, inp, exprs, fixed)
     bayes = _sample_bayes(a, r, inp, exprs, fixed, plat, Hu_map, prior)
-    chrono.marque("inference")
+    chrono.mark("inference")
     _write_outputs(a, r, bayes, plat)
     if not a.quiet and not a.only_predict:
         print("[remlax] logLik = %.9f | %d parametres | %.1f s"
@@ -194,15 +194,15 @@ def _select_device(a):
     # backend = "cpu" in a subprocess): no CUDA plugin. The persistent server
     # serves CPU and GPU in the same process and keeps everything.
     if os.environ.get("JAX_PLATFORMS", "").strip().lower() == "cpu":
-        sans_greffons_gpu()
-    activer_cache_compilation()
+        without_gpu_plugins()
+    enable_compilation_cache()
     dev, plat = pick_device(a.backend)
     if not a.quiet:
         print("[remlax] peripheriques : %s" % device_report(), flush=True)
         if _FILS["message"]:
             print(_FILS["message"], flush=True)
         print("[remlax] backend retenu : %s (%s)" % (plat, dev), flush=True)
-    chrono.marque("peripherique")
+    chrono.mark("peripherique")
     return dev, plat
 
 
@@ -222,7 +222,7 @@ class _Inputs:
 def _read_inputs(a):
     b = Bundle(a.bundle)
     terms, res, y, X = b.terms(), b.residual(), b.y, b.X
-    chrono.marque("lecture")
+    chrono.mark("lecture")
     # Prior weights of the observations (rx_model(weights = )): fit.fit_reml.
     weights = np.asarray(b.get("poids"), dtype=np.float64) if b.has("poids") else None
     if weights is not None and a.bayes:
@@ -325,14 +325,14 @@ def _fit_posterior_mode(a, inp, fixed, th0, prior):
     hours: the posterior mode replaces it as starting point and whitening, and
     an evaluation at that point (maxiter = 0) gives Sigma, beta and the BLUPs
     at the mode."""
-    from remlax.bayes import preparer, mode_posterieur, disponible
+    from remlax.bayes import prepare, posterior_mode, available
     from remlax.fit import initial_theta
-    if not disponible():
+    if not available():
         raise _Refusal("la voie bayesienne exige blackjax (pip install blackjax)")
     if inp.lag is not None:
         raise _Refusal("la voie bayesienne n'accepte pas encore de decalage spatial")
     start = th0 if th0 is not None else initial_theta(inp.terms, inp.res, inp.y)
-    th_map, Hu_map, info_map = mode_posterieur(preparer(inp.terms, inp.res, inp.y, inp.X, prior),
+    th_map, Hu_map, info_map = posterior_mode(prepare(inp.terms, inp.res, inp.y, inp.X, prior),
                                                start, fixed_idx=fixed, floor=a.floor,
                                                ceil=a.ceil, verbose=not a.quiet)
     r = fit_reml(inp.terms, inp.res, inp.y, inp.X, theta_init=th_map, maxiter=0, polish=0,
@@ -484,8 +484,8 @@ def _write_outputs(a, r, bayes, plat):
         out["lag"] = _write_lag(wr, r)
     if bayes is not None:
         out["bayes"] = _write_bayes(wr, bayes)
-    chrono.marque("ecriture")
-    out["chrono"] = chrono.dict_etapes()
+    chrono.mark("ecriture")
+    out["chrono"] = chrono.stages_dict()
     # Cores actually used: the size of the affinity mask, after bounding.
     out["coeurs"] = len(os.sched_getaffinity(0)) if hasattr(os, "sched_getaffinity") else os.cpu_count()
     out["fils_bornes"] = _FILS["message"]

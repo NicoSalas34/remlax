@@ -54,7 +54,7 @@ the classical R-hat does not.
 Organisation. The first part builds the prior: densities of a standard
 deviation, resolution of the user specification, cutting of theta into prior
 blocks, and the log prior as a JAX function (make_log_prior). The second part
-holds the sampler and its diagnostics (rhat_emboite, echantillonner). The
+holds the sampler and its diagnostics (rhat_emboite, run_sampler). The
 entry points come last: preparer, mode_posterieur and sample_posterior.
 """
 import time
@@ -86,7 +86,7 @@ PRIOR_DEFAUT = {
 FAMILLES_SD = ("half_t", "half_normal", "half_cauchy", "inv_gamma", "uniforme")
 
 
-def disponible():
+def available():
     """Whether BlackJAX and optax are installed.
 
     They are optional dependencies. Only the Bayesian route needs them.
@@ -273,7 +273,7 @@ def make_log_prior(terms, res, p):
 # ==============================================================================
 # Sampling
 # ==============================================================================
-def rhat_emboite(x, K):
+def nested_rhat(x, K):
     """Nested R-hat (Margossian et al. 2024).
 
     x has shape (C, D) with C = K * M chains. The M chains of one superchain
@@ -305,10 +305,10 @@ def _summarise(x, K):
     ess = float(effective_sample_size(jnp.asarray(x))) if ok else np.nan
     return dict(moyenne=float(flat.mean()), sd=float(flat.std(ddof=1)), q025=float(q[0]),
                 mediane=float(q[1]), q975=float(q[2]), rhat=rhat,
-                rhat_emboite=rhat_emboite(x, K) if ok else np.nan, ess=ess)
+                rhat_emboite=nested_rhat(x, K) if ok else np.nan, ess=ess)
 
 
-def echantillonner(logdens, z_init, warmup, draws, seed=0, target_accept=0.651,
+def run_sampler(logdens, z_init, warmup, draws, seed=0, target_accept=0.651,
                    max_leapfrog=1000, verbose=True):
     """HMC adapted by ChEES over all chains, then draws in slices.
 
@@ -370,7 +370,7 @@ def echantillonner(logdens, z_init, warmup, draws, seed=0, target_accept=0.651,
     return z, diag
 
 
-def preparer(terms, res, y, X, prior=None):
+def prepare(terms, res, y, X, prior=None):
     """Resolved prior, with log p(theta) and -2 logL as JAX functions."""
     y = np.asarray(y, dtype=np.float64)
     X = np.asarray(X, dtype=np.float64)
@@ -381,7 +381,7 @@ def preparer(terms, res, y, X, prior=None):
     return dict(p=p, log_prior=log_prior, rares=rare, f=f, Zr=Zr_j, Zs=Zs, y=y, X=X)
 
 
-def mode_posterieur(prep, theta0, fixed_idx=None, floor=-12.0, ceil=12.0, maxiter=2000,
+def posterior_mode(prep, theta0, fixed_idx=None, floor=-12.0, ceil=12.0, maxiter=2000,
                     eps=1e-4, verbose=True):
     """Posterior mode of theta, and the Hessian of -log p(theta | y) at that mode.
 
@@ -459,7 +459,7 @@ def sample_posterior(terms, res, y, X, theta_hat, H=None, Hu=None, prior=None, c
     n_effets  : number of draws used for the posterior moments of beta and the BLUPs.
     pev       : terms whose effects get a posterior standard deviation.
     """
-    if not disponible():
+    if not available():
         raise RuntimeError("la voie bayesienne exige blackjax : pip install blackjax "
                            "(ou rx_install_python(bayes = TRUE) depuis R)")
     if lag is not None:
@@ -469,7 +469,7 @@ def sample_posterior(terms, res, y, X, theta_hat, H=None, Hu=None, prior=None, c
         raise ValueError("chains (%d) doit etre un multiple de superchains (%d)" % (chains, K))
 
     t0 = time.time()
-    prep = preparer(terms, res, y, X, prior)
+    prep = prepare(terms, res, y, X, prior)
     y, X, p = prep["y"], prep["X"], prep["p"]
     log_prior, rare, f, Zs = prep["log_prior"], prep["rares"], prep["f"], prep["Zs"]
     if rare and verbose:
@@ -505,7 +505,7 @@ def sample_posterior(terms, res, y, X, theta_hat, H=None, Hu=None, prior=None, c
         if verbose:
             print("  [bayes] Hessien absent ou non defini positif : recherche du mode a posteriori",
                   flush=True)
-        th_hat, Hm, _ = mode_posterieur(prep, th_hat, fixed_idx=fixed_idx, verbose=verbose)
+        th_hat, Hm, _ = posterior_mode(prep, th_hat, fixed_idx=fixed_idx, verbose=verbose)
         Lw = laplace_factor(Hm, 1.0)
     if Lw is None:
         Lw = 0.1 * np.eye(d)
@@ -534,7 +534,7 @@ def sample_posterior(terms, res, y, X, theta_hat, H=None, Hu=None, prior=None, c
         print("  [bayes] ChEES-HMC : %d chaines (%d super-chaines x %d), %d chauffe + %d tirages, "
               "%d parametre(s) libre(s) | preparation %.1f s"
               % (chains, K, M, warmup, draws, d, time.time() - t0), flush=True)
-    z, diag = echantillonner(logdens, z_init, warmup, draws, seed=seed,
+    z, diag = run_sampler(logdens, z_init, warmup, draws, seed=seed,
                              target_accept=target_accept, max_leapfrog=max_leapfrog,
                              verbose=verbose)
     C, D = z.shape[0], z.shape[1]

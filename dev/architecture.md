@@ -84,7 +84,7 @@ escapes), the finish (`_check_ai_saddle`, `finition.finish` or
 `_add_hessian_diagnostics`, `_dense_restart_if_needed`).
 
 Every engine returns the same likelihood for the same theta. An engine that
-cannot handle a model says why (`mme.out_of_scope`, `blocs.hors_perimetre`)
+cannot handle a model says why (`mme.out_of_scope`, `blocs.out_of_scope`)
 and `fit.py` falls back to the dense engine.
 
 ## Invariants
