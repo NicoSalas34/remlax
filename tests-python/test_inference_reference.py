@@ -18,8 +18,10 @@ import outils_dispositifs as od
 import jax.numpy as jnp
 from remlax.model import dense_Z, assemble_V
 from remlax.fit import fit_reml
-from remlax.inference import (component_names, components_from_theta, vpredict, wald,
-                              kenward_roger, predict)
+from remlax.components import component_names, components_from_theta
+from remlax.vpredict import vpredict
+from remlax.fixed_tests import wald, kenward_roger
+from remlax.prediction import predict
 
 T, B = 4, 6
 

@@ -4,7 +4,7 @@ POURQUOI CE TEST EXISTE. `scan.py` remplace une boucle sur les SNP par des
 produits matriciels en dimension genotype. Le gain est d'un facteur de l'ordre
 de mille, et un gain de cette taille est exactement le genre de chose qui cache
 une erreur d'algebre. La reference n'est donc pas un nombre attendu ecrit a la
-main : c'est la formule de `inference.wald` appliquee au modele ou la colonne du
+main : c'est la formule de `fixed_tests.wald` appliquee au modele ou la colonne du
 SNP a ete AJOUTEE A X. Les deux doivent coincider a la precision machine.
 
 CE TEST NE DEMANDE PAS JAX. `scan.py` consomme la sortie de `fit_reml` — Vi,
@@ -114,14 +114,14 @@ def ajuste(d, sD=1.0, sI=0.6, sDI=-0.2, se=1.0, rho=0.4):
 
 
 # ==============================================================================
-# Reference : la formule de Wald de inference.wald, colonnes ajoutees a X
+# Reference : la formule de Wald de fixed_tests.wald, colonnes ajoutees a X
 # ==============================================================================
 def wald_ref(y, X, V, cols, pos_testees=None):
     """chi2 et beta pour les colonnes `cols` ajoutees a X, a V figee.
 
     `pos_testees` : indices (dans `cols`) reellement testes. None = toutes,
     c'est-a-dire le test conjoint. Un sous-ensemble donne le test CONDITIONNEL
-    de ces colonnes sachant les autres — la convention de `inference.wald`.
+    de ces colonnes sachant les autres — la convention de `fixed_tests.wald`.
     """
     Xa = np.hstack([X, cols])
     k = cols.shape[1]

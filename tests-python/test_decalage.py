@@ -265,7 +265,7 @@ def test_alias_vp_plus_q_moins_1_sur_2_directions_plates():
 
 
 def test_vp_plus_directions_plates_exclues_du_verdict_et_sommes_identifiees():
-    from remlax.inference import varcomp_table
+    from remlax.components import varcomp_table
     W, tr, un, y, X, term, res = jeu(nr=5, nc=4, ng=6, seed=3)
     N, q = W.shape[0], 2
     aucune = dict(struct="none", t=q, rank=0, trait=tr, unit=un, lvl="id")

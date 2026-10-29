@@ -271,7 +271,7 @@ def _parse_vpredict(a, inp):
             continue
         name, _, ex = block.partition("=")
         exprs.append((name.strip(), ex.strip()))
-    from remlax.inference import check_vpredict
+    from remlax.vpredict import check_vpredict
     try:
         check_vpredict(exprs, inp.terms, inp.res, lag=inp.lag)
     except ValueError as e:
@@ -353,7 +353,8 @@ def _fit_posterior_mode(a, inp, fixed, th0, prior):
 def _inference(a, r, inp, exprs, fixed):
     """Adds to r the component names and table, the vpredict values, the
     Kenward-Roger adjustment, the predictions and the Wald tests requested."""
-    from remlax.inference import vpredict, component_names
+    from remlax.vpredict import vpredict
+    from remlax.components import component_names
     terms, res, lag = inp.terms, inp.res, inp.lag
     r["composantes_noms"] = component_names(terms, res, lag=lag)
     if a.only_predict and len(r["theta"]) != len(r["composantes_noms"]) and not a.quiet:
@@ -368,7 +369,7 @@ def _inference(a, r, inp, exprs, fixed):
         r["vpredict"] = vpredict(r["theta"], r.get("hessian"), terms, res, exprs, free=free,
                                  lag=lag, alias=r.get("alias"))
     if a.kenward_roger:
-        from remlax.inference import kenward_roger
+        from remlax.fixed_tests import kenward_roger
         rk = kenward_roger(r["theta"], terms, res, inp.y, inp.X,
                            termes_fixes=inp.bundle.fixed_groups())
         if rk.get("vbeta_kr") is not None:
@@ -381,7 +382,7 @@ def _inference(a, r, inp, exprs, fixed):
 
 
 def _add_varcomp(a, r, inp, fixed):
-    from remlax.inference import varcomp_table
+    from remlax.components import varcomp_table
     try:
         r["varcomp"] = varcomp_table(r["theta"], r.get("hessian"), inp.terms, inp.res,
                                      floor=a.floor, ceil=a.ceil, fixed_idx=fixed,
@@ -394,7 +395,7 @@ def _add_varcomp(a, r, inp, fixed):
 def _add_predictions(a, r, inp):
     """Predictions L beta (+ M u): pred_L.bin, and pred_M_<term>.bin for the
     random terms in the classify."""
-    from remlax.inference import predict
+    from remlax.prediction import predict
     X = inp.X
     Lp = np.fromfile(os.path.join(a.bundle, "pred_L.bin"),
                      dtype=np.float64).reshape((-1, X.shape[1]), order="F")
@@ -411,7 +412,7 @@ def _add_predictions(a, r, inp):
 
 def _add_wald(r, inp):
     import jax.numpy as jnp
-    from remlax.inference import wald
+    from remlax.fixed_tests import wald
     from remlax.model import assemble_V, dense_Z
     n = len(inp.y)
     Zs = [dense_Z(t, n) for t in inp.terms]

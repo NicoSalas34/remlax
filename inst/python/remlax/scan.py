@@ -12,7 +12,7 @@ teste comme effet fixe a V figee. Pour une colonne s ajoutee a X,
     beta_s = (s'Ps)^-1 s'Py      var(beta_s) = (s'Ps)^-1      chi2 = (s'Py)^2/(s'Ps)
     P = V^-1 - V^-1 X (X'V^-1 X)^-1 X'V^-1
 
-soit exactement la formule de `inference.wald` reecrite pour une colonne. V ne
+soit exactement la formule de `fixed_tests.wald` reecrite pour une colonne. V ne
 bougeant pas, le score et le Wald coincident : une seule formule.
 
 POURQUOI CE N'EST PAS UNE BOUCLE SUR LES SNP. Les covariables marqueurs vivent
@@ -277,7 +277,7 @@ def scan(proj, M, tests=("dir", "ind", "sim"), garder=None, bloc=1024,
                 "dir+ind+sim"    conjoint, 3 ddl
                 "ind|dir"        indirect SACHANT le direct, 1 ddl
                 "sim|dir+ind"    similarite sachant les deux effets additifs
-              Les tests conditionnels sont ceux d'asreml et de `inference.wald` :
+              Les tests conditionnels sont ceux d'asreml et de `fixed_tests.wald` :
               chaque terme sachant les autres.
     garder  : masque booleen (p,) des SNP a traiter ; les autres sortent en NaN.
               Le filtre de frequence allelique appartient a l'appelant.

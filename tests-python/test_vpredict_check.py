@@ -1,13 +1,13 @@
 """Les expressions vpredict sont verifiees avant l'ajustement."""
 import pytest
-from remlax.inference import check_vpredict
+from remlax.vpredict import check_vpredict
 
 TERMES = [dict(name="gid", t=1, struct="iid", rank=0, q=10, LK=None)]
 RES = dict(struct="iid", t=1, rank=0)
 
 
 def _noms():
-    from remlax.inference import component_names
+    from remlax.components import component_names
     return component_names(TERMES, RES)
 
 

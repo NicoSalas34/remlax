@@ -59,7 +59,7 @@ import numpy as np
 from .model import make_neg2, term_n_params, res_sections, sec_n_params
 from .structures import n_params, n_loadings, build_sigma
 from .levels import n_level_params
-from .inference import components_from_theta, component_names
+from .components import components_from_theta, component_names
 
 # parametres entre niveaux dont la valeur est tanh(theta) (ou une image affine
 # de tanh, comme la correlation uniforme `cor`) : uniforme sur la correlation

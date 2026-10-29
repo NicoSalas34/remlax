@@ -94,9 +94,9 @@ def _pev_names(pev, terms):
     return names
 
 
-def _term_G(tm, th_k):
-    """G = Sigma (x) K of a term. K is rebuilt from theta, since it may depend
-    on it (AR1 levels)."""
+def term_sigma_K(tm, th_k):
+    """Sigma (t x t) and K (q x q) of a term at its parameters th_k. K is
+    rebuilt from theta, since it may depend on it (AR1 levels)."""
     ns = n_params(tm["struct"], tm["t"], tm["rank"])
     Ls = np.asarray(build_sigma(jnp.asarray(th_k[:ns]), tm["struct"], tm["t"], tm["rank"]))
     kind_ = tm.get("lvl") or ("fixed" if tm.get("LK") is not None else "id")
@@ -111,4 +111,10 @@ def _term_G(tm, th_k):
                                 expr=tm.get("lvl_expr")))
     Kq = (np.eye(tm["q"]) if from_lvl is None
           else np.asarray(from_lvl) @ np.asarray(from_lvl).T)
+    return Ls, Kq
+
+
+def _term_G(tm, th_k):
+    """G = Sigma (x) K of a term."""
+    Ls, Kq = term_sigma_K(tm, th_k)
     return np.kron(Ls, Kq)

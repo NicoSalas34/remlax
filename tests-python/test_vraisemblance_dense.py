@@ -19,7 +19,7 @@ from remlax import structures as S
 from remlax.model import (dense_Z, neg2_reml, n_theta, split_theta, make_objective,
                           assemble_V, term_n_params)
 from remlax.fit import validate, initial_theta, fit_reml
-from remlax.inference import component_names
+from remlax.components import component_names
 
 RNG = np.random.default_rng(11)
 TOL = 1e-8
