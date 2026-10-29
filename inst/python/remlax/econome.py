@@ -1,45 +1,45 @@
-"""Moteur dense, mode econome en memoire GPU.
+"""Dense engine in low-memory mode.
 
-Meme vraisemblance, meme gradient et meme matrice AI que le moteur dense
-standard (model.make_objective, ai.make_fga, effects.dense_effects). Seule la
-facon de les calculer change, pour reduire le nombre de matrices n x n et de
-facteurs vivants en meme temps sur le GPU. Le mode standard reste le defaut et
-n'est pas modifie ; fit_reml(..., memoire="econome") choisit celui-ci.
+This module computes the same likelihood, gradient and AI matrix as the
+standard dense engine (model.make_objective, ai.make_fga,
+effects.dense_effects). Only the way they are computed changes. The aim is to
+reduce the number of n x n matrices and factors alive on the GPU at the same
+time. The standard mode stays the default and is left untouched.
+fit_reml(..., memoire="econome") selects this one.
 
-CE QUE LE MODE STANDARD GARDE, ET QUE CELUI-CI EVITE. Mesure faite sur le
-modele mvD7 (n = 12 760, 51 termes, 198 parametres), qui ne tenait pas sur une
-tranche MIG de 10 Go :
+The standard mode keeps several large objects that this mode avoids.
 
-1. Les incidences pleine hauteur Zs (dense_Z, n x somme des t q = 3,35 Go),
-   creees sur le GPU par make_neg2 et gardees jusqu'aux BLUP de fin
-   d'ajustement. Elles ne servent pas pendant l'optimisation. Ici elles ne
-   sont jamais formees sur le GPU : les BLUP construisent l'incidence d'un
-   terme a la fois, sur l'hote (z_hote).
+- Full-height incidences. The standard mode creates the incidences Zs
+  (dense_Z, n x sum of t q) on the GPU in make_neg2 and keeps them until the
+  BLUPs at the end of the fit. They serve no purpose during the optimisation.
+  Here they are never formed on the GPU. The BLUPs build the incidence of one
+  term at a time, on the host (z_hote).
+- Dense residual without structure between units (lvl "id"). _section_V
+  builds the unit-equality matrix (n_s x n_s), Sigma[tr, tr] and their
+  product, and its backward pass gathers dV[idx, idx]. A residual us(trait)
+  by plant has only one entry per pair of traits of the same plant. Here R is
+  scattered entry by entry, and the backward pass reads only those entries.
+- Factors B_k kept between the forward and backward passes. Here each group
+  contribution sits under jax.checkpoint. B is recomputed in the backward
+  pass, at a cost of n x w operations, negligible next to the Cholesky.
+- Gathering dV[idx, idx] for a group whose support covers most rows costs an
+  n x n copy. Here such a factor is extended to full height (n x w, mode
+  "haut"), and the backward pass forms dV B without a copy.
+- In the AI evaluator (ai.make_fga), V^-1 is formed by cho_solve against the
+  identity while L stays alive for the solves of P Q, and the adjoint is then
+  formed next to it. Here P Q is computed first by triangular solves (n x p).
+  The adjoint V^-1 - ... is formed afterwards, once L is no longer needed.
 
-2. La residuelle sans structure entre unites (lvl "id") formee en dense :
-   _section_V construit l'egalite des unites (n_s x n_s), Sigma[tr, tr] et leur
-   produit, puis la passe arriere rassemble dV[idx, idx]. Pour une residuelle
-   us(caractere) par plante, R n'a pourtant qu'une entree par paire de
-   caracteres d'une meme plante (65 000 sur mvD7 contre 10 911^2). Ici R est
-   dispersee entree par entree, et la passe arriere ne lit que ces entrees.
+The algebra is unchanged, and V is the same matrix. The order of the
+floating-point sums differs, so equality with the standard mode is tested to
+a relative tolerance.
 
-3. Les facteurs B_k gardes entre la passe avant et la passe arriere. Ici chaque
-   contribution de groupe est sous jax.checkpoint : B est recalcule dans la
-   passe arriere, pour un cout de n x w operations, negligeable devant la
-   Cholesky.
-
-4. Le rassemblement dV[idx, idx] d'un groupe dont le support couvre une grande
-   partie des lignes (le terme genetique de mvD7 les couvre presque toutes) :
-   une copie n x n. Ici un tel facteur est etendu a toute la hauteur
-   (n x w, 0,24 Go sur mvD7), et la passe arriere fait dV B sans copie.
-
-5. Dans l'AI (ai.make_fga), V^-1 formee par cho_solve contre l'identite
-   pendant que L reste vivante pour les resolutions de P Q, puis l'adjoint a
-   cote. Ici P Q est calcule d'abord par resolutions triangulaires (n x p), et
-   l'adjoint V^-1 - ... ne se forme qu'ensuite, quand L peut mourir.
-
-CE QUI NE CHANGE PAS : l'algebre. V est la meme matrice. L'ordre des sommes
-flottantes change, donc l'egalite se teste a une tolerance relative.
+Organisation. PlanEconome holds everything that does not depend on theta and
+assembles V. reml_from_V_cho and reml_from_V_inv map V to -2 logL with a
+custom backward pass. make_objective_econome and make_fga_econome build the
+objective and the AI evaluator. V_hote and z_hote serve the end-of-fit
+outputs on the host. Memory measurements on large models are in
+dev/notes.md.
 """
 
 import numpy as np
@@ -53,37 +53,37 @@ from .model import term_factor
 from .core import _reml_fwd
 from .ai import _sigma_and_K
 
-# Un groupe dont le support couvre au moins cette fraction des lignes est etendu
-# a toute la hauteur (point 4 de l'en-tete). En dessous, la dispersion d'un bloc
-# |idx|^2 coute moins que n x w operations de plus.
+# A group whose support covers at least this fraction of the rows is extended
+# to full height (mode "haut", see the module docstring). Below it, scattering
+# a block of size |idx|^2 costs less than n x w extra operations.
 FRACTION_HAUTEUR = 0.5
-# Au-dela de cette taille, la matrice d'indicatrices de la residuelle creuse
-# (paires x t^2) n'est pas formee : la valeur passe par un rassemblement.
+# Above this size, the indicator matrix of the sparse residual (pairs x t^2)
+# is not formed, and the values are obtained by a gather.
 OCTETS_MAX_INDICATRICES = 256 * 2 ** 20
 
 
-def _paires_unites(sec):
-    """Paires (i, j), indices locaux a la section, de deux lignes d'une meme unite.
+def _unit_pairs(sec):
+    """Pairs (i, j) of rows of the same unit, as indices local to the section.
 
-    Toutes les paires, diagonale comprise et dans les deux sens : R est
-    dispersee telle quelle, sans symetrisation.
+    All pairs are returned, diagonal included and in both directions. R is
+    scattered as is, without symmetrisation.
     """
-    un = np.asarray(sec["unit"], dtype=np.int64)
-    ordre = np.argsort(un, kind="stable")
-    u_tri = un[ordre]
-    debut = np.flatnonzero(np.r_[True, u_tri[1:] != u_tri[:-1]])
-    taille = np.diff(np.r_[debut, len(u_tri)])
+    units = np.asarray(sec["unit"], dtype=np.int64)
+    order = np.argsort(units, kind="stable")
+    sorted_units = units[order]
+    starts = np.flatnonzero(np.r_[True, sorted_units[1:] != sorted_units[:-1]])
+    sizes = np.diff(np.r_[starts, len(sorted_units)])
     I_, J_ = [], []
-    for m in np.unique(taille):
-        d = debut[taille == m]
-        blocs = ordre[d[:, None] + np.arange(m)[None, :]]          # (g, m)
-        I_.append(np.repeat(blocs, m, axis=1).ravel())
-        J_.append(np.tile(blocs, (1, m)).ravel())
+    for m in np.unique(sizes):
+        d = starts[sizes == m]
+        groups = order[d[:, None] + np.arange(m)[None, :]]          # (g, m)
+        I_.append(np.repeat(groups, m, axis=1).ravel())
+        J_.append(np.tile(groups, (1, m)).ravel())
     return np.concatenate(I_), np.concatenate(J_)
 
 
 def z_hote(term, n):
-    """Incidence pleine hauteur d'un terme, en NumPy sur l'hote (cf. model.dense_Z)."""
+    """Full-height incidence of one term, in NumPy on the host (see incidence.dense_Z)."""
     Z = np.zeros((n, term["t"] * term["q"]))
     np.add.at(Z, (np.asarray(term["zi"], dtype=np.int64),
                   np.asarray(term["zj"], dtype=np.int64)), np.asarray(term["zx"]))
@@ -91,11 +91,12 @@ def z_hote(term, n):
 
 
 class PlanEconome:
-    """Tout ce qui ne depend pas de theta, calcule une fois.
+    """Everything that does not depend on theta, computed once.
 
-    terms_v : termes apres pliage de la parente fixe dans l'incidence
-    (model.prefold_fixed_K) ; Zr : incidences restreintes a leur support, sur le
-    peripherique ; plans des sections residuelles et des groupes.
+    terms: terms after folding the fixed kinship into the incidence
+    (incidence.prefold_fixed_K). Zr: incidences restricted to their support,
+    on the device. plan_secs and plan_grp: how each residual section and each
+    group of terms enters V. Their "mode" values are read by the tests.
     """
 
     def __init__(self, terms, res, y, X):
@@ -103,51 +104,51 @@ class PlanEconome:
         self.n, self.res, self.terms0 = n, res, terms
         Xq, self.ldRx = orthonormal_X(X)
         self.yj, self.Xj = jnp.asarray(y), jnp.asarray(Xq)
-        self.groupes = support_groups(terms, n)
+        self.groups = support_groups(terms, n)
         Zr = [None] * len(terms)
         rows_of = [None] * len(terms)
-        for rows, ks in self.groupes:
+        for rows, ks in self.groups:
             for k in ks:
                 Zr[k] = restrict_Z(terms[k], rows, n)
                 rows_of[k] = np.asarray(rows, dtype=np.int64)
         self.terms, self.Zr = prefold_fixed_K(terms, Zr)
         self.rows_of = rows_of
-        tout = np.arange(n, dtype=np.int64)
+        all_rows = np.arange(n, dtype=np.int64)
 
-        def plein(r):
-            return r.shape[0] == n and np.array_equal(r, tout)
+        def is_full(r):
+            return r.shape[0] == n and np.array_equal(r, all_rows)
 
-        # --- sections residuelles -------------------------------------------
+        # Residual sections
         self.secs = res_sections(res, n)
         self.plan_secs = []
         for sec in self.secs:
             rows = np.asarray(sec["rows"], dtype=np.int64)
             if sec.get("lvl", "id") == "id":
-                i, j = _paires_unites(sec)
+                i, j = _unit_pairs(sec)
                 tr = np.asarray(sec["trait"], dtype=np.int64)
                 t = int(sec["t"])
                 d = dict(mode="paires", I=jnp.asarray(rows[i]), J=jnp.asarray(rows[j]))
                 code = tr[i] * t + tr[j]
                 if len(code) * t * t * 8 <= OCTETS_MAX_INDICATRICES:
-                    # valeur = E vec(Sigma) : la passe arriere est un produit
-                    # E' dvals, deterministe (le rassemblement Sigma[a, b] aurait
-                    # une passe arriere par additions atomiques)
+                    # values = E vec(Sigma). The backward pass is then the
+                    # product E' dvals, which is deterministic. The gather
+                    # Sigma[a, b] would have a backward pass by atomic additions.
                     E = np.zeros((len(code), t * t))
                     E[np.arange(len(code)), code] = 1.0
                     d["E"] = jnp.asarray(E)
                 else:
                     d["code"] = jnp.asarray(code)
                 self.plan_secs.append(d)
-            elif plein(rows):
+            elif is_full(rows):
                 self.plan_secs.append(dict(mode="plein"))
             else:
                 self.plan_secs.append(dict(mode="bloc", idx=jnp.asarray(rows)))
 
-        # --- groupes de termes ----------------------------------------------
+        # Groups of terms
         self.plan_grp = []
-        for rows, ks in self.groupes:
+        for rows, ks in self.groups:
             rows = np.asarray(rows, dtype=np.int64)
-            if plein(rows):
+            if is_full(rows):
                 mode = "plein"
             elif rows.shape[0] >= FRACTION_HAUTEUR * n:
                 mode = "haut"
@@ -157,7 +158,7 @@ class PlanEconome:
                                       contrib=self._contribution(ks, rows, mode)))
 
     def _contribution(self, ks, rows, mode):
-        """B B' d'un groupe, sous jax.checkpoint (B recalcule dans la passe arriere)."""
+        """B B' of one group, under jax.checkpoint (B is recomputed in the backward pass)."""
         terms, n = self.terms, self.n
         idx = jnp.asarray(rows)
 
@@ -170,7 +171,7 @@ class PlanEconome:
         return jax.checkpoint(f)
 
     def V(self, theta, Zr):
-        """V = R + somme des contributions des groupes, assemblee en place."""
+        """V = R + the sum of the group contributions, assembled in place."""
         n = self.n
         th_terms, th_res, _ = split_theta(theta, self.terms, self.res)
         V = jnp.zeros((n, n))
@@ -199,7 +200,7 @@ class PlanEconome:
         return V
 
     def resume(self):
-        """Texte court : modes retenus, pour le journal."""
+        """Short text with the modes chosen, for the log."""
         from collections import Counter
         s = Counter(d["mode"] for d in self.plan_secs)
         g = Counter(d["mode"] for d in self.plan_grp)
@@ -210,24 +211,20 @@ class PlanEconome:
 
 
 # ==============================================================================
-# Noyau V -> -2logL, passe arriere par cho_solve (cf. core.reml_from_V)
+# Kernel V -> -2logL, with a backward pass by cho_solve (see core.reml_from_V)
 # ==============================================================================
-# MEME VALEUR, MEME GRADIENT que core.reml_from_V : la passe avant est la
-# sienne (_reml_fwd). Seule la passe arriere change. Le noyau commun forme
-# V^-1 = L^-T L^-1 par une resolution contre l'identite (n^3 operations) puis un
-# produit general (2 n^3). cho_solve fait deux resolutions triangulaires
-# (2 n^3 au total), dans le tampon de l'identite : meme nombre de matrices
-# n x n vivantes (L et ce tampon), un tiers d'operations en moins. MESURE sur
-# mvD7 (CPU, 32 coeurs) avant ce changement : AI econome 10,4 s contre 7,4 s
-# pour l'AI standard, qui passait deja par cho_solve.
+# The value and the gradient are those of core.reml_from_V: the forward pass is
+# its own (_reml_fwd), and only the backward pass changes. The shared kernel
+# forms V^-1 = L^-T L^-1 by a solve against the identity (n^3 operations),
+# then a general product (2 n^3). cho_solve does two triangular solves (2 n^3
+# in total) in the buffer of the identity. The number of live n x n matrices
+# is the same (L and that buffer), with a third fewer operations.
 #
-# MAIS cho_solve COUTE UNE MATRICE n x n DE PLUS SUR GPU : XLA ne fait pas les
-# deux resolutions en place. MESURE sur mvD7, tranche MIG 10 Go : temporaires de
-# l'objectif 3,82 Gio avec L^-1 puis L^-T L^-1, 5,03 Gio avec cho_solve, qui ne
-# tient plus. Sur CPU au contraire, cho_solve gagne sans que la RAM compte
-# (objectif 8,6 s contre 13,0 s pour le mode standard). D'ou ADJOINT : "inv"
-# (memoire minimale) sur GPU, "cho" (moins d'operations) sur CPU ; la variable
-# d'environnement REMLAX_ADJOINT force l'un ou l'autre.
+# On GPU, however, cho_solve costs one more n x n matrix, because XLA does not
+# run the two solves in place. On CPU, cho_solve is faster and RAM does not
+# limit it. Hence the adjoint mode: "inv" (minimal memory) on GPU, "cho"
+# (fewer operations) on CPU. The environment variable REMLAX_ADJOINT forces
+# either one. Timings and memory: dev/notes.md.
 def adjoint_choisi():
     import os
     v = os.environ.get("REMLAX_ADJOINT", "").strip().lower()
@@ -237,7 +234,7 @@ def adjoint_choisi():
 
 
 def _V_inverse(L, mode):
-    """V^-1 depuis le facteur de Cholesky, selon le compromis choisi."""
+    """V^-1 from the Cholesky factor, following the chosen trade-off."""
     n = L.shape[0]
     if mode == "cho":
         return jax.scipy.linalg.cho_solve((L, True), jnp.eye(n))
@@ -255,7 +252,7 @@ def _fwd_cho(V, y, X):
     return val, res
 
 
-def _bwd_commun(res, g, mode):
+def _bwd_shared(res, g, mode):
     L, ViX, La, r = res
     Z = jax.scipy.linalg.solve_triangular(La, ViX.T, lower=True)   # A^-1/2 ViX'
     W = _V_inverse(L, mode)                                          # V^-1
@@ -264,7 +261,7 @@ def _bwd_commun(res, g, mode):
     return (g * W, 2.0 * g * r, None)
 
 
-reml_from_V_cho.defvjp(_fwd_cho, lambda res, g: _bwd_commun(res, g, "cho"))
+reml_from_V_cho.defvjp(_fwd_cho, lambda res, g: _bwd_shared(res, g, "cho"))
 
 
 @jax.custom_vjp
@@ -272,28 +269,27 @@ def reml_from_V_inv(V, y, X):
     return _reml_fwd(V, y, X)[0]
 
 
-reml_from_V_inv.defvjp(_fwd_cho, lambda res, g: _bwd_commun(res, g, "inv"))
+reml_from_V_inv.defvjp(_fwd_cho, lambda res, g: _bwd_shared(res, g, "inv"))
 
 
 # ==============================================================================
-# Objectif (valeur et gradient), meme contrat que model.make_objective
+# Objective (value and gradient), same contract as model.make_objective
 # ==============================================================================
 def make_neg2_econome(plan, adjoint=None):
-    """-2logL (constante comprise) comme fonction JAX pure de (theta, Zr)."""
-    noyau = reml_from_V_cho if (adjoint or adjoint_choisi()) == "cho" else reml_from_V_inv
+    """-2logL (constant included) as a pure JAX function of (theta, Zr)."""
+    kernel = reml_from_V_cho if (adjoint or adjoint_choisi()) == "cho" else reml_from_V_inv
 
     def f(theta, Zr_a):
         V = plan.V(jnp.asarray(theta), Zr_a)
-        return noyau(V, plan.yj, plan.Xj) + plan.ldRx
+        return kernel(V, plan.yj, plan.Xj) + plan.ldRx
     return f
 
 
 def make_objective_econome(plan, scale=None, adjoint=None):
-    """Rend (fun_jac_scaled, fun_jac, sc) ; meme mise a l'echelle par n que
-    model.make_objective."""
+    """Return (fun_jac_scaled, fun_jac, sc), scaled by n as in model.make_objective."""
     sc = float(plan.n) if scale is None else float(scale)
-    f_brut = make_neg2_econome(plan, adjoint=adjoint)
-    fg = jax.jit(jax.value_and_grad(lambda th, Z: f_brut(th, Z) / sc))
+    f_raw = make_neg2_econome(plan, adjoint=adjoint)
+    fg = jax.jit(jax.value_and_grad(lambda th, Z: f_raw(th, Z) / sc))
     Zr = plan.Zr
 
     def fun_jac_scaled(theta):
@@ -307,22 +303,22 @@ def make_objective_econome(plan, scale=None, adjoint=None):
 
 
 # ==============================================================================
-# AI : valeur, gradient et matrice AI d'une factorisation (cf. ai.make_fga)
+# AI: value, gradient and AI matrix from one factorisation (see ai.make_fga)
 # ==============================================================================
 def make_fga_econome(plan, adjoint=None):
-    """fga(theta) -> (-2logL, gradient, AI), comme ai.make_fga.
+    """fga(theta) -> (-2logL, gradient, AI), as ai.make_fga.
 
-    Colonnes de Q : memes formules que ai.make_ai (colonnes_terme,
-    colonnes_section), recopiees ici pour partager les incidences du plan au
-    lieu d'en construire une seconde copie sur le peripherique.
+    The columns of Q follow the same formulas as ai.make_ai (term_columns,
+    section_columns). They are copied here so that they share the incidences
+    of the plan instead of building a second copy on the device.
     """
     n, terms, secs, res = plan.n, plan.terms, plan.secs, plan.res
     yj, Xj = plan.yj, plan.Xj
     p_x = Xj.shape[1]
-    mode_adj = adjoint or adjoint_choisi()
+    adjoint_mode = adjoint or adjoint_choisi()
     rows_of = [jnp.asarray(r) for r in plan.rows_of]
 
-    def colonnes_terme(th_k, term, Z, rows, v):
+    def term_columns(th_k, term, Z, rows, v):
         t, q = term["t"], term["q"]
         U = (Z.T @ v[rows]).reshape(t, q)
 
@@ -333,7 +329,7 @@ def make_fga_econome(plan, adjoint=None):
         J = jax.jacfwd(g)(th_k)
         return jnp.zeros((n, J.shape[1])).at[rows].set(Z @ J)
 
-    def colonnes_section(th_s, sec, v):
+    def section_columns(th_s, sec, v):
         rows = jnp.asarray(np.asarray(sec["rows"], dtype=np.int64))
         J = jax.jacfwd(lambda th: section_matvec(th, sec, v[rows]))(th_s)
         return jnp.zeros((n, J.shape[1])).at[rows].set(J)
@@ -344,47 +340,47 @@ def make_fga_econome(plan, adjoint=None):
         del V
         logdetV = 2.0 * jnp.sum(jnp.log(jnp.diag(L)))
 
-        def sol(b):
+        def solve(b):
             return jax.scipy.linalg.cho_solve((L, True), b)
-        ViX = sol(Xj)
+        ViX = solve(Xj)
         A = Xj.T @ ViX
         La = jnp.linalg.cholesky(A)
         logdetA = 2.0 * jnp.sum(jnp.log(jnp.diag(La)))
         ViXA = ViX @ jax.scipy.linalg.cho_solve((La, True), jnp.eye(p_x))
-        Py = sol(yj) - ViXA @ (ViX.T @ yj)
+        Py = solve(yj) - ViXA @ (ViX.T @ yj)
         f = (n - p_x) * np.log(2.0 * np.pi) + logdetV + logdetA + plan.ldRx + yj @ Py
         th_terms, th_res, _ = split_theta(theta, terms, res)
-        blocs = [colonnes_terme(th_terms[k], tm, Zr[k], rows_of[k], Py)
-                 for k, tm in enumerate(terms)]
+        columns = [term_columns(th_terms[k], tm, Zr[k], rows_of[k], Py)
+                   for k, tm in enumerate(terms)]
         o = 0
         for sec in secs:
             p_s = sec_n_params(sec)
-            blocs.append(colonnes_section(th_res[o:o + p_s], sec, Py))
+            columns.append(section_columns(th_res[o:o + p_s], sec, Py))
             o += p_s
-        Q = jnp.concatenate(blocs, axis=1)
-        PQ = sol(Q) - ViXA @ (ViX.T @ Q)
+        Q = jnp.concatenate(columns, axis=1)
+        PQ = solve(Q) - ViXA @ (ViX.T @ Q)
         AI = Q.T @ PQ
-        # adjoint de V, forme EN DERNIER : L ne sert plus qu'a lui. Compromis
-        # memoire / operations selon adjoint_choisi().
-        W = _V_inverse(L, mode_adj)
+        # Adjoint of V, formed last: L is needed only for it from here on. The
+        # memory/operations trade-off follows adjoint_choisi().
+        W = _V_inverse(L, adjoint_mode)
         W = W - jnp.concatenate([ViXA, Py[:, None]], axis=1) \
             @ jnp.concatenate([ViX, Py[:, None]], axis=1).T
         g = vjp_V(W)[0]
         return f, g, 0.5 * (AI + AI.T)
 
-    _fga = jax.jit(fga)
+    fga_jit = jax.jit(fga)
     Zr = plan.Zr
 
-    def fga_appel(theta):
-        return _fga(jnp.asarray(theta), Zr)
-    return fga_appel
+    def fga_call(theta):
+        return fga_jit(jnp.asarray(theta), Zr)
+    return fga_call
 
 
 # ==============================================================================
-# Sorties de fin d'ajustement (beta, BLUP, PEV), cf. effects.dense_effects
+# End-of-fit outputs (beta, BLUP, PEV), see effects.dense_effects
 # ==============================================================================
 def V_hote(plan, theta):
-    """V au point theta, ramenee sur l'hote (NumPy) ; le GPU est libere ensuite."""
+    """V at theta, brought back to the host (NumPy). The GPU memory is freed afterwards."""
     Vf = jax.jit(plan.V)
     V = np.asarray(Vf(jnp.asarray(theta), plan.Zr))
     return V
