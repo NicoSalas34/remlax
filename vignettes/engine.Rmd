@@ -16,33 +16,57 @@ model-specific is built on the R side and serialised, or built by hand as
 plain dictionaries.
 
 ```
+remlax_run.py    launcher: runs remlax.<module> from the shipped copy
 remlax/
-  _x64.py        enables float64 at import time
-  core.py        V -> -2 logL, with the analytic VJP
-  structures.py  theta -> Sigma
-  levels.py      theta -> correlation between levels
-  bessel.py      Matern kernel for arbitrary nu
-  model.py       assembly of V and of the objective
-  fit.py         optimisation, BLUPs, diagnostics
-  ai.py          average information REML (optimizer = "ai")
-  mme.py         mixed model equations engine (moteur = "mme")
-  selinv.py      sparse factorisation and selected inversion of C
-  selinv_c.c     C kernel of the selected inversion, compiled at first use
-  lag.py         spatial lag of the response
-  inference.py   vpredict, Wald, Kenward-Roger, predict
-  bundle.py      reader for the serialised design
-  device.py      CPU/GPU selection
-  cli.py         command-line entry point
-  scan.py        genome-wide scans at fixed covariance
+  _x64.py         enables float64 at import time
+  structures.py   theta -> Sigma
+  levels.py       theta -> correlation between levels
+  bessel.py       Matern kernel for arbitrary nu
+  layout.py       layout of theta: terms, residual sections, level kinds
+  incidence.py    incidences Z, supports, folded kinships, orthonormal X
+  residual.py     the residual covariance R, section by section
+  model.py        assembly of V and the REML objective (dense engine)
+  core.py         V -> -2 logL, with the analytic VJP
+  start.py        starting values, loading bounds, range sweep
+  checks.py       checks of a model before fitting
+  fit.py          fit_reml: engine choice, optimisation, finish, result
+  finition.py     trust-region Newton finish (finition = "rc")
+  diagnostics.py  finite-difference Hessian and convergence criteria
+  effects.py      beta, BLUPs and PEV at a given theta (dense engine)
+  ai.py           average information REML (optimizer = "ai")
+  econome.py      low-memory dense engine (memoire = "econome")
+  blocs.py        blocks engine (moteur = "blocs")
+  decoupage.py    automatic split into blocks linked by global terms
+  mme.py          mixed model equations engine (moteur = "mme")
+  selinv.py       sparse factorisation and selected inversion of C
+  selinv_c.c      C kernel of the selected inversion, compiled at first use
+  mme_hybride.py  hybrid inversion of C (inversion = "hybride")
+  lag.py          spatial lag of the response
+  components.py   variance components: names, values, table
+  vpredict.py     functions of the components and their standard errors
+  fixed_tests.py  Wald and Kenward-Roger tests on the fixed effects
+  prediction.py   predictions and their prediction error covariance
+  bayes.py        posterior sampling of the variance parameters
+  scan.py         genome-wide scans at fixed covariance
+  bundle.py       reader for the serialised design
+  device.py       CPU/GPU selection, compilation cache, BLAS threads
+  fils.py         threads bounded to the allocated cores
+  chrono.py       timing by stages
+  cli.py          fitting entry point, run by the launcher
+  scan_cli.py     scan entry point
+  serveur.py      persistent solver serving several fits
 ```
 
-The solver holds two engines. The dense engine (`model.py`, `core.py`) forms
-the marginal covariance `V` and differentiates `-2 logL` with JAX. The mixed
-model equations engine (`mme.py`, `selinv.py`) works on `C`, an `m x m`
-matrix where `m` counts the fixed effects and the random levels. Both take the
-same terms and the same `theta`, and `fit.py` drives either of them with the
-same optimisers and diagnostics. The blocks engine (`blocs.py`) writes `V` as a
-block diagonal matrix plus a low-rank part.
+The solver holds several engines that take the same terms and the same
+`theta` and return the same likelihood. The dense engine (`model.py`,
+`core.py`) forms the marginal covariance `V` and differentiates `-2 logL` with
+JAX; its low-memory variant (`econome.py`) keeps fewer `n x n` matrices on the
+device. The mixed model equations engine (`mme.py`, `selinv.py`,
+`mme_hybride.py`) works on `C`, an `m x m` matrix where `m` counts the fixed
+effects and the random levels. The blocks engine (`blocs.py`) writes `V` as a
+block diagonal matrix plus a low-rank part. `fit.py` drives any of them with
+the same optimisers (`ai.py`, L-BFGS-B), finish (`finition.py`) and
+diagnostics (`diagnostics.py`).
 
 `import remlax` re-exports `STRUCTURES`, `n_params`, `build_sigma`,
 `chol_sigma`, `Bundle`, `assemble_V`, `neg2_reml`, `make_objective`,
@@ -62,7 +86,8 @@ column of Z = (col - 1) * q + level          -> level varies FASTEST
 
 `Z` is `n x (t*q)`: the `t` incidence matrices of a term are stacked
 horizontally, each `n x q`. `Sigma (x) K` follows the same order, with `Sigma`
-on the slow index. `R/remlax.R` builds `Z` with this convention. If one side
+on the slow index. The R side (`rx_term()`, `R/term.R`) builds `Z` with this
+convention. If one side
 changes and the other does not, the model silently becomes a different one.
 
 ### Order of theta
@@ -316,7 +341,14 @@ reasoning: [structures.md](structures.html#which-scale-each-family-reports).
 
 ---
 
-## 3. `remlax.model`
+## 3. The model: `layout`, `incidence`, `residual`, `model`
+
+`term_n_params`, `res_sections`, `sec_n_params`, `res_n_params`, `n_theta`,
+`split_theta` and `level_kind` live in `remlax.layout`; `dense_Z`,
+`restrict_Z`, `support_groups`, `orthonormal_X` and `prefold_fixed_K` in
+`remlax.incidence`; `residual_V` and the residual sections in
+`remlax.residual`; `term_factor`, `assemble_V`, `neg2_reml`, `make_neg2` and
+`make_objective` in `remlax.model`, which also re-exports the others.
 
 ### `term_n_params(tm)`
 
@@ -387,9 +419,9 @@ space. Measured on a one-factor model without effective scaling: it stopped at
 
 ---
 
-## 4. `remlax.fit`
+## 4. `remlax.fit`, `remlax.start`, `remlax.checks`
 
-### `initial_theta(terms, res, y)`
+### `start.initial_theta(terms, res, y, X=None)`
 
 Starting values: the phenotypic variance split equally between the terms and
 the residual. **Exposure is taken into account**: a neighbourhood component
@@ -399,7 +431,7 @@ orders of magnitude too large. Between-level parameters start at zero
 (`rho = 0`, unstructured), except range parameters, which start at a quarter
 of the coordinate span, where the likelihood still has slope.
 
-### `validate(terms, res, y, X)`
+### `checks.validate(terms, res, y, X)`
 
 Raises `ValueError` on designs that would make `V` singular. Returns `None`
 when everything is fine. The checks are:
@@ -411,9 +443,14 @@ when everything is fine. The checks are:
 - non-finite values in `y` or `X`;
 - `X` not of full column rank.
 
-### `fit_reml(terms, res, y, X, theta_init=None, maxiter=3000, floor=-12.0, ceil=12.0, verbose=True, hessian=True, blups=True, pev=False, tol=1e-14, polish=25, check=True, n_restarts=0, restart_sd=0.5, seed=0, fixed_idx=None, lag=None, optimizer="lbfgsb", moteur="dense", inversion="auto")`
+### `fit_reml(terms, res, y, X, theta_init=None, maxiter=3000, floor=-12.0, ceil=12.0, verbose=True, hessian=True, blups=True, pev=False, tol=1e-14, polish=25, check=True, n_restarts=0, restart_sd=0.5, seed=0, fixed_idx=None, lag=None, optimizer="lbfgsb", moteur="dense", inversion="auto", memoire="standard", finition="newton", arret_lent=(100, 0.05), poids=None)`
 
-The fit. Arguments:
+The fit. `fit_reml` resolves `"auto"`, applies the prior weights, and calls
+`_fit_model`, which runs the steps in order: engine and objective
+(`_build_engine`), starting point, compilation and the counted objective
+(`_Objective`), optimisation (`_optimise_lbfgsb` or `_optimise_ai`), finish
+(Newton polishing or `finition.finish`), then the result (likelihood and
+timings, identification, sigmas, effects, Hessian and diagnostics). Arguments:
 
 | argument | meaning |
 |---|---|
@@ -435,7 +472,11 @@ The fit. Arguments:
 | `lag` | spatial lag of the response (`remlax.lag`), dense engine only |
 | `optimizer` | `"lbfgsb"` or `"ai"` (average information on the variance scale, `remlax.ai.ai_reml_var`) |
 | `moteur` | `"dense"` (marginal `V`) or `"mme"` (mixed model equations, `remlax.mme`); a model outside the scope of `"mme"` falls back to `"dense"` |
-| `inversion` | with `moteur="mme"`: `"auto"`, `"dense"` or `"creuse"` (sparse selected inversion, `remlax.selinv`) |
+| `inversion` | with `moteur="mme"`: `"auto"`, `"dense"`, `"creuse"` (sparse selected inversion, `remlax.selinv`) or `"hybride"` (`remlax.mme_hybride`) |
+| `memoire` | dense engine: `"standard"` or `"econome"` (`remlax.econome`) |
+| `finition` | `"newton"` (Newton polishing after L-BFGS-B) or `"rc"` (slow-progress stop, then trust-region Newton, `remlax.finition`) |
+| `arret_lent` | with `finition="rc"`: window (iterations) and minimal gain of `-2logL` |
+| `poids` | prior weights of the observations |
 
 Returns a `dict`. Keys, on a two-term model:
 
@@ -546,7 +587,12 @@ The full key list:
 
 ---
 
-## 5. `remlax.inference`
+## 5. Inference: `components`, `vpredict`, `fixed_tests`, `prediction`
+
+`component_names`, `components_from_theta` and `varcomp_table` live in
+`remlax.components`; `check_vpredict` and `vpredict` in `remlax.vpredict`;
+`wald` and `kenward_roger` in `remlax.fixed_tests`; `predict` in
+`remlax.prediction`.
 
 ### `component_names(terms, res)`
 
@@ -786,9 +832,13 @@ fixed and needs no error control.
 ## 10. `remlax.cli`
 
 ```
-python -m remlax.cli <bundle_dir> [options]
-remlax <bundle_dir> [options]          # console script from pyproject.toml
+python3 inst/python/remlax_run.py cli <bundle_dir> [options]
 ```
+
+The launcher `remlax_run.py` runs `remlax.cli` from the shipped copy, with
+the working directory kept off `sys.path`, so that a local `jax.py` or
+`numpy.py` cannot shadow the real modules. `python -m remlax.cli` works the
+same way when `remlax` is importable.
 
 Reads a serialised design, fits, and writes results back into the **same**
 directory: `result.json` for scalars and dimensions, `out_*.bin` for arrays
@@ -800,8 +850,10 @@ R needs no Python dependency and Python needs no R dependency.
 | `--backend auto\|gpu\|cpu` | `auto` | device; `gpu` refuses if none is visible |
 | `--maxiter N` | 3000 | optimiser iteration cap |
 | `--optimiseur lbfgsb\|ai\|auto` | `lbfgsb` | optimiser |
-| `--moteur dense\|mme` | `dense` | engine |
-| `--inversion auto\|dense\|creuse` | `auto` | inversion of `C` with `--moteur mme` |
+| `--moteur dense\|mme\|blocs\|auto` | `dense` | engine |
+| `--inversion auto\|dense\|creuse\|hybride` | `auto` | inversion of `C` with `--moteur mme` |
+| `--memoire standard\|econome` | `standard` | low-memory dense engine |
+| `--finition newton\|rc` | `newton` | Newton polishing, or slow-progress stop and trust-region Newton |
 | `--polish N` | 25 | Newton polishing steps |
 | `--restarts N` | 0 | perturbed restarts |
 | `--restart-sd X` | 0.5 | perturbation size |
@@ -822,7 +874,7 @@ optimisation to recover a `theta` that is already known, and so that nothing
 depends on the optimiser landing on the same optimum twice.
 
 ```
-$ python -m remlax.cli bundle_demo --backend cpu --vpredict 'h2=V1/(V1+V2)'
+$ python3 inst/python/remlax_run.py cli bundle_demo --backend cpu --vpredict 'h2=V1/(V1+V2)'
 [remlax] peripheriques : [{'platform': 'cpu', 'kind': 'cpu'}, {'platform': 'gpu', 'kind': 'NVIDIA RTX A1000 6GB Laptop GPU'}]
 [remlax] backend retenu : cpu (cpu:0)
 [remlax] n=120, 1 effet(s) fixe(s), 1 terme(s) aleatoire(s)
@@ -854,13 +906,15 @@ Returns a jitted function of `theta` giving `-2 logL`, its gradient and the AI
 matrix together, on the dense engine. The incidences are passed as arguments
 of the jitted function, so XLA does not fold them into constants.
 
-### `ai_reml_var(fga, th0, bornes, terms, res, maxiter=200, tol_dec=1e-6, verbose=True, compteur=None, plancher_us=1e-10)`
+### `ai_reml_var(fga, th0, bornes, terms, res, maxiter=200, tol_dec=1e-6, verbose=True, counter=None, us_floor=1e-10, fun_sc=None, f_only=None)`
 
 The optimiser behind `optimizer = "ai"`. The step is taken on the variance
 scale `phi`: the entries of each `Sigma` for `iid`, `diag` and `us` blocks,
 while `fa` loadings and between-level parameters stay on the `theta` scale.
 The gradient and the AI matrix are carried from `theta` to `phi` by the
-Jacobian of the change of variable. Each iteration then proceeds as follows.
+Jacobian of the change of variable. A run is held by an `_AIRemlVar` object,
+whose methods are the steps of an iteration (`_free_set`, `_reduced_system`,
+`_search`, `try_step`, `_salvo`). Each iteration proceeds as follows.
 
 - Parameters at a bound whose gradient points outwards leave the step (active
   set). A `us` block with an eigenvalue at the floor whose gradient points out
@@ -873,7 +927,7 @@ Jacobian of the change of variable. Each iteration then proceeds as follows.
   (partial face). The face threshold is `max(1e-8, 100 x floor)`.
 - The Newton step `-AI^-1 g` is projected back onto the cone and onto the
   bounds. It is accepted when `-2 logL` does not increase. It is halved up to
-  `N_DEMI_PAS = 6` times.
+  `N_HALF_STEPS = 6` times.
 - When no halving is accepted, the step is damped in the manner of Levenberg
   and Marquardt: `-(AI + mu I)^-1 g`, with `mu` growing by factors of ten from
   `1e-6` times the largest eigenvalue of `AI`. A large `mu` turns the step
@@ -887,13 +941,15 @@ were added, such a point was only stationary at fixed `U`, and L-BFGS-B had to
 rotate `U` in hundreds of small steps. The loop declares a failure, which
 `fit_reml` turns into an L-BFGS-B run from the point reached, in two cases:
 three gains in a row below `1e-6` with a decrement above
-`SEUIL_SUCCES = 1e-4`, or no admissible step.
+`SUCCESS_DECREMENT = 1e-4`, or no admissible step. Before declaring a failure,
+up to `SALVOS_MAX` short L-BFGS-B salvos of `SALVO_ITER` iterations move the
+point away from the region where the AI matrix is nearly singular.
 
 ## 12. `remlax.mme`
 
 The mixed model equations engine, selected by `moteur = "mme"`.
 
-### `hors_perimetre(terms, res, lag=None)`
+### `out_of_scope(terms, res, lag=None)`
 
 Returns the reason why a model is outside the scope of the engine, or `None`.
 Out of scope: a spatial lag, a residual `"none"`, an `rr` structure, and the
@@ -911,9 +967,9 @@ supplied `K^-1`. Components recomputed at each evaluation are a dense `K(theta)`
 and a structured residual block. `X` is replaced by the orthonormal factor of
 its QR decomposition, as in the dense engine.
 
-`evaluer(theta, complet=True)` returns `-2 logL`, its gradient and the AI
+`evaluate(theta, full=True)` returns `-2 logL`, its gradient and the AI
 matrix. The traces of the gradient read the selected entries of `C^-1` on the
-union of the patterns of all components. `sorties(theta)` returns `beta`,
+union of the patterns of all components. `outputs(theta)` returns `beta`,
 `vbeta`, the BLUPs and, for the terms named in `pev`, the prediction error
 variances, read on the diagonal of `C^-1`.
 
@@ -1063,7 +1119,7 @@ than in the standard mode. `REMLAX_ADJOINT=inv` or `cho` forces either.
 
 At the end of a fit, `V` is assembled on the device and brought back to the
 host, and the full-height incidence of a term is built on the host only when
-its BLUPs are computed (`fit.effets_denses` with `V` and `z_de`).
+its BLUPs are computed (`effects.dense_effects` with `V` and `z_de`).
 
 ### Allocator ceiling
 

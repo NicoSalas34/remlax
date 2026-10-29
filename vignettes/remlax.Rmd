@@ -414,7 +414,8 @@ formulas or data frames reaches it.
 ```python
 import numpy as np
 from remlax.fit import fit_reml
-from remlax.inference import component_names, vpredict
+from remlax.components import component_names
+from remlax.vpredict import vpredict
 
 rng = np.random.default_rng(2026)
 n_gen, n_bloc = 60, 4

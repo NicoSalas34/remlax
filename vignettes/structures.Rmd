@@ -33,7 +33,7 @@ interval is passed through `tanh` (a correlation) or `exp` (a variance, a
 range, a shape).
 
 The two reference implementations are `inst/python/remlax/structures.py`
-(Sigma) and `inst/python/remlax/levels.py` (between levels). `R/remlax.R` reproduces the
+(Sigma) and `inst/python/remlax/levels.py` (between levels). `R/counts.R` reproduces the
 parameter counts and must agree exactly: two different counts would split
 `theta` at the wrong place, silently.
 
@@ -357,7 +357,7 @@ The sweep is a heuristic, not a guarantee. On irregular one-dimensional
 positions the tent kernel `lvr` can have dozens of local minima (68 between
 ranges 2 and 25 on 60 random positions); there `n_restarts`, or a
 `theta_init` from a grid, remains necessary. The pytest file
-`tests/python/test_portee.py` checks the finite gradient, the sweep, and that
+`tests-python/test_portee.py` checks the finite gradient, the sweep, and that
 the fit reaches the global minimum of an independent dense profile on
 two-dimensional fields (`sph`, `cir`) and on a regular transect (`lvr`).
 

@@ -17,8 +17,8 @@ modifies none of them. It consumes the output of `fit_reml`.
 |---|---|
 | `inst/python/remlax/scan.py` | the algebra: projection, covariate families, tests. Pure NumPy, no JAX required |
 | `inst/python/remlax/scan_cli.py` | entry point, run by `inst/python/remlax_run.py scan_cli`, beside `cli.py` |
-| `R/remlax_scan.R` | `rx_scan()` / `rx_scan_seuil()`, beside `R/remlax.R` |
-| `R/remlax_scan_plus.R` | `rx_scan_loco()` / `rx_scan_exact()`, built on `rx_scan()` without modifying it |
+| `R/scan.R` | `rx_scan()` / `rx_scan_seuil()` |
+| `R/scan_loco.R` | `rx_scan_loco()` / `rx_scan_exact()`, built on `rx_scan()` |
 | `tests-python/test_scan.py` | the scan checked against the Wald test with the column added to X |
 | `validation/etude_scan_familles.py` (remlax-validation) | which covariate detects which mechanism |
 
@@ -35,7 +35,7 @@ beta_s = (s'Ps)^-1 s'Py      var(beta_s) = (s'Ps)^-1      chi2 = (s'Py)^2/(s'Ps)
 P = V^-1 - V^-1 X (X'V^-1 X)^-1 X'V^-1
 ```
 
-This formula is the one in `inference.wald`, rewritten for one column. Since V
+This formula is the one in `fixed_tests.wald`, rewritten for one column. Since V
 does not change, the score and Wald tests coincide.
 
 ### Covariance structures beyond diagonalisation
@@ -101,7 +101,7 @@ wrong result with nothing to flag it.
 ## 3. Test specifications
 
 The bar denotes a conditional test of the term given the others, as in asreml
-and in `inference.wald`.
+and in `fixed_tests.wald`.
 
 | specification | df | effect tested |
 |---|---|---|

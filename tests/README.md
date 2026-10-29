@@ -6,7 +6,7 @@ Status: `covered (existing)`, `covered (new)`, `covered (existing + new)`, `not 
 
 **Totals**: 122 features inventoried; 89 had at least one existing test; 32 of those by a test that CI actually runs (pytest or the testthat suite), the others only by scripts under `remlax-validation: tests/R/` needing asreml, pbkrtest or the cluster, or by the recorded catalogue; 118 are covered after this pass (30 newly covered, 82 strengthened, 6 unchanged); 4 remain uncovered, each with the reason in its row.
 
-## 1. Sigma structures (structures.py, R/remlax.R rx_n_params)
+## 1. Sigma structures (structures.py, R/counts.R rx_n_params)
 
 | feature | where implemented | test (existing) | test (new) | status |
 |---|---|---|---|---|
@@ -64,35 +64,35 @@ Status: `covered (existing)`, `covered (new)`, `covered (existing + new)`, `not 
 | `mtrn` lambda = 1 (city-block) and all parameters fixed (empty theta) | levels.py _mtrn_valeurs/_distance_anisotrope | remlax-validation: tests/R/test_remlax_asreml2.R (lambda=1 vs asreml) | tests-python/test_levels_catalogue.py::test_mtrn_lambda_1_city_block_et_tout_fixe | covered (existing + new) |
 | `bessel.matern(z, nu)` against scipy.special.kv, closed forms nu = 0.5, 1.5, M(0) = 1 | bessel.py | remlax-validation: tests/R/test_remlax_asreml2.R (besselK reference, fit level) | tests-python/test_levels_catalogue.py::test_matern_contre_scipy_et_cas_fermes | covered (existing + new) |
 
-## 3. Model assembly and likelihood (model.py, core.py)
+## 3. Model assembly and likelihood (layout.py, incidence.py, residual.py, model.py, core.py)
 
 | feature | where implemented | test (existing) | test (new) | status |
 |---|---|---|---|---|
 | `reml_from_V` value and analytic VJP vs finite differences | core.py | tests-python/test_remlax_core.py section 2 | tests-python/test_vraisemblance_dense.py::test_split_theta_et_make_objective_echelle (gradient check) | covered (existing + new) |
 | `assemble_V` single product == naive chain; symmetric PD | model.py assemble_V | tests-python/test_assemble_V.py::test_assemble_V; test_remlax_core.py section 3 |  | covered (existing) |
-| `assemble_V_groupes` (support-restricted) == full assembly, value and gradient | model.py assemble_V_groupes/support_groups/restrict_Z | tests-python/test_assemble_groupes.py::test_assemble_groupes |  | covered (existing) |
+| `assemble_V_groupes` (support-restricted) == full assembly, value and gradient | model.py assemble_V_by_support; incidence.py support_groups/restrict_Z | tests-python/test_assemble_groupes.py::test_assemble_groupes |  | covered (existing) |
 | -2logL == independent numpy Cholesky reference: iid term K = I | model.py neg2_reml | tests-python/test_remlax_core.py section 4 (analytic one-factor) | tests-python/test_vraisemblance_dense.py::test_iid_K_identite | covered (existing + new) |
 | -2logL reference: term with supplied K (LK, lvl implicit 'fixed') | model.py term_factor | remlax-validation: tests/R/test_remlax.R section 3 (vs sommer) | tests-python/test_vraisemblance_dense.py::test_parente_fournie_LK | covered (existing + new) |
-| -2logL reference: multi-trait `us` term (long format) with `us` residual over units | model.py _section_V | remlax-validation: tests/R/test_remlax.R section 4 (vs sommer) | tests-python/test_vraisemblance_dense.py::test_multitrait_us_long_avec_residuelle_us | covered (existing + new) |
-| -2logL reference: `dsum` with two sections of different shapes and interleaved rows; component names | model.py residual_V/res_sections | remlax-validation: tests/R/test_remlax_asreml2.R sections 5, 5b (vs asreml) | tests-python/test_vraisemblance_dense.py::test_dsum_deux_sections_de_formes_differentes | covered (existing + new) |
+| -2logL reference: multi-trait `us` term (long format) with `us` residual over units | residual.py _section_V | remlax-validation: tests/R/test_remlax.R section 4 (vs sommer) | tests-python/test_vraisemblance_dense.py::test_multitrait_us_long_avec_residuelle_us | covered (existing + new) |
+| -2logL reference: `dsum` with two sections of different shapes and interleaved rows; component names | residual.py residual_V; layout.py res_sections | remlax-validation: tests/R/test_remlax_asreml2.R sections 5, 5b (vs asreml) | tests-python/test_vraisemblance_dense.py::test_dsum_deux_sections_de_formes_differentes | covered (existing + new) |
 | -2logL reference: `sep` level term id x ar1 x ar1 | model.py term_factor + levels sep | — | tests-python/test_vraisemblance_dense.py::test_produit_separable_id_ar1_ar1 | covered (new) |
-| -2logL reference: `ar1ar1` residual with `us` trait structure | model.py _section_V | remlax-validation: tests/R/test_remlax_asreml.R section 2 (iid case vs asreml) | tests-python/test_vraisemblance_dense.py::test_residuelle_ar1ar1_avec_us_caractere | covered (existing + new) |
+| -2logL reference: `ar1ar1` residual with `us` trait structure | residual.py _section_V | remlax-validation: tests/R/test_remlax_asreml.R section 2 (iid case vs asreml) | tests-python/test_vraisemblance_dense.py::test_residuelle_ar1ar1_avec_us_caractere | covered (existing + new) |
 | -2logL reference: `fa` term with `diag` residual | model.py | — | tests-python/test_vraisemblance_dense.py::test_fa_avec_residuelle_diag | covered (new) |
 | -2logL reference: metric `exp` term with coordinates | model.py | — | tests-python/test_vraisemblance_dense.py::test_metrique_exp_avec_coordonnees | covered (new) |
-| weighted incidence (zx != 1) and exposure-aware `initial_theta` | model.py dense_Z; fit.py initial_theta | remlax-validation: tests/R/test_remlax.R section 6 (finite fit only) | tests-python/test_vraisemblance_dense.py::test_terme_pondere_et_exposition_dans_initial_theta | covered (existing + new) |
-| `split_theta`, `n_theta`, `term_n_params`, `make_objective` scaling by n | model.py | — | tests-python/test_vraisemblance_dense.py::test_split_theta_et_make_objective_echelle | covered (new) |
-| `initial_theta` length and range start (sph, mtrn, aexp) | fit.py initial_theta/_theta0_niveaux | — | tests-python/test_vraisemblance_dense.py::test_initial_theta_a_la_bonne_longueur_pour_les_portees | covered (new) |
-| `validate` refusals: duplicated (unit, trait) under us / under level structure, trait index > t, null incidence, non-finite y or X, X rank deficient; unknown residual struct; theta_init length | fit.py validate; model.py _section_V | tests-python/test_remlax_core.py section 6 (X singular); tests-python/stress_remlax.py | tests-python/test_vraisemblance_dense.py::test_validate_refuse_les_dispositifs_singuliers | covered (existing + new) |
+| weighted incidence (zx != 1) and exposure-aware `initial_theta` | incidence.py dense_Z; start.py initial_theta | remlax-validation: tests/R/test_remlax.R section 6 (finite fit only) | tests-python/test_vraisemblance_dense.py::test_terme_pondere_et_exposition_dans_initial_theta | covered (existing + new) |
+| `split_theta`, `n_theta`, `term_n_params`, `make_objective` scaling by n | layout.py, model.py | — | tests-python/test_vraisemblance_dense.py::test_split_theta_et_make_objective_echelle | covered (new) |
+| `initial_theta` length and range start (sph, mtrn, aexp) | start.py initial_theta/_theta0_levels | — | tests-python/test_vraisemblance_dense.py::test_initial_theta_a_la_bonne_longueur_pour_les_portees | covered (new) |
+| `validate` refusals: duplicated (unit, trait) under us / under level structure, trait index > t, null incidence, non-finite y or X, X rank deficient; unknown residual struct; theta_init length | checks.py validate; residual.py _section_V | tests-python/test_remlax_core.py section 6 (X singular); tests-python/stress_remlax.py | tests-python/test_vraisemblance_dense.py::test_validate_refuse_les_dispositifs_singuliers | covered (existing + new) |
 
 ## 4. fit_reml options and outputs (fit.py)
 
 | feature | where implemented | test (existing) | test (new) | status |
 |---|---|---|---|---|
 | `theta_init` + `maxiter = 0` + `polish = 0`: exact evaluation, theta unchanged, n_iter 0, message | fit.py fit_reml | remlax-validation: tests/R/test_remlax_tmb_vs_dense.R (R side) | tests-python/test_fit_options.py::test_theta_init_maxiter_0_polish_0_est_une_evaluation_exacte; tests/testthat/test-options-ajustement.R | covered (existing + new) |
-| `fixed_idx`: value held, n_fixed / n_fixed_out / n_par_free, decrement on free subspace | fit.py fit_reml/_diagnostic | remlax-validation: tests/R/test_remlax_asreml.R section 5 (R fixed_theta) | tests-python/test_fit_options.py::test_fixed_idx_tient_la_valeur_et_les_compteurs; tests/testthat/test-options-ajustement.R | covered (existing + new) |
+| `fixed_idx`: value held, n_fixed / n_fixed_out / n_par_free, decrement on free subspace | fit.py fit_reml; diagnostics.py diagnostic | remlax-validation: tests/R/test_remlax_asreml.R section 5 (R fixed_theta) | tests-python/test_fit_options.py::test_fixed_idx_tient_la_valeur_et_les_compteurs; tests/testthat/test-options-ajustement.R | covered (existing + new) |
 | `floor`/`ceil` respected, returned as par_floor/par_ceil, floor >= ceil refused (R) | fit.py; R rx_fit | tests/testthat/test-ajustement.R | tests-python/test_fit_options.py::test_floor_ceil_respectes_et_rendus | covered (existing + new) |
 | component at the floor reported in `composantes_degenerees` | fit.py | validation/results/checks_2026-09-01.csv asreml_structures (spline null component) | tests-python/test_fit_options.py::test_composante_au_plancher_signalee_degeneree | covered (existing + new) |
-| `hessian = False`: projected gradient still available, decrement NaN | fit.py _diagnostic_gradient | — | tests-python/test_fit_options.py::test_hessian_false_garde_le_gradient_projete; tests/testthat/test-options-ajustement.R | covered (new) |
+| `hessian = False`: projected gradient still available, decrement NaN | diagnostics.py gradient_diagnostic | — | tests-python/test_fit_options.py::test_hessian_false_garde_le_gradient_projete; tests/testthat/test-options-ajustement.R | covered (new) |
 | `blups = False` / `hessian = False`: beta, vbeta, Vi, Py, blups absent | fit.py | — | tests-python/test_fit_options.py::test_blups_false_et_hessian_false_ne_calculent_pas_beta | covered (new) |
 | `pev = True`, list of names, unknown name refused; formula diag(G - G Z' P Z G); BLUP = G Z' P y | fit.py | tests-python/test_loadings_pev.py::test_loadings_pev | tests-python/test_fit_options.py::test_pev_liste_true_inconnu_et_formule; tests/testthat/test-options-ajustement.R (pev = TRUE / 'gid') | covered (existing + new) |
 | PEV decreases with replication | fit.py | — | tests-python/test_fit_options.py::test_pev_decroit_avec_la_replication | covered (new) |
@@ -100,22 +100,22 @@ Status: `covered (existing)`, `covered (new)`, `covered (existing + new)`, `not 
 | determinism (two identical calls), `polish = 0` gives n_polish 0 | fit.py | tests-python/test_remlax_core.py section 5 | tests-python/test_fit_options.py::test_deux_appels_identiques_meme_resultat_et_polish_0 | covered (existing + new) |
 | `logLik_asreml` = logLik + (n-p)/2 log 2 pi; sigmas / sigmas_res / sigma_res shapes; V_singuliere; hessian shape | fit.py | validation/results/checks_2026-09-01.csv asreml_structures (logLik convention) | tests-python/test_fit_options.py::test_constante_asreml_et_sigmas | covered (existing + new) |
 | `verbose = True` prints compilation and iteration lines | fit.py | — | tests-python/test_fit_options.py::test_verbose_imprime_la_compilation | covered (new) |
-| `rho` keys: bare for one parameter, `!borne_inf`, `!signe_non_identifie`, `!phi`/`!nu` for mtrn; `pacf` for ar2 | fit.py _ranger_niveaux | — | tests-python/test_fit_options.py::test_rho_cles_nues_prefixees_et_pacf | covered (new) |
+| `rho` keys: bare for one parameter, `!borne_inf`, `!signe_non_identifie`, `!phi`/`!nu` for mtrn; `pacf` for ar2 | fit.py _store_level_params | — | tests-python/test_fit_options.py::test_rho_cles_nues_prefixees_et_pacf | covered (new) |
 | `loadings` (Lambda, psi) for fa terms and residual; named `sigmas_res` for dsum sections | fit.py | tests-python/test_loadings_pev.py | tests-python/test_fit_options.py::test_loadings_et_sections_nommees | covered (existing + new) |
 | `check = False`, `tol` | fit.py | — | — | not covered: pass-through arguments; check=False only skips validate, tol is L-BFGS-B ftol |
 | random-configuration stress sweep (150 configurations: finite logLik, PSD, converged) | fit.py | tests-python/stress_remlax.py (script, not collected by pytest); validation/results/checks_2026-09-01.csv stress |  | covered (existing) |
 
-## 5. Inference (inference.py)
+## 5. Inference (components.py, vpredict.py, fixed_tests.py, prediction.py)
 
 | feature | where implemented | test (existing) | test (new) | status |
 |---|---|---|---|---|
-| `component_names` order and `components_from_theta` (lower triangle, natural scale for levels, diag zero covariances) | inference.py | — | tests-python/test_inference_reference.py::test_component_names_et_components_from_theta | covered (new) |
-| `vpredict`: values, delta-method SE vs finite differences, NaN without Hessian, `free` mask | inference.py vpredict | remlax-validation: tests/R/test_remlax_asreml.R section 5 (h2 and SE vs asreml); tests/testthat/test-ajustement.R | tests-python/test_inference_reference.py::test_vpredict_delta_contre_differences_finies; tests/testthat/test-options-ajustement.R | covered (existing + new) |
-| `wald`: F = ANOVA F on balanced RCBD, chi2, p, SE = sqrt(2 MSE / b); per-column default | inference.py wald | remlax-validation: tests/R/test_remlax_asreml.R section 5 (vs asreml, last term) | tests-python/test_inference_reference.py::test_wald_egale_le_F_de_l_anova; tests/testthat/test-options-ajustement.R | covered (existing + new) |
-| `kenward_roger`: denDF = (t-1)(b-1) and F exact on balanced RCBD; SE; vbeta_kr; second_ordre_omis flag | inference.py kenward_roger | remlax-validation: tests/R/test_remlax_asreml2.R section 7 (vs pbkrtest, unbalanced) | tests-python/test_inference_reference.py::test_kenward_roger_ddl_exacts_du_plan_equilibre / test_kenward_roger_second_ordre_signale_avec_une_correlation; tests/testthat/test-options-ajustement.R | covered (existing + new) |
-| `kenward_roger` without random term: denDF = n - p, classical F | inference.py | — | tests-python/test_inference_reference.py::test_kenward_roger_sans_terme_aleatoire_rend_les_ddl_residuels | covered (new) |
+| `component_names` order and `components_from_theta` (lower triangle, natural scale for levels, diag zero covariances) | components.py | — | tests-python/test_inference_reference.py::test_component_names_et_components_from_theta | covered (new) |
+| `vpredict`: values, delta-method SE vs finite differences, NaN without Hessian, `free` mask | vpredict.py vpredict | remlax-validation: tests/R/test_remlax_asreml.R section 5 (h2 and SE vs asreml); tests/testthat/test-ajustement.R | tests-python/test_inference_reference.py::test_vpredict_delta_contre_differences_finies; tests/testthat/test-options-ajustement.R | covered (existing + new) |
+| `wald`: F = ANOVA F on balanced RCBD, chi2, p, SE = sqrt(2 MSE / b); per-column default | fixed_tests.py wald | remlax-validation: tests/R/test_remlax_asreml.R section 5 (vs asreml, last term) | tests-python/test_inference_reference.py::test_wald_egale_le_F_de_l_anova; tests/testthat/test-options-ajustement.R | covered (existing + new) |
+| `kenward_roger`: denDF = (t-1)(b-1) and F exact on balanced RCBD; SE; vbeta_kr; second_ordre_omis flag | fixed_tests.py kenward_roger | remlax-validation: tests/R/test_remlax_asreml2.R section 7 (vs pbkrtest, unbalanced) | tests-python/test_inference_reference.py::test_kenward_roger_ddl_exacts_du_plan_equilibre / test_kenward_roger_second_ordre_signale_avec_une_correlation; tests/testthat/test-options-ajustement.R | covered (existing + new) |
+| `kenward_roger` without random term: denDF = n - p, classical F | fixed_tests.py | — | tests-python/test_inference_reference.py::test_kenward_roger_sans_terme_aleatoire_rend_les_ddl_residuels | covered (new) |
 | REML on balanced RCBD equals ANOVA estimators | fit.py | tests-python/test_remlax_core.py section 4 (one factor) | tests-python/test_inference_reference.py::test_reml_equilibre_retrouve_l_anova | covered (existing + new) |
-| `predict`: L beta and SE; with M: value = L beta + M u, prediction-error covariance (three terms) by hand; dimension errors | inference.py predict | remlax-validation: tests/R/test_remlax_asreml2.R sections 6, 8 (vs asreml) | tests-python/test_inference_reference.py::test_predict_contre_combinaison_lineaire_a_la_main | covered (existing + new) |
+| `predict`: L beta and SE; with M: value = L beta + M u, prediction-error covariance (three terms) by hand; dimension errors | prediction.py predict | remlax-validation: tests/R/test_remlax_asreml2.R sections 6, 8 (vs asreml) | tests-python/test_inference_reference.py::test_predict_contre_combinaison_lineaire_a_la_main | covered (existing + new) |
 
 ## 6. Bundle, CLI, device (bundle.py, cli.py, device.py)
 
@@ -133,20 +133,20 @@ Status: `covered (existing)`, `covered (new)`, `covered (existing + new)`, `not 
 | CPU/GPU parity of -2logL and gradient at 1e-12 relative (skipped without cuda) | core.py/model.py | tests-python/parite_gpu.py (script, 34 designs on cluster); validation/results/checks_2026-09-01.csv cpu_gpu_parity | tests-python/test_parite_gpu.py::test_parite_cpu_gpu_valeur_et_gradient (skips here: no cuda device) | covered (existing + new) |
 | CPU evaluation deterministic bit for bit | core.py | tests-python/test_remlax_core.py section 5 | tests-python/test_parite_gpu.py::test_deux_evaluations_cpu_bit_a_bit_identiques | covered (existing + new) |
 
-## 7. GWAS scan (scan.py, scan_cli.py, R/remlax_scan.R)
+## 7. GWAS scan (scan.py, scan_cli.py, R/scan.R)
 
 | feature | where implemented | test (existing) | test (new) | status |
 |---|---|---|---|---|
 | `projeter` / `scan` equal Wald at fixed V; conditional correlation; spec parsing; lambda_gc; refusals (non-centred doses, inter-species joint) | scan.py | tests-python/test_scan.py (6 tests) |  | covered (existing) |
 | `scan_cli` subprocess: CSV columns, garder mask, meta, equality with direct scan, refusal of --maxiter 0 without --theta-in | scan_cli.py | — | tests-python/test_scan_cli.py::test_scan_cli_egale_scan_direct | covered (new) |
-| `rx_scan` refusals (unknown family, unknown term, wrong nrow, missing matrix, t > 1 without index, index out of range); `rx_scan_seuil` | R/remlax_scan.R | — | tests/testthat/test-scan.R (refuse...) | covered (new) |
-| `rx_scan` on a simulated set: columns per test, causal SNP first, meta, non-centred doses refused for sim | R/remlax_scan.R | — | tests/testthat/test-scan.R (jeu simule) | covered (new) |
+| `rx_scan` refusals (unknown family, unknown term, wrong nrow, missing matrix, t > 1 without index, index out of range); `rx_scan_seuil` | R/scan.R | — | tests/testthat/test-scan.R (refuse...) | covered (new) |
+| `rx_scan` on a simulated set: columns per test, causal SNP first, meta, non-centred doses refused for sim | R/scan.R | — | tests/testthat/test-scan.R (jeu simule) | covered (new) |
 
 ## 8. Parameter counts
 
 | feature | where implemented | test (existing) | test (new) | status |
 |---|---|---|---|---|
-| `rx_n_theta` equals model$n_par for every structure | R/remlax.R rx_n_theta | tests/testthat/test-comptages.R (iid only) | tests/testthat/test-grammaire.R (every formula) | covered (existing + new) |
+| `rx_n_theta` equals model$n_par for every structure | R/counts.R rx_n_theta | tests/testthat/test-comptages.R (iid only) | tests/testthat/test-grammaire.R (every formula) | covered (existing + new) |
 
 ## 9. R interface: grammar, rx_term, rx_model, rx_reml, rx_spl2d, rx_predict, print methods
 
@@ -170,34 +170,34 @@ Status: `covered (existing)`, `covered (new)`, `covered (existing + new)`, `not 
 | `backend = 'gpu'` from R without a GPU: explicit error | R rx_fit | — | — | not covered: on the R side (covered by the Python CLI test |
 | ./ synchronised with the live scripts | ./tools/sync_sources.R | tests/testthat/test-synchronisation.R |  | covered (existing) |
 
-## 10. Design and post-fit functions (R/remlax_design.R, R/remlax_ratios.R), added 2026-09-28
+## 10. Design and post-fit functions (R/design.R, R/ratios.R), added 2026-09-28
 
 These functions were added to write the multispecies model of Salas et al. (2026). `test (new)` names the testthat tests (pure R, CI); the comparison on the real wheat-alfalfa data against the independent analysis code lives with that analysis code, outside this package.
 
 | feature | where implemented | test (new) | validation (real data, skip without) | status |
 |---|---|---|---|---|
-| `rx_neighbourhood`: neighbour counts on an alternating grid, row sums of `unit` = `n_i`, `level 1 = unit 1` | R/remlax_design.R | tests/testthat/test-design.R (T1) | IGE repository: scripts/remlax/reproduction_remlax/validation/ch3_neighbourhood_vs_ige.R: 10 geometries (the 7 retained ones, decoupled radii, dilution 0.5, rank 1), level and unit incidences, max difference 0 | covered (new) |
-| `rx_neighbourhood`: physical distance with `spacing`, kernels power / exponential / none | R/remlax_design.R | test-design.R (T2) | idem | covered (new) |
-| `rx_neighbourhood`: dilution by the number of neighbours, `level(d) = level(0) / n_i^d`, mean at lambda = 0 | R/remlax_design.R | test-design.R (T3, T4) | idem (dilution 0.5, 1) | covered (new) |
-| `rx_neighbourhood`: L2 normalisation after dilution | R/remlax_design.R | test-design.R (T5) | — (the campaign runs unnormalised) | covered (new) |
-| `rx_neighbourhood`: per-pair parameters (list, named matrix), `pairs`, refusals (missing pair, unknown pair) | R/remlax_design.R | test-design.R (T6) | idem (rank 5/7, 10/8, 3/8, 8/2) | covered (new) |
-| `rx_neighbourhood`: blocks never neighbours, rank 0, refusals (non-integer coord, duplicated id, missing level), sparse/dense parity | R/remlax_design.R | test-design.R (T7, sparse) | idem (12 blocks) | covered (new) |
-| `rx_exposure`: d = 1 at K = I, k = k_identity, c, S, K = I explicit, one neighbour, scale invariance, `rows` and the stacked-model trap, size refusals | R/remlax_design.R | test-design.R (T1-T5) | IGE repository: scripts/remlax/reproduction_remlax/validation/ch3_ratios_vs_ige.R (b): k_identity vs cube_C_Hauteur.4.csv (3 cells, 3e-14), d / k / c / S / k_IEE vs vx_expositions.csv of mvC7 (7 targets, 5e-13), k_identity vs 06_nuisance_var.csv | covered (new) |
-| `rx_exposure`: model form, K read from the term, `rows = "auto"`, references by label or index, refusals | R/remlax_design.R | test-design.R (forme modele) | idem (model form on modele.rds) | covered (new) |
-| `rx_grm`: VanRaden 1, ploidy, blending, coding count, refusal | R/remlax_design.R | test-design.R | — (the two GRM of the real design are inputs) | covered (new) |
-| `rx_term(colnames)`: default from `names(Z)`, refusal of wrong length, `dimnames` on `fit$sigmas` and `fit$blups`, levels from column names | R/remlax.R | test-design.R (forme modele); test-ratios.R (rx_term(colnames), skip without jax) | IGE repository: scripts/remlax/reproduction_remlax/validation/ch3_ratios_vs_ige.R (labels of mvC7) | covered (new) |
-| `fit$se_theta` = `sqrt(2 diag(H_f^-1))` on the free subspace, NA at bounds / fixed / saddle point | R/remlax.R rx_se_theta, rx_read_result | test-ratios.R (T5 solver, T6, T7) | IGE repository: scripts/remlax/reproduction_remlax/validation/ch3_ratios_vs_ige.R: vs 06_theta_se.csv of mvC7, 198/198, 1e-14 relative | covered (new) |
-| `rx_cor_z`: symmetry at r = 0, table examples, r near 1, Pearson = cor.test, width_max NULL, refusals | R/remlax_ratios.R | test-ratios.R (T1-T5) | IGE repository: scripts/remlax/reproduction_remlax/validation/ch3_ratios_vs_ige.R (d): three values of tab:supp:cor; Fisher intervals of 121 correlations of mvC7 at 2e-5 (1.96 vs qnorm) | covered (new) |
-| `rx_sigma_of`: us row by row, iid, diag, fa, rr, chol, ante, corh, unknown refused | R/remlax_ratios.R | test-ratios.R | IGE repository: scripts/remlax/reproduction_remlax/validation/ch3_ratios_vs_ige.R: reconstruction check against fit$sigmas inside rx_ratios | covered (new) |
-| `rx_sigmas_from_theta`: solver order (terms then sections), level parameters skipped, dimnames, length refused | R/remlax_ratios.R | test-ratios.R | idem | covered (new) |
-| `rx_ratios`: SE of a scalar variance = 2 var se_theta, shares sum to 1, exposure NULL vs 1, scale invariance of r, TBV and tau2 formulas, constants multiply estimate and SE alike, check_se | R/remlax_ratios.R | test-ratios.R (T3, T4, T5) | IGE repository: scripts/remlax/reproduction_remlax/validation/ch3_ratios_vs_ige.R (c): 189 var/prop/h2 of mvC7 at 6e-16 (est.) / 2e-8 (SE), heritabilites_etendues_mv.csv | covered (new) |
-| `rx_ratios`: theta -> Sigma check (permuted theta refused), reference grammar and refusals, jacobian = solver refused | R/remlax_ratios.R | test-ratios.R | — | covered (new) |
-| `rx_ratios`: parameter at a bound out of the free subspace, FLOOR, COND_BOUND, fixed_theta | R/remlax_ratios.R | test-ratios.R (T6) | — (mvC7 has no bounded parameter) | covered (new) |
-| `rx_ratios`: negative curvature, `refuse` (all SE NA) vs `project` (NOT_IDENTIFIED), no Hessian | R/remlax_ratios.R | test-ratios.R (T7) | — | covered (new) |
-| `rx_ratios`: two groups, between effect, `h2_ext_total`, cross TBV with `d_emitter`, tau2 on the receiving denominator, TBV correlations | R/remlax_ratios.R | test-ratios.R | IGE repository: scripts/remlax/reproduction_remlax/validation/ch3_ratios_vs_ige.R: 106 genetic + 15 residual correlations (est. 6e-16, SE 2e-7, flags identical), 14 TBV variances and 14 tau2 vs mvC7_tbvhomogene / tau2_par_caractere_mv.csv (5e-15) | covered (new) |
-| `rx_ratios` = solver `vpredict` (h2 estimate and SE) | R/remlax_ratios.R | test-ratios.R (T1, skip without jax) | — | covered (new) |
-| `rx_grid_summary`: best, supported, ranges, n_product, missing cells, best_pd | R/remlax_ratios.R | test-ratios.R (T1) | the analysis code of Salas et al. (2026), outside this package | covered (new) |
-| `rx_grid_summary`: `by`, n_obs guard, AIC recomputed / checked, `effective` and best_moved, refusals | R/remlax_ratios.R | test-ratios.R (T2-T4) | idem | covered (new) |
+| `rx_neighbourhood`: neighbour counts on an alternating grid, row sums of `unit` = `n_i`, `level 1 = unit 1` | R/design.R | tests/testthat/test-design.R (T1) | IGE repository: scripts/remlax/reproduction_remlax/validation/ch3_neighbourhood_vs_ige.R: 10 geometries (the 7 retained ones, decoupled radii, dilution 0.5, rank 1), level and unit incidences, max difference 0 | covered (new) |
+| `rx_neighbourhood`: physical distance with `spacing`, kernels power / exponential / none | R/design.R | test-design.R (T2) | idem | covered (new) |
+| `rx_neighbourhood`: dilution by the number of neighbours, `level(d) = level(0) / n_i^d`, mean at lambda = 0 | R/design.R | test-design.R (T3, T4) | idem (dilution 0.5, 1) | covered (new) |
+| `rx_neighbourhood`: L2 normalisation after dilution | R/design.R | test-design.R (T5) | — (the campaign runs unnormalised) | covered (new) |
+| `rx_neighbourhood`: per-pair parameters (list, named matrix), `pairs`, refusals (missing pair, unknown pair) | R/design.R | test-design.R (T6) | idem (rank 5/7, 10/8, 3/8, 8/2) | covered (new) |
+| `rx_neighbourhood`: blocks never neighbours, rank 0, refusals (non-integer coord, duplicated id, missing level), sparse/dense parity | R/design.R | test-design.R (T7, sparse) | idem (12 blocks) | covered (new) |
+| `rx_exposure`: d = 1 at K = I, k = k_identity, c, S, K = I explicit, one neighbour, scale invariance, `rows` and the stacked-model trap, size refusals | R/design.R | test-design.R (T1-T5) | IGE repository: scripts/remlax/reproduction_remlax/validation/ch3_ratios_vs_ige.R (b): k_identity vs cube_C_Hauteur.4.csv (3 cells, 3e-14), d / k / c / S / k_IEE vs vx_expositions.csv of mvC7 (7 targets, 5e-13), k_identity vs 06_nuisance_var.csv | covered (new) |
+| `rx_exposure`: model form, K read from the term, `rows = "auto"`, references by label or index, refusals | R/design.R | test-design.R (forme modele) | idem (model form on modele.rds) | covered (new) |
+| `rx_grm`: VanRaden 1, ploidy, blending, coding count, refusal | R/design.R | test-design.R | — (the two GRM of the real design are inputs) | covered (new) |
+| `rx_term(colnames)`: default from `names(Z)`, refusal of wrong length, `dimnames` on `fit$sigmas` and `fit$blups`, levels from column names | R/term.R | test-design.R (forme modele); test-ratios.R (rx_term(colnames), skip without jax) | IGE repository: scripts/remlax/reproduction_remlax/validation/ch3_ratios_vs_ige.R (labels of mvC7) | covered (new) |
+| `fit$se_theta` = `sqrt(2 diag(H_f^-1))` on the free subspace, NA at bounds / fixed / saddle point | R/fit.R rx_se_theta, R/bundle_read.R rx_read_result | test-ratios.R (T5 solver, T6, T7) | IGE repository: scripts/remlax/reproduction_remlax/validation/ch3_ratios_vs_ige.R: vs 06_theta_se.csv of mvC7, 198/198, 1e-14 relative | covered (new) |
+| `rx_cor_z`: symmetry at r = 0, table examples, r near 1, Pearson = cor.test, width_max NULL, refusals | R/ratios.R | test-ratios.R (T1-T5) | IGE repository: scripts/remlax/reproduction_remlax/validation/ch3_ratios_vs_ige.R (d): three values of tab:supp:cor; Fisher intervals of 121 correlations of mvC7 at 2e-5 (1.96 vs qnorm) | covered (new) |
+| `rx_sigma_of`: us row by row, iid, diag, fa, rr, chol, ante, corh, unknown refused | R/ratios.R | test-ratios.R | IGE repository: scripts/remlax/reproduction_remlax/validation/ch3_ratios_vs_ige.R: reconstruction check against fit$sigmas inside rx_ratios | covered (new) |
+| `rx_sigmas_from_theta`: solver order (terms then sections), level parameters skipped, dimnames, length refused | R/ratios.R | test-ratios.R | idem | covered (new) |
+| `rx_ratios`: SE of a scalar variance = 2 var se_theta, shares sum to 1, exposure NULL vs 1, scale invariance of r, TBV and tau2 formulas, constants multiply estimate and SE alike, check_se | R/ratios.R | test-ratios.R (T3, T4, T5) | IGE repository: scripts/remlax/reproduction_remlax/validation/ch3_ratios_vs_ige.R (c): 189 var/prop/h2 of mvC7 at 6e-16 (est.) / 2e-8 (SE), heritabilites_etendues_mv.csv | covered (new) |
+| `rx_ratios`: theta -> Sigma check (permuted theta refused), reference grammar and refusals, jacobian = solver refused | R/ratios.R | test-ratios.R | — | covered (new) |
+| `rx_ratios`: parameter at a bound out of the free subspace, FLOOR, COND_BOUND, fixed_theta | R/ratios.R | test-ratios.R (T6) | — (mvC7 has no bounded parameter) | covered (new) |
+| `rx_ratios`: negative curvature, `refuse` (all SE NA) vs `project` (NOT_IDENTIFIED), no Hessian | R/ratios.R | test-ratios.R (T7) | — | covered (new) |
+| `rx_ratios`: two groups, between effect, `h2_ext_total`, cross TBV with `d_emitter`, tau2 on the receiving denominator, TBV correlations | R/ratios.R | test-ratios.R | IGE repository: scripts/remlax/reproduction_remlax/validation/ch3_ratios_vs_ige.R: 106 genetic + 15 residual correlations (est. 6e-16, SE 2e-7, flags identical), 14 TBV variances and 14 tau2 vs mvC7_tbvhomogene / tau2_par_caractere_mv.csv (5e-15) | covered (new) |
+| `rx_ratios` = solver `vpredict` (h2 estimate and SE) | R/ratios.R | test-ratios.R (T1, skip without jax) | — | covered (new) |
+| `rx_grid_summary`: best, supported, ranges, n_product, missing cells, best_pd | R/ratios.R | test-ratios.R (T1) | the analysis code of Salas et al. (2026), outside this package | covered (new) |
+| `rx_grid_summary`: `by`, n_obs guard, AIC recomputed / checked, `effective` and best_moved, refusals | R/ratios.R | test-ratios.R (T2-T4) | idem | covered (new) |
 | Python counterparts `remlax.neighbourhood` / `remlax.exposure` and R/Python parity | — | — | — | not covered: not implemented; the functions are pure R and the numerical reference is the IGE pipeline (see validation) |
 | `rx_ratios(jacobian = "solver")` (JAX Jacobian of the structured map) | — | — | — | not covered: not implemented, the call is refused with a message |
 
@@ -224,11 +224,11 @@ These scripts are not run by CI (they need nlme, lme4, sommer or a licensed asre
 | Psi held at 0 reproduces the fit without lag bit for bit (mask all FALSE; also via `fixed_theta`), including a spatial residual | lag.py (`vide`), fit.py | tests-python/test_decalage.py::test_psi_fixe_a_zero_reproduit_le_modele_sans_decalage; tests/testthat/test-decalage.R | covered (new) |
 | admissible region: finite penalty with zero gradient outside, two eigenvalues crossing together detected, inadmissible start refused | lag.py `_ok_rapide`, fit.py | tests-python/test_decalage.py::test_hors_region_penalite_finie_et_gradient_nul, test_psi_initial_hors_region_refuse | covered (new) |
 | Psi recovered on a simulated loop at equilibrium (20 x 20, |z| < 3.5, SE finite) | whole chain | tests/testthat/test-decalage.R | covered (new) |
-| lag + residual `us(trait):ar1(row):ar1(col)` through `rx_reml(lag =)` | R/remlax.R rx_reml | tests/testthat/test-decalage.R | covered (new) |
+| lag + residual `us(trait):ar1(row):ar1(col)` through `rx_reml(lag =)` | R/reml.R rx_reml | tests/testthat/test-decalage.R | covered (new) |
 | VP+, TB, TB+ = engine `igepath_reml` (logLik and estimates) | whole chain | tests/testthat/test-decalage.R (runs only with REMLAX_IGEPATH); the full cross-validation is in the IGE repository, docs/papier/genetics/notes/remlax_structurel_implementation.md | covered (new, optional) |
-| `rx_lag()`: parameter order and names, mask realigned by dimnames, receivers/emitters, units by rownames, refusals | R/remlax_lag.R | tests/testthat/test-decalage.R | covered (new) |
-| residual `"none"`: no parameter, V not PD refused with a clear message, VP+ fitted, print | model.py res_sections, fit.py, R/remlax.R | tests-python/test_decalage.py::test_residuelle_none_refusee_si_V_singuliere_et_vp_plus_ajuste; tests/testthat/test-decalage.R | covered (new) |
-| Kenward-Roger refused with a lag | R/remlax.R | tests/testthat/test-decalage.R | covered (new) |
-| entries of a `us` term with identical patterns in V detected (VP+ plant term: q(q-1)/2 for q = 2, 3 with symmetric W; none with asymmetric W; none for the genetic [Z, WZ] term) | inst/python/remlax/model.py alias_entrees | tests-python/test_decalage.py::test_alias_vp_plus_q_moins_1_sur_2_directions_plates | covered (new) |
-| VP+ : flat directions excluded from the Hessian verdict, `n_par_identifies` = 19 (q = 2), entries coded N, identified sum with finite SE; R `summary()` AIC on the identified count | fit.py _diagnostic, inference.py varcomp_table/vpredict, R/remlax_summary.R | tests-python/test_decalage.py::test_vp_plus_directions_plates_exclues_du_verdict_et_sommes_identifiees; tests/testthat/test-decalage.R (residuelle none) | covered (new) |
-| warning for TB+ with IEE* and a reciprocal Psi pair free; no warning with a mask or without IEE* | R/remlax_lag.R .rx_avertir_tb_iee | tests/testthat/test-decalage.R | covered (new) |
+| `rx_lag()`: parameter order and names, mask realigned by dimnames, receivers/emitters, units by rownames, refusals | R/lag.R | tests/testthat/test-decalage.R | covered (new) |
+| residual `"none"`: no parameter, V not PD refused with a clear message, VP+ fitted, print | layout.py res_sections, fit.py, R/model.R | tests-python/test_decalage.py::test_residuelle_none_refusee_si_V_singuliere_et_vp_plus_ajuste; tests/testthat/test-decalage.R | covered (new) |
+| Kenward-Roger refused with a lag | R/term.R | tests/testthat/test-decalage.R | covered (new) |
+| entries of a `us` term with identical patterns in V detected (VP+ plant term: q(q-1)/2 for q = 2, 3 with symmetric W; none with asymmetric W; none for the genetic [Z, WZ] term) | inst/python/remlax/model.py aliased_entries | tests-python/test_decalage.py::test_alias_vp_plus_q_moins_1_sur_2_directions_plates | covered (new) |
+| VP+ : flat directions excluded from the Hessian verdict, `n_par_identifies` = 19 (q = 2), entries coded N, identified sum with finite SE; R `summary()` AIC on the identified count | fit.py _diagnostic, inference.py varcomp_table/vpredict, R/summary.R | tests-python/test_decalage.py::test_vp_plus_directions_plates_exclues_du_verdict_et_sommes_identifiees; tests/testthat/test-decalage.R (residuelle none) | covered (new) |
+| warning for TB+ with IEE* and a reciprocal Psi pair free; no warning with a mask or without IEE* | R/lag.R .rx_avertir_tb_iee | tests/testthat/test-decalage.R | covered (new) |

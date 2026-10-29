@@ -10,7 +10,7 @@ vignette: >
 <!-- Code blocks are shown, not run: CRAN builds vignettes without Python.
      Every block was executed with remlax and its output pasted underneath. -->
 
-`R/remlax.R` describes models; it fits none. It builds the incidences, checks
+The R side of remlax describes models; it fits none. It builds the incidences, checks
 their consistency, serialises everything, and delegates the computation to the
 JAX solver, which uses a GPU if the machine has one and a CPU otherwise
 **without the model changing**.
@@ -821,7 +821,7 @@ between models. Use `logLik_asreml` when comparing.
 
 ---
 
-## 12. Design and post-fit functions (`R/remlax_design.R`, `R/remlax_ratios.R`)
+## 12. Design and post-fit functions (`R/design.R`, `R/ratios.R`)
 
 These functions add nothing to the solver. They are pure R (Matrix only). The
 API knows groups, units, levels, terms and components; it does not know
@@ -1068,13 +1068,14 @@ counts with `coding = "count"`.
 | variable | meaning |
 |---|---|
 | `RX_PY` | command that starts Python, space-separated |
-| `RX_CLI` | path to `cli.py`, or `-m remlax.cli` |
+| `RX_CLI` | another solver entry point, for instance `-m remlax.cli` with a `remlax` importable by Python |
 | `IGE_JAX_CMD` | fallback for `RX_PY` |
 | `IGE_JAX_SIF` | Apptainer image; becomes `apptainer exec --nv <sif> python3` |
 
 `rx_python_cmd()` returns the first of `RX_PY`, `IGE_JAX_CMD`, `IGE_JAX_SIF`,
 `python3`. `rx_solver_args()` returns `RX_CLI` if set, and otherwise the
-`cli.py` shipped in `inst/python` of the installed package. A `remlax` module
+launcher `remlax_run.py` shipped in `inst/python` of the installed package,
+followed by `cli`. A `remlax` module
 installed separately with pip is never used, so that the interface and the
 engine always come from the same version.
 

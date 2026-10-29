@@ -1,5 +1,22 @@
 # remlax (development version)
 
+* Internal reorganisation, with no change of results: every fit, value,
+  gradient and AI matrix of the reference cases is identical to the bit
+  before and after. On the R side, `R/remlax.R` and its companions are split
+  into one file per role (formulas, model, terms, bundle, solver launch,
+  fit, prediction, scans, summaries), and each user function reads as a
+  sequence of named steps. On the Python side, `fit.py` is split into the
+  fit driver and `start.py`, `checks.py`, `effects.py` and
+  `diagnostics.py`; `model.py` into `layout.py`, `incidence.py`,
+  `residual.py` and `model.py`; `inference.py` into `components.py`,
+  `vpredict.py`, `fixed_tests.py` and `prediction.py`. The mixed model
+  equations engine and the AI optimiser are written as named steps. Code
+  comments are in English; messages are unchanged. `dev/architecture.md`
+  describes the organisation for contributors, and `dev/notes.md` keeps the
+  measurements that used to sit in the comments.
+* The device context of a solver request is now left when the request is
+  refused or fails; in the persistent server it used to stay entered.
+
 * The solver, the persistent server and the scan are started through a
   launcher, `inst/python/remlax_run.py`. It imports the shipped `remlax` as a
   package, so every module has a single name, and it never searches the
