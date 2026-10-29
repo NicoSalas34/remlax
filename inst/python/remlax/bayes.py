@@ -13,7 +13,7 @@ ses effets, la geometrie qui rend les modeles hierarchiques difficiles a
 echantillonner quand u est explicite.
 
 beta et u se deduisent ensuite tirage par tirage : sachant theta et y, ils sont
-gaussiens (effets_denses donne moyenne et variance). On en tire les moments a
+gaussiens (dense_effects donne moyenne et variance). On en tire les moments a
 posteriori par Rao-Blackwell sur un sous-ensemble de tirages :
 
     E[u | y]   = moyenne des BLUP(theta_s)
@@ -552,13 +552,13 @@ def sample_posterior(terms, res, y, X, theta_hat, H=None, Hu=None, prior=None, c
     # --- beta et effets aleatoires, par Rao-Blackwell ---------------------------
     effets = None
     if n_effets and n_effets > 0:
-        from .fit import effets_denses
+        from .effects import dense_effects
         t1 = time.time()
         k = int(min(n_effets, C * D))
         choix = np.unique(np.linspace(0, C * D - 1, k).round().astype(int))
         betas, vbetas, ub, upev = [], [], {}, {}
         for s_ in choix:
-            e = effets_denses(plats[s_], terms, Zs, res, y, X, blups=True, pev=list(pev) or False)
+            e = dense_effects(plats[s_], terms, Zs, res, y, X, blups=True, pev=list(pev) or False)
             betas.append(e["beta"])
             vbetas.append(e["vbeta"])
             for nm, u in e["blups"].items():

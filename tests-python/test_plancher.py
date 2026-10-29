@@ -1,15 +1,15 @@
-"""Sortie du plancher apres L-BFGS-B (fit._evasion_plancher).
+"""Sortie du plancher apres L-BFGS-B (fit._floor_escape).
 
 Une variance en log pres du plancher a un gradient en theta nul : L-BFGS-B
 s'y arrete. Le test pousse la variance d'un terme au plancher, verifie que
-_evasion_plancher la remonte et que -2logL baisse, puis qu'un ajustement parti
+_floor_escape la remonte et que -2logL baisse, puis qu'un ajustement parti
 de ce point retrouve l'optimum.
 """
 import numpy as np
 
 import outils_dispositifs as od
 from remlax import _x64  # noqa: F401
-from remlax.fit import fit_reml, _evasion_plancher
+from remlax.fit import fit_reml, _floor_escape
 from remlax.model import make_objective
 
 
@@ -31,12 +31,12 @@ def test_variance_remontee_du_plancher():
     coince = np.array([-11.5, 0.0])                  # variance genetique au plancher
     f0, g0 = fun_jac(coince)
     assert abs(g0[0]) < 1e-6                         # gradient en theta quasi nul
-    th = _evasion_plancher(fun_jac, coince, th0, [(floor, ceil)] * 2, terms, res, floor,
+    th = _floor_escape(fun_jac, coince, th0, [(floor, ceil)] * 2, terms, res, floor,
                            verbose=False)
     assert th is not None and th[0] > -2.0
     assert fun_jac(th)[0] < f0
     # sans rien au plancher : rien a faire
-    assert _evasion_plancher(fun_jac, th0, th0, [(floor, ceil)] * 2, terms, res, floor,
+    assert _floor_escape(fun_jac, th0, th0, [(floor, ceil)] * 2, terms, res, floor,
                              verbose=False) is None
 
 

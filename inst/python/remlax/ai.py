@@ -31,7 +31,7 @@ vraisemblance REML en V seul.
 import time
 
 # Decrement (unites de -2logL) sous lequel une boucle AI peut se declarer
-# convergee sans polissage : le seuil du diagnostic final (fit.SEUIL_DECREMENT).
+# convergee sans polissage : le seuil du diagnostic final (diagnostics.DECREMENT_THRESHOLD).
 SEUIL_SUCCES = 1e-4
 # demi-pas tentes sur la direction AI avant de passer a l'amortissement de
 # Levenberg-Marquardt (ai_reml_var)

@@ -97,12 +97,12 @@ def test_balayage_choisit_le_meilleur_candidat_et_respecte_les_fixes():
     th0 = F.initial_theta([], res, y)
     assert F._positions_portee([], res, N) == [(1, COORD)] or \
         F._positions_portee([], res, N)[0][0] == 1
-    th, n_eval = F._balayage_portee(fun_jac, th0, [], res, N)
+    th, n_eval = F._range_sweep(fun_jac, th0, [], res, N)
     assert n_eval >= 6
     v0 = float(fun_jac(th0)[0]); v1 = float(fun_jac(th)[0])
     assert v1 <= v0 + 1e-10
     # le parametre de portee fixe n'est pas touche
-    th_f, _ = F._balayage_portee(fun_jac, th0, [], res, N, fixed_idx=[1])
+    th_f, _ = F._range_sweep(fun_jac, th0, [], res, N, fixed_idx=[1])
     assert th_f[1] == th0[1]
 
 

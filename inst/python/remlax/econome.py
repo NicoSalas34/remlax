@@ -1,7 +1,7 @@
 """Moteur dense, mode econome en memoire GPU.
 
 Meme vraisemblance, meme gradient et meme matrice AI que le moteur dense
-standard (model.make_objective, ai.make_fga, fit.effets_denses). Seule la
+standard (model.make_objective, ai.make_fga, effects.dense_effects). Seule la
 facon de les calculer change, pour reduire le nombre de matrices n x n et de
 facteurs vivants en meme temps sur le GPU. Le mode standard reste le defaut et
 n'est pas modifie ; fit_reml(..., memoire="econome") choisit celui-ci.
@@ -380,7 +380,7 @@ def make_fga_econome(plan, adjoint=None):
 
 
 # ==============================================================================
-# Sorties de fin d'ajustement (beta, BLUP, PEV), cf. fit.effets_denses
+# Sorties de fin d'ajustement (beta, BLUP, PEV), cf. effects.dense_effects
 # ==============================================================================
 def V_hote(plan, theta):
     """V au point theta, ramenee sur l'hote (NumPy) ; le GPU est libere ensuite."""
