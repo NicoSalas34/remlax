@@ -1,28 +1,35 @@
-"""Detection automatique de la structure d'un modele : termes globaux et blocs.
+"""Automatic detection of the structure of a model: global terms and blocks.
 
-POURQUOI. Un modele mixte reel se decoupe souvent en blocs presque
-independants (bacs, essais, sites), relies seulement par quelques termes
-globaux (effets genetiques, parente). Les deux formes du calcul en tirent parti
-sans rien savoir du dispositif :
+A real mixed model often splits into nearly independent blocks (tanks,
+trials, sites), linked only by a few global terms (genetic effects,
+relationship matrices). Both forms of the computation use this split without
+any knowledge of the design.
 
-- forme V : V = A + U U', avec A diagonale par blocs (termes locaux et
-  residuelle) et U les facteurs des termes globaux. Woodbury remplace la
-  Cholesky de V (n^3 / 3) par celles des blocs et d'une matrice de la largeur
-  de U ;
-- forme MME : eliminer les niveaux des blocs avant ceux des termes globaux
-  borne le remplissage du facteur de C (les niveaux globaux forment un
-  separateur du graphe de C).
+- V form: V = A + U U', with A block diagonal (local terms and residual) and
+  U the factors of the global terms. Woodbury replaces the Cholesky
+  factorisation of V (n^3 / 3) by those of the blocks and of one matrix of
+  the width of U (blocs.py).
+- MME form: eliminating the levels of the blocks before those of the global
+  terms bounds the fill of the factor of C, because the global levels form a
+  separator of the graph of C (mme_hybride.py).
 
-Rien n'est suppose : ni bacs, ni noms de termes. Le decoupage se lit dans les
-incidences, les parentes et la residuelle, et le choix des termes globaux se
-fait par un modele de cout explicite.
+Nothing is assumed about tanks or term names. The split is read from the
+incidences, the relationship matrices and the residual. The global terms are
+chosen by an explicit cost model.
 
-COUPLAGE. Deux observations sont couplees par un terme LOCAL si elles portent
-un meme niveau de ce terme (K = I), ou si le terme a une structure entre
-niveaux non diagonale (parente, AR1, ...), auquel cas tout son support forme un
-seul groupe. La residuelle couple les observations d'une meme unite (lvl "id")
-ou toute sa section (structure entre unites). Elle est toujours locale : elle
-est de rang plein et ne peut pas passer dans U.
+Coupling. Two observations are coupled by a LOCAL term if they share a level
+of that term (K = I). A term with a non-diagonal structure between levels
+(relationship, AR1, ...) puts its whole support into one group. The residual
+couples the observations of one unit (lvl "id"), or its whole section when
+it has a structure between units. The residual is always local, because it
+has full rank and cannot go into U.
+
+Organisation. The helper functions turn each term and each residual section
+into edges between observations and local nodes, then contract them to one
+edge per observation. Decoupage keeps these contracted couplings and offers
+blocs (labels for a given set of global terms), cout and cout_niveaux (cost
+models of the V and MME forms) and chercher (greedy search of the global
+terms).
 """
 
 import numpy as np
@@ -33,67 +40,72 @@ from .layout import level_kind, res_sections
 from .structures import chol_sigma, theta0 as struct_theta0
 
 
-def _k_identite(tm):
+def _identity_K(tm):
+    """True when the term has no structure between levels (K = I)."""
     lvl = level_kind(tm)
     return lvl in ("id", "", None) and tm.get("LK") is None and tm.get("Kinv") is None
 
 
 def largeur_facteur(tm):
-    """Colonnes du facteur B = Z (L_Sigma (x) L_K) : m q, m = colonnes de L_Sigma."""
+    """Columns of the factor B = Z (L_Sigma (x) L_K): m q, with m the number
+    of columns of L_Sigma."""
     t, rk = int(tm["t"]), int(tm["rank"])
     Ls = chol_sigma(np.asarray(struct_theta0(tm["struct"], t, rk)), tm["struct"], t, rk)
     return int(np.shape(Ls)[1]) * int(tm["q"])
 
 
-def _aretes_terme(tm):
-    """(observations, noeuds locaux) du couplage d'un terme."""
+def _term_edges(tm):
+    """(observations, local nodes, number of nodes) of the coupling of a term."""
     zi = np.asarray(tm["zi"], dtype=np.int64)
-    if _k_identite(tm):
+    if _identity_K(tm):
         return zi, np.asarray(tm["zj"], dtype=np.int64) % int(tm["q"]), int(tm["q"])
     return zi, np.zeros(len(zi), dtype=np.int64), 1
 
 
-def _aretes_residuelle(res, n):
+def _residual_edges(res, n):
+    """(observations, local nodes, number of nodes) of each residual section."""
     out = []
     for sec in res_sections(res, n):
         rows = np.asarray(sec["rows"], dtype=np.int64)
         if sec.get("lvl", "id") == "id":
-            un = np.asarray(sec["unit"], dtype=np.int64)
-            u, inv = np.unique(un, return_inverse=True)
+            units = np.asarray(sec["unit"], dtype=np.int64)
+            u, inv = np.unique(units, return_inverse=True)
             out.append((rows, inv, len(u)))
         else:
             out.append((rows, np.zeros(len(rows), dtype=np.int64), 1))
     return out
 
 
-def _contracter(obs, noeud, n_noeuds, n):
-    """(lignes, composantes) du couplage d'un seul terme : une arete par ligne."""
+def _contract(obs, node, n_nodes, n):
+    """(rows, components, number of components) of the coupling of a single
+    term: one edge per row."""
     if len(obs) == 0:
-        return obs, noeud, 0
-    G = sp.coo_matrix((np.ones(len(obs), dtype=np.int8), (obs, n + noeud)),
-                      shape=(n + n_noeuds, n + n_noeuds))
+        return obs, node, 0
+    G = sp.coo_matrix((np.ones(len(obs), dtype=np.int8), (obs, n + node)),
+                      shape=(n + n_nodes, n + n_nodes))
     _, lab = connected_components(G, directed=False)
-    lignes = np.unique(obs)
-    _, comp = np.unique(lab[lignes], return_inverse=True)
-    return lignes, comp, int(comp.max()) + 1
+    rows = np.unique(obs)
+    _, comp = np.unique(lab[rows], return_inverse=True)
+    return rows, comp, int(comp.max()) + 1
 
 
 class Decoupage:
-    """Couplages precalcules ; blocs(locaux) et cout(globaux) a la demande."""
+    """Precomputed couplings. blocs(globaux) and cout(globaux) on demand."""
 
     def __init__(self, terms, res, n):
         self.terms, self.n = terms, int(n)
-        # CONTRACTION. L'union des couplages de plusieurs termes est l'union des
-        # partitions que chaque terme induit seul : on remplace donc les aretes
-        # d'un terme (une par entree de Z, des millions pour un terme IEE) par
-        # une arete par ligne de son support vers sa composante. Meme graphe de
-        # blocs, recherche ~10 fois plus rapide.
-        self.ar_t = [_contracter(*_aretes_terme(tm), self.n) for tm in terms]
-        self.ar_r = [_contracter(*a, self.n) for a in _aretes_residuelle(res, self.n)]
+        # Contraction. The union of the couplings of several terms equals the
+        # union of the partitions that each term induces alone. The edges of
+        # a term (one per entry of Z, millions for an IEE term) are therefore
+        # replaced by one edge per row of its support towards its component.
+        # The graph of blocks is the same and the search is much faster
+        # (dev/notes.md).
+        self.ar_t = [_contract(*_term_edges(tm), self.n) for tm in terms]
+        self.ar_r = [_contract(*a, self.n) for a in _residual_edges(res, self.n)]
         self.w = np.array([largeur_facteur(tm) for tm in terms], dtype=np.int64)
 
     def blocs(self, globaux):
-        """Etiquette de bloc de chaque observation quand `globaux` sont retires."""
+        """Block label of each observation once `globaux` are removed."""
         n = self.n
         I_, J_, off = [], [], n
         for k, (zi, nd, nn) in enumerate(self.ar_t):
@@ -111,11 +123,11 @@ class Decoupage:
         return lab_obs
 
     def cout(self, globaux):
-        """Operations et memoire (en doubles) de la forme V par blocs.
+        """Operations and memory (in doubles) of the V form by blocks.
 
-        Blocs : Cholesky et inverse de chaque bloc, n_b^3 ; A^-1 U, 2 n_b^2 w ;
-        U'A^-1U, 2 n w^2 ; Cholesky de la capacite, w^3 / 3. Memoire : blocs,
-        U et A^-1 U, capacite.
+        Operations: Cholesky and inverse of each block, n_b^3; A^-1 U,
+        2 n_b^2 w; U'A^-1U, 2 n w^2; Cholesky of the capacitance matrix,
+        w^3 / 3. Memory: blocks, U and A^-1 U, capacitance matrix.
         """
         lab = self.blocs(globaux)
         nb = np.bincount(lab).astype(np.float64)
@@ -126,13 +138,13 @@ class Decoupage:
         return dict(ops=ops, mem=mem, n_blocs=int(len(nb)), plus_grand=int(nb.max()), w=int(w))
 
     def cout_niveaux(self, globaux, p=0):
-        """Operations et memoire de l'inversion hybride de C (mme_hybride.py).
+        """Operations and memory of the hybrid inversion of C (mme_hybride.py).
 
-        Le separateur compte p effets fixes et les t q niveaux de chaque terme
-        global ; chaque bloc compte les niveaux des termes locaux touches par
-        ses observations. Cholesky et inverse des blocs, q_b^3 ; Q = Css^-1 Csd et
-        complement de Schur, 2 q_b^2 nD ; Q Sch^-1 et sa correction, 2 q_b nD^2 ;
-        Cholesky du separateur, nD^3 / 3.
+        The separator holds p fixed effects and the t q levels of each global
+        term. Each block holds the levels of the local terms reached by its
+        observations. Operations: Cholesky and inverse of the blocks, q_b^3;
+        Q = Css^-1 Csd and the Schur complement, 2 q_b^2 nD; Q Sch^-1 and its
+        correction, 2 q_b nD^2; Cholesky of the separator, nD^3 / 3.
         """
         lab = self.blocs(globaux)
         nB = int(lab.max()) + 1
@@ -142,40 +154,43 @@ class Decoupage:
                 continue
             zi = np.asarray(tm["zi"], dtype=np.int64)
             zj = np.asarray(tm["zj"], dtype=np.int64)
-            if not _k_identite(tm):
+            if not _identity_K(tm):
                 qb[lab[zi[0]]] += int(tm["t"]) * int(tm["q"])
                 continue
-            cle = np.unique(lab[zi] * (int(tm["t"]) * int(tm["q"]) + 1) + zj)
-            qb += np.bincount(cle // (int(tm["t"]) * int(tm["q"]) + 1), minlength=nB)
+            key = np.unique(lab[zi] * (int(tm["t"]) * int(tm["q"]) + 1) + zj)
+            qb += np.bincount(key // (int(tm["t"]) * int(tm["q"]) + 1), minlength=nB)
         nD = float(p + sum(int(self.terms[k]["t"]) * int(self.terms[k]["q"]) for k in globaux))
         ops = float((qb ** 3).sum() + 2.0 * (qb ** 2).sum() * nD + 2.0 * qb.sum() * nD * nD + nD ** 3 / 3.0)
         mem = float((qb ** 2).sum() + 2.0 * qb.sum() * nD + nD * nD)
         return dict(ops=ops, mem=mem, n_blocs=int((qb > 0).sum()), plus_grand=int(qb.max()), w=int(nD))
 
     def chercher(self, critere="ops", verbose=False, espace="observations", p=0):
-        """Termes globaux par deux recherches gloutonnes ; la meilleure est rendue.
+        """Global terms by a forward and a backward greedy search. The better
+        result is returned.
 
-        EN AVANT : part d'aucun terme global et rend global, a chaque pas, le terme
-        qui fait le plus baisser le critere. Elle reste coincee des que la coupure
-        demande plusieurs termes a la fois : deux termes genetiques relient
-        chacun tous les bacs, et en retirer un seul ne coupe rien (mesure sur le
-        cas synthetique du test econome).
-        EN ARRIERE : part de tous les termes globaux et rend local, a chaque pas,
-        le terme dont le retour fait le plus baisser le critere. Les termes
-        locaux reviennent un a un sans fusionner les blocs ; un terme qui relie
-        les blocs fait monter le cout et reste global.
+        Forward search: starts from no global term and, at each step, makes
+        global the term that lowers the criterion most. It gets stuck as soon
+        as the cut needs several terms at once. For example, two genetic
+        terms each link all the tanks, and removing only one of them cuts
+        nothing.
+        Backward search: starts from all terms global and, at each step, makes
+        local the term whose return lowers the criterion most. Local terms
+        come back one by one without merging blocks. A term that links the
+        blocks raises the cost and stays global.
+
+        espace: "observations" for the V form by blocks (blocs.py), "niveaux"
+        for the hybrid inversion of C (mme_hybride.py), with p fixed effects.
         """
-        tous = [k for k in range(len(self.terms)) if len(self.ar_t[k][0])]
-        # espace "observations" : forme V par blocs (blocs.py) ; espace
-        # "niveaux" : inversion hybride de C (mme_hybride.py)
-        cout = self.cout if espace == "observations" else (lambda G: self.cout_niveaux(G, p))
+        all_terms = [k for k in range(len(self.terms)) if len(self.ar_t[k][0])]
+        cost = self.cout if espace == "observations" else (lambda G: self.cout_niveaux(G, p))
 
-        def avant():
-            # Un pas en avant coute une evaluation par terme ; il s'arrete en
-            # general des le premier pas (aucun terme seul ne coupe le graphe).
-            G, c = [], cout([])
+        def forward():
+            # One forward step costs one evaluation per term. The search
+            # usually stops at the first step, since no single term cuts the
+            # graph.
+            G, c = [], cost([])
             while True:
-                cands = [(cout(G + [k]), k) for k in tous if k not in G]
+                cands = [(cost(G + [k]), k) for k in all_terms if k not in G]
                 cands = [x for x in cands if x[0][critere] < c[critere]]
                 if not cands:
                     return G, c
@@ -186,31 +201,31 @@ class Decoupage:
                           % (self.terms[k]["name"], c["n_blocs"], c["plus_grand"], c["w"], c["ops"]),
                           flush=True)
 
-        def arriere():
-            # PASSES CLASSEES. Chaque passe evalue une fois le retour de chaque
-            # terme global, les classe par gain, puis les rend locaux dans cet
-            # ordre en reverifiant chaque retour : ~2T evaluations par passe au
-            # lieu de T par pas (T^2 au total, 33 s sur un modele a 51 termes).
-            G, c = list(tous), cout(list(tous))
+        def backward():
+            # Ranked passes. Each pass evaluates once the return of every
+            # global term and ranks the terms by gain. It then makes them local
+            # in that order, checking each return again. This costs about 2T
+            # evaluations per pass instead of T per step (T^2 in total).
+            G, c = list(all_terms), cost(list(all_terms))
             while True:
-                classe = sorted(((cout([g for g in G if g != k])[critere], k) for k in G))
-                change = False
-                for v, k in classe:
+                ranked = sorted(((cost([g for g in G if g != k])[critere], k) for k in G))
+                changed = False
+                for v, k in ranked:
                     if v >= c[critere]:
                         break
                     G2 = [g for g in G if g != k]
-                    c2 = cout(G2)
+                    c2 = cost(G2)
                     if c2[critere] < c[critere]:
-                        G, c, change = G2, c2, True
+                        G, c, changed = G2, c2, True
                         if verbose:
                             print("  [decoupage] - %s : %d blocs (max %d), w = %d, %.3g ops"
                                   % (self.terms[k]["name"], c["n_blocs"], c["plus_grand"], c["w"],
                                      c["ops"]), flush=True)
-                if not change:
+                if not changed:
                     return G, c
 
-        Ga, ca = avant()
-        Gr, cr = arriere()
+        Ga, ca = forward()
+        Gr, cr = backward()
         G, c = (Ga, ca) if ca[critere] <= cr[critere] else (Gr, cr)
         G = sorted(G)
         return dict(globaux=G, noms=[self.terms[k]["name"] for k in G], cout=c,
