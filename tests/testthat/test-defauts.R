@@ -52,3 +52,23 @@ test_that("deux scans successifs n'utilisent pas le meme dossier", {
   expect_length(nouveaux, 2L)
   unlink(file.path(tempdir(), nouveaux), recursive = TRUE)
 })
+
+test_that("Wald et Kenward-Roger tiennent compte des poids a priori", {
+  skip_si_pas_de_jax()
+  set.seed(11)
+  q <- 20; n <- 160
+  g <- factor(sample(seq_len(q), n, replace = TRUE), levels = seq_len(q))
+  x <- rnorm(n); w <- runif(n, 0.3, 3)
+  y <- 1 + 0.4 * x + rnorm(q)[g] + rnorm(n) / sqrt(w)
+  X <- cbind(1, x)
+  m <- rx_model(y, X, list(rx_term("g", g)), weights = w)
+  f <- rx_fit(m, backend = "cpu", wald = TRUE, kenward_roger = TRUE, verbose = FALSE)
+  Z <- Matrix::sparseMatrix(i = seq_len(n), j = as.integer(g), x = 1, dims = c(n, q))
+  V <- as.matrix(f$sigmas$g[1, 1] * Z %*% Matrix::t(Z)) + f$sigma_res[1, 1] * diag(1 / w)
+  Vi <- solve(V)
+  vb <- solve(t(X) %*% Vi %*% X)
+  b <- vb %*% t(X) %*% Vi %*% y
+  expect_equal(unname(f$wald$beta), unname(drop(b)), tolerance = 1e-6)
+  expect_equal(f$wald$tests$F[2], drop(b[2]^2 / vb[2, 2]), tolerance = 1e-6)
+  expect_equal(unname(f$kenward_roger$se_beta_brut), unname(sqrt(diag(vb))), tolerance = 1e-6)
+})

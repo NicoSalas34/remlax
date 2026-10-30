@@ -370,7 +370,8 @@ def _inference(a, r, inp, exprs, fixed):
                                  lag=lag, alias=r.get("alias"))
     if a.kenward_roger:
         from remlax.fixed_tests import kenward_roger
-        rk = kenward_roger(r["theta"], terms, res, inp.y, inp.X,
+        t_w, y_w, X_w = _inference_model(inp)
+        rk = kenward_roger(r["theta"], t_w, res, y_w, X_w,
                            termes_fixes=inp.bundle.fixed_groups())
         if rk.get("vbeta_kr") is not None:
             r["vbeta_kr"] = rk.pop("vbeta_kr")
@@ -379,6 +380,20 @@ def _inference(a, r, inp, exprs, fixed):
         _add_predictions(a, r, inp)
     if a.wald:
         _add_wald(r, inp)
+
+
+def _inference_model(inp):
+    """Terms, y and X for the tables that rebuild V (Wald, Kenward-Roger,
+    predictions). With prior weights, the rows are scaled by sqrt(w): that is
+    the model the solver fitted, whose V has the residual W^-1/2 R0 W^-1/2.
+    Generalised least squares on it gives the weighted beta, its covariance and
+    the BLUPs; the unweighted model would give other values."""
+    if inp.weights is None:
+        return inp.terms, inp.y, inp.X
+    sw = np.sqrt(inp.weights)
+    terms = [dict(tm, zx=np.asarray(tm["zx"], dtype=np.float64)
+                  * sw[np.asarray(tm["zi"], dtype=np.int64)]) for tm in inp.terms]
+    return terms, np.asarray(inp.y, dtype=np.float64) * sw, np.asarray(inp.X, dtype=np.float64) * sw[:, None]
 
 
 def _add_varcomp(a, r, inp, fixed):
@@ -405,7 +420,8 @@ def _add_predictions(a, r, inp):
         if os.path.exists(fp):
             M[t["name"]] = np.fromfile(fp, dtype=np.float64).reshape(
                 (Lp.shape[0], t["t"] * t["q"]), order="F")
-    pr = predict(r["theta"], inp.terms, inp.res, inp.y, X, Lp, M=M or None, vbeta=r.get("vbeta"))
+    t_w, y_w, X_w = _inference_model(inp)
+    pr = predict(r["theta"], t_w, inp.res, y_w, X_w, Lp, M=M or None, vbeta=r.get("vbeta"))
     r["pred_cov"] = pr.pop("cov")
     r["predictions"] = pr
 
@@ -414,11 +430,14 @@ def _add_wald(r, inp):
     import jax.numpy as jnp
     from remlax.fixed_tests import wald
     from remlax.model import assemble_V, dense_Z
-    n = len(inp.y)
-    Zs = [dense_Z(t, n) for t in inp.terms]
-    V = np.asarray(assemble_V(jnp.asarray(r["theta"]), inp.terms, Zs, inp.res, n))
+    t_w, y_w, X_w = _inference_model(inp)
+    n = len(y_w)
+    Zs = [dense_Z(t, n) for t in t_w]
+    V = np.asarray(assemble_V(jnp.asarray(r["theta"]), t_w, Zs, inp.res, n))
     # With a spatial lag, the model linear in beta is that of y*.
-    r["wald"] = wald(r.get("ystar", inp.y), inp.X, V, termes_fixes=inp.bundle.fixed_groups())
+    # y* is computed by the solver on the model it fitted (rows scaled when
+    # there are weights).
+    r["wald"] = wald(r.get("ystar", y_w), X_w, V, termes_fixes=inp.bundle.fixed_groups())
 
 
 def _sample_bayes(a, r, inp, exprs, fixed, plat, Hu_map, prior):
