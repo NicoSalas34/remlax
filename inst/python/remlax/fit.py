@@ -174,6 +174,7 @@ def _fit_model(terms, res, y, X, theta_init=None, maxiter=3000,
                  memoire=memoire, finition=finition, arret_lent=arret_lent,
                  fixed_idx=fixed_idx, lag=lag, optimizer=optimizer))
 
+    floor_in = floor
     eng = _build_engine(terms, res, y, X, lag, moteur, inversion, memoire, optimizer,
                         floor, verbose)
     floor, moteur, memoire = eng.floor, eng.engine, eng.memory
@@ -221,7 +222,7 @@ def _fit_model(terms, res, y, X, theta_init=None, maxiter=3000,
     _chrono("hessien")
     return _dense_restart_if_needed(
         out, terms, res, y, X, moteur, maxiter, verbose,
-        dict(maxiter=maxiter, floor=floor, ceil=ceil, verbose=verbose, hessian=hessian,
+        dict(maxiter=maxiter, floor=floor_in, ceil=ceil, verbose=verbose, hessian=hessian,
              blups=blups, pev=pev, tol=tol, polish=polish, check=False, n_restarts=0,
              fixed_idx=fixed_idx, lag=lag, optimizer=optimizer, moteur="dense",
              inversion=inversion, memoire=memoire, finition=finition,
@@ -277,15 +278,16 @@ def _build_engine(terms, res, y, X, lag, moteur, inversion, memoire, optimizer, 
     n = len(y)
     eng = SimpleNamespace(engine=moteur, memory=memoire, floor=floor, Zs=None,
                           M_mme=None, fga_mme=None, plan_eco=None, plan_blocs=None)
-    if moteur == "mme" and lag is None and res.get("struct") != "none":
+    if eng.engine == "mme":
+        _mme_fallback(eng, terms, res, lag, verbose)
+    if eng.engine == "mme":
         # Variance floor of the MME engine, which uses Sigma^-1: a variance of
         # exp(2 x -12) = 4e-11 leaves C too ill-conditioned for log|C| to keep
         # its digits. Floor at 1e-8 times the least-squares residual variance.
+        # Raised only once the engine is known to stay MME.
         _res = y - X @ np.linalg.lstsq(X, y, rcond=None)[0]
         _vy = float(_res @ _res) / max(n - X.shape[1], 1)
         eng.floor = max(floor, 0.5 * float(np.log(1e-8 * _vy)))
-    if eng.engine == "mme":
-        _mme_fallback(eng, terms, res, lag, verbose)
     if eng.engine == "blocs":
         _blocs_fallback(eng, terms, res, y, X, lag, optimizer, verbose)
     if eng.engine == "mme":

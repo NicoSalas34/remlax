@@ -36,3 +36,22 @@ def test_terme_kinv_seul_refuse_par_la_voie_bayesienne():
     terms, res, y, X = _terme_kinv()
     with pytest.raises(ValueError, match="precision Kinv"):
         prepare(terms, res, y, X)
+
+
+def _dispositif_simple(graine=4, q=12, rep=5, struct="iid", t=1):
+    rng = np.random.default_rng(graine)
+    codes = np.repeat(np.arange(q), rep)
+    n = len(codes)
+    tm = od.terme_facteur("g", codes, q, t=t, struct=struct, rank=1 if struct == "rr" else 0)
+    return [tm], od.residuelle_iid(n), rng.normal(size=n), np.ones((n, 1))
+
+
+def test_plancher_mme_seulement_si_le_moteur_reste_mme():
+    kw = dict(verbose=False, hessian=False, blups=False)
+    terms, res, y, X = _dispositif_simple()
+    r = fit_reml(terms, res, y, X, moteur="mme", **kw)
+    assert r["moteur"] == "mme" and r["par_floor"] > -12.0
+    # Hors perimetre du MME (structure rr) : bascule vers le dense, plancher d'origine.
+    terms, res, y, X = _dispositif_simple(struct="rr", t=2)
+    r = fit_reml(terms, res, y, X, moteur="mme", **kw)
+    assert r["moteur"] == "dense" and r["par_floor"] == -12.0

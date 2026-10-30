@@ -399,8 +399,10 @@ def _inference_model(inp):
 def _add_varcomp(a, r, inp, fixed):
     from remlax.components import varcomp_table
     try:
+        # The bounds of the fit, which the MME engine may have raised.
         r["varcomp"] = varcomp_table(r["theta"], r.get("hessian"), inp.terms, inp.res,
-                                     floor=a.floor, ceil=a.ceil, fixed_idx=fixed,
+                                     floor=r.get("par_floor", a.floor),
+                                     ceil=r.get("par_ceil", a.ceil), fixed_idx=fixed,
                                      lag=inp.lag, alias=r.get("alias"))
     except Exception as e:  # the table must never make a fit fail
         if not a.quiet:
