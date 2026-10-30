@@ -55,7 +55,52 @@ rx_fit <- function(model, backend = c("auto", "gpu", "cpu"), dir = NULL,
   t_R3 <- Sys.time()
   res[["chrono"]] <- .rx_fit_chrono(res[["chrono"]], t_R0, t_R1, t_R2, t_R3)
   res[["inversion"]] <- .rx_inversion_api_name(res[["inversion"]])
+  .rx_warn_fit(res, maxiter)
   res
+}
+
+# Warns when a fit should not be used as it stands: a REML optimisation that
+# did not converge (no criterion met, at least one failed) or stopped on a
+# saddle point, and a posterior sample whose chains did not mix.
+.rx_warn_fit <- function(res, maxiter) {
+  fmt <- function(v) if (is.null(v) || !is.finite(v)) "n.d." else sprintf("%.2e", v)
+  if (as.numeric(maxiter) > 0 && is.null(res[["depart_bayes"]])) {
+    crit <- c(res[["conv_grad_rel"]], res[["conv_decrement"]])
+    crit <- as.logical(crit[!vapply(crit, is.null, TRUE)])
+    if (length(crit) && !any(crit, na.rm = TRUE) && any(!crit, na.rm = TRUE))
+      warning(sprintf(paste0(
+        "rx_fit : l'ajustement REML n'a pas converge (gradient relatif %s, decrement de ",
+        "Newton %s). Ne pas l'exploiter tel quel : essayer optimizer = \"ai\", d'autres ",
+        "valeurs de depart (theta_init), ou des structures plus simples."),
+        fmt(res[["grad_rel"]]), fmt(res[["newton_decrement"]])), call. = FALSE)
+    if (isTRUE(res[["n_neg_eig"]] > 0))
+      warning(sprintf(paste0("rx_fit : le Hessien a %d valeur(s) propre(s) negative(s) : ",
+                             "le point atteint n'est pas un maximum de la vraisemblance."),
+                      as.integer(res[["n_neg_eig"]])), call. = FALSE)
+  }
+  pb <- .rx_bayes_problems(res)
+  if (length(pb))
+    warning("rx_fit : echantillon a posteriori inexploitable : ", paste(pb, collapse = " ; "),
+            ".", call. = FALSE)
+  invisible()
+}
+
+# The reasons why a posterior sample cannot be used, or character(0).
+.rx_bayes_problems <- function(res) {
+  dg <- res[["bayes"]][["diagnostics"]]
+  if (is.null(dg)) return(character(0))
+  pb <- character(0)
+  if (isFALSE(res[["mode_posterieur"]][["succes"]]))
+    pb <- c(pb, "la recherche du mode a posteriori n'a pas converge")
+  if (isTRUE(dg[["pas"]] < 1e-6))
+    pb <- c(pb, sprintf("pas d'integration %.1e, les chaines n'avancent pas", dg[["pas"]]))
+  if (isTRUE(dg[["rhat_emboite_max"]] > 1.01))
+    pb <- c(pb, sprintf("R-hat emboite max %.3g > 1,01", dg[["rhat_emboite_max"]]))
+  if (isTRUE(dg[["ess_min"]] < 100))
+    pb <- c(pb, sprintf("ESS min %.0f < 100", dg[["ess_min"]]))
+  if (isTRUE(dg[["divergences"]] > 0))
+    pb <- c(pb, sprintf("%d divergence(s)", as.integer(dg[["divergences"]])))
+  pb
 }
 
 # --- options -------------------------------------------------------------------

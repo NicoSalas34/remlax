@@ -76,3 +76,30 @@ test_that("Wald et Kenward-Roger tiennent compte des poids a priori", {
 test_that("le produit separable est refuse pour la residuelle", {
   expect_error(rx_residual(level = "sep"), "ar1ar1")
 })
+
+test_that("un ajustement REML non converge est signale", {
+  res <- list(conv_grad_rel = FALSE, conv_decrement = FALSE, grad_rel = 0.02,
+              newton_decrement = 3.1, n_neg_eig = 0L)
+  expect_warning(remlax:::.rx_warn_fit(res, maxiter = 3000), "n'a pas converge")
+  res$conv_grad_rel <- TRUE
+  expect_silent(remlax:::.rx_warn_fit(res, maxiter = 3000))
+  # Evaluation seule (maxiter = 0) : rien a dire.
+  res$conv_grad_rel <- FALSE
+  expect_silent(remlax:::.rx_warn_fit(res, maxiter = 0))
+  # Criteres indisponibles : pas d'avertissement.
+  expect_silent(remlax:::.rx_warn_fit(list(conv_grad_rel = NA, conv_decrement = NULL), 3000))
+  expect_warning(remlax:::.rx_warn_fit(list(conv_grad_rel = TRUE, n_neg_eig = 2L), 3000),
+                 "valeur\\(s\\) propre\\(s\\) negative")
+})
+
+test_that("un echantillon a posteriori immobile est declare inexploitable", {
+  res <- list(depart_bayes = "map", mode_posterieur = list(succes = FALSE),
+              bayes = list(diagnostics = list(pas = 2.5e-11, rhat_emboite_max = 41.6,
+                                              ess_min = 2.01, divergences = 0)))
+  expect_warning(remlax:::.rx_warn_fit(res, maxiter = 0), "inexploitable")
+  pb <- remlax:::.rx_bayes_problems(res)
+  expect_length(pb, 4L)
+  bon <- list(bayes = list(diagnostics = list(pas = 0.3, rhat_emboite_max = 1.003,
+                                              ess_min = 420, divergences = 0)))
+  expect_length(remlax:::.rx_bayes_problems(bon), 0L)
+})
