@@ -15,7 +15,7 @@ import time
 
 # Start of the interpreter, read by remlax.cli for its timing of the start-up
 # stage, before the package imports JAX, NumPy and SciPy.
-os.environ.setdefault("RX_T_DEBUT", repr(time.time()))
+os.environ.setdefault("RX_T_START", repr(time.time()))
 
 import runpy  # noqa: E402
 

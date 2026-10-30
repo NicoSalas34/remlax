@@ -68,6 +68,6 @@ def predict(theta, terms, res, y, X, L, M=None, vbeta=None):
         val = val + GM @ (Zd.T @ Py)                               # + M' u_hat
         A = L @ Phi @ (X.T @ Vi) @ ZGM.T                           # l x l
         cov = cov - A - A.T + Mk @ GM.T - ZGM @ Pm @ ZGM.T
-    return dict(valeur=[float(v) for v in np.asarray(val).ravel()],
+    return dict(value=[float(v) for v in np.asarray(val).ravel()],
                 se=[float(np.sqrt(max(v, 0))) for v in np.diag(cov)],
                 cov=np.asarray(cov), beta=[float(b) for b in beta])

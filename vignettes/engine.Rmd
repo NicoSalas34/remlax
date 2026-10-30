@@ -30,17 +30,17 @@ remlax/
   start.py        starting values, loading bounds, range sweep
   checks.py       checks of a model before fitting
   fit.py          fit_reml: engine choice, optimisation, finish, result
-  finition.py     trust-region Newton finish (finition = "rc")
+  finition.py     trust-region Newton finish (finish = "trust")
   diagnostics.py  finite-difference Hessian and convergence criteria
   effects.py      beta, BLUPs and PEV at a given theta (dense engine)
   ai.py           average information REML (optimizer = "ai")
-  econome.py      low-memory dense engine (memoire = "econome")
-  blocs.py        blocks engine (moteur = "blocs")
+  econome.py      low-memory dense engine (memory = "low")
+  blocs.py        blocks engine (engine = "blocks")
   decoupage.py    automatic split into blocks linked by global terms
-  mme.py          mixed model equations engine (moteur = "mme")
+  mme.py          mixed model equations engine (engine = "mme")
   selinv.py       sparse factorisation and selected inversion of C
   selinv_c.c      C kernel of the selected inversion, compiled at first use
-  mme_hybride.py  hybrid inversion of C (inversion = "hybride")
+  mme_hybride.py  hybrid inversion of C (inversion = "hybrid")
   lag.py          spatial lag of the response
   components.py   variance components: names, values, table
   vpredict.py     functions of the components and their standard errors
@@ -316,24 +316,24 @@ ar2     -> {'phi': [0.444141, 0.379949], 'pacf': [0.716298, 0.379949]}
 ar3     -> {'phi': [0.519134, 0.467611, -0.197375], 'pacf': [0.716298, 0.379949, -0.197375]}
 corb    -> {'phi': [0.462117, -0.197375]}
 corg    -> {}
-cor     -> {'phi': [0.850996], 'borne_inf': [-0.25]}
-exp     -> {'phi': [0.761594], 'signe_non_identifie': [1.0]}
-gau     -> {'phi': [0.761594], 'signe_non_identifie': [1.0]}
-iexp    -> {'phi': [0.761594], 'signe_non_identifie': [1.0]}
-igau    -> {'phi': [0.761594], 'signe_non_identifie': [1.0]}
-ieuc    -> {'phi': [0.761594], 'signe_non_identifie': [1.0]}
-aexp    -> {'phi': [0.761594, 0.462117], 'signe_non_identifie': [1.0]}
-agau    -> {'phi': [0.761594, 0.462117], 'signe_non_identifie': [1.0]}
-sph     -> {'portee': [4.481689]}
-cir     -> {'portee': [4.481689]}
-lvr     -> {'portee': [4.481689]}
+cor     -> {'phi': [0.850996], 'lower_bound': [-0.25]}
+exp     -> {'phi': [0.761594], 'sign_not_identified': [1.0]}
+gau     -> {'phi': [0.761594], 'sign_not_identified': [1.0]}
+iexp    -> {'phi': [0.761594], 'sign_not_identified': [1.0]}
+igau    -> {'phi': [0.761594], 'sign_not_identified': [1.0]}
+ieuc    -> {'phi': [0.761594], 'sign_not_identified': [1.0]}
+aexp    -> {'phi': [0.761594, 0.462117], 'sign_not_identified': [1.0]}
+agau    -> {'phi': [0.761594, 0.462117], 'sign_not_identified': [1.0]}
+sph     -> {'range': [4.481689]}
+cir     -> {'range': [4.481689]}
+lvr     -> {'range': [4.481689]}
 mtrn    -> {'phi': [1.349859], 'nu': [1.105171]}
 own     -> {'own': [0.4]}
 ar1ar1  -> {'phi': [0.664037, 0.197375]}
 ```
 
-`borne_inf` is `-1/(q-1)`, the exact positivity bound of `cor`.
-`signe_non_identifie` marks the metric families, which raise `abs(tanh(theta))`
+`lower_bound` is `-1/(q-1)`, the exact positivity bound of `cor`.
+`sign_not_identified` marks the metric families, which raise `abs(tanh(theta))`
 to a distance: `theta` and `-theta` give the same `C`, so the reported `phi` is
 always positive and floored at `1e-12`. `own` returns the raw unconstrained
 parameters, since only the expression knows what they mean. Full table with the
@@ -443,7 +443,7 @@ when everything is fine. The checks are:
 - non-finite values in `y` or `X`;
 - `X` not of full column rank.
 
-### `fit_reml(terms, res, y, X, theta_init=None, maxiter=3000, floor=-12.0, ceil=12.0, verbose=True, hessian=True, blups=True, pev=False, tol=1e-14, polish=25, check=True, n_restarts=0, restart_sd=0.5, seed=0, fixed_idx=None, lag=None, optimizer="lbfgsb", moteur="dense", inversion="auto", memoire="standard", finition="newton", arret_lent=(100, 0.05), poids=None)`
+### `fit_reml(terms, res, y, X, theta_init=None, maxiter=3000, floor=-12.0, ceil=12.0, verbose=True, hessian=True, blups=True, pev=False, tol=1e-14, polish=25, check=True, n_restarts=0, restart_sd=0.5, seed=0, fixed_idx=None, lag=None, optimizer="lbfgsb", engine="dense", inversion="auto", memory="standard", finish="newton", slow_stop=(100, 0.05), weights=None)`
 
 The fit. `fit_reml` resolves `"auto"`, applies the prior weights, and calls
 `_fit_model`, which runs the steps in order: engine and objective
@@ -471,12 +471,12 @@ timings, identification, sigmas, effects, Hessian and diagnostics). Arguments:
 | `fixed_idx` | 0-based indices held at their starting value |
 | `lag` | spatial lag of the response (`remlax.lag`), dense engine only |
 | `optimizer` | `"lbfgsb"` or `"ai"` (average information on the variance scale, `remlax.ai.ai_reml_var`) |
-| `moteur` | `"dense"` (marginal `V`) or `"mme"` (mixed model equations, `remlax.mme`); a model outside the scope of `"mme"` falls back to `"dense"` |
-| `inversion` | with `moteur="mme"`: `"auto"`, `"dense"`, `"creuse"` (sparse selected inversion, `remlax.selinv`) or `"hybride"` (`remlax.mme_hybride`) |
-| `memoire` | dense engine: `"standard"` or `"econome"` (`remlax.econome`) |
-| `finition` | `"newton"` (Newton polishing after L-BFGS-B) or `"rc"` (slow-progress stop, then trust-region Newton, `remlax.finition`) |
-| `arret_lent` | with `finition="rc"`: window (iterations) and minimal gain of `-2logL` |
-| `poids` | prior weights of the observations |
+| `engine` | `"dense"` (marginal `V`), `"mme"` (mixed model equations, `remlax.mme`), `"blocks"` (`remlax.blocs`) or `"auto"`; a model outside the scope of `"mme"` or `"blocks"` falls back to `"dense"` |
+| `inversion` | with `engine="mme"`: `"auto"`, `"dense"`, `"sparse"` (sparse selected inversion, `remlax.selinv`) or `"hybrid"` (`remlax.mme_hybride`) |
+| `memory` | dense engine: `"standard"` or `"low"` (`remlax.econome`) |
+| `finish` | `"newton"` (Newton polishing after L-BFGS-B) or `"trust"` (slow-progress stop, then trust-region Newton, `remlax.finition`) |
+| `slow_stop` | with `finish="trust"`: window (iterations) and minimal gain of `-2logL` |
+| `weights` | prior weights of the observations; the result then carries `weighted = True` |
 
 Returns a `dict`. Keys, on a two-term model:
 
@@ -493,15 +493,15 @@ Returns a `dict`. Keys, on a two-term model:
 | `n_at_bound` | parameters at `floor`/`ceil`, **excluding** fixed ones |
 | `n_fixed`, `n_fixed_out` | parameters held by `fixed_idx` (same count, two keys) |
 | `n_par_free` | dimension of the actual free subspace |
-| `composantes_degenerees` | names of terms with a parameter at the floor |
-| `n_polish`, `n_iter`, `scipy_success`, `scipy_message`, `secondes` | optimiser trace |
-| `moteur`, `inversion` | engine actually used, and the inversion of `C` with `moteur="mme"` |
+| `degenerate_components` | names of terms with a parameter at the floor |
+| `n_polish`, `n_iter`, `scipy_success`, `scipy_message`, `seconds` | optimiser trace |
+| `engine`, `memory`, `inversion` | engine actually used (`"dense"`, `"mme"`, `"blocks"`, or `"mme+dense"` when a failed MME fit was finished by the dense engine), memory mode (`"standard"`, `"low"`), and the inversion of `C` with `engine="mme"` (`"dense"`, `"sparse"`, `"hybrid"`) |
 | `sigmas` | dict name -> `Sigma` matrix |
 | `sigmas_res`, `sigma_res` | per-section residual matrices, and the first one |
 | `rho` | dict of between-level parameters on the asreml scale |
 | `pacf` | partial autocorrelations for `ar2`/`ar3` |
 | `beta`, `vbeta`, `Vi`, `Py` | fixed effects and the pieces needed downstream |
-| `V_singuliere` | `True` if `V` had to be pseudo-inverted; `beta` and the BLUPs are then conditional |
+| `V_singular` | `True` if `V` had to be pseudo-inverted; `beta` and the BLUPs are then conditional |
 | `blups` | dict name -> `(q, t)` array |
 | `hessian` | the finite-difference Hessian of `-2 logL` |
 | `n_restarts`, `restart_gain`, `restart_better` | present only when `n_restarts > 0` |
@@ -522,8 +522,8 @@ cond               4562.749084175374
 n_polish           2
 n_iter             18
 scipy_success      True
-V_singuliere       False
-composantes_degenerees []
+V_singular         False
+degenerate_components []
 sigmas             {'gid': 1.5847079094518273, 'bloc': 0.002430569370277488}
 sigma_res          1.1138165870456136
 beta               [11.658782]
@@ -536,7 +536,7 @@ remaining rise in log-likelihood under the local quadratic model, in the same
 units as the 3.84 of a one-degree-of-freedom LRT, and it is invariant under
 affine reparametrisation.
 
-**`composantes_degenerees` is not a warning about a small variance.** A
+**`degenerate_components` is not a warning about a small variance.** A
 variance that reaches the floor is not "estimated at zero", it is
 **unidentified**, and its standard error, its variance share and any test
 touching it are meaningless. The typical case is AR1/nugget aliasing, where
@@ -577,12 +577,12 @@ reached where it was.
 The full key list:
 
 ```
-['Py', 'V_singuliere', 'Vi', 'beta', 'blups', 'composantes_degenerees', 'cond',
- 'const_2pi', 'hessian', 'k_eff', 'lambda_max', 'lambda_min', 'leak', 'logLik',
- 'logLik_asreml', 'max_grad', 'n_at_bound', 'n_fixed', 'n_fixed_out', 'n_iter',
- 'n_neg_eig', 'n_null_dir', 'n_obs', 'n_par', 'n_par_free', 'n_polish',
+['Py', 'V_singular', 'Vi', 'beta', 'blups', 'cond', 'const_2pi',
+ 'degenerate_components', 'hessian', 'k_eff', 'lambda_max', 'lambda_min', 'leak',
+ 'logLik', 'logLik_asreml', 'max_grad', 'n_at_bound', 'n_fixed', 'n_fixed_out',
+ 'n_iter', 'n_neg_eig', 'n_null_dir', 'n_obs', 'n_par', 'n_par_free', 'n_polish',
  'neg2_reml', 'newton_decrement', 'rho', 'scipy_message', 'scipy_success',
- 'secondes', 'sigma_res', 'sigmas', 'sigmas_res', 'theta', 'vbeta']
+ 'seconds', 'sigma_res', 'sigmas', 'sigmas_res', 'theta', 'vbeta']
 ```
 
 ---
@@ -604,7 +604,7 @@ several). The residual comes last.
 
 ```python
 >>> component_names([t_gid, t_bloc], res)
-['gid', 'bloc', 'residuelle']
+['gid', 'bloc', 'residual']
 ```
 
 **The number of components is not the number of parameters.** The lower
@@ -628,8 +628,8 @@ Functions of the variance components and their standard errors.
 `2 H^-1` and `var(g) = J' (2 H^-1) J`. `free` is a boolean mask excluding
 fixed parameters.
 
-Returns `{"composantes": [{"i", "nom", "valeur"}, ...],
-"predictions": [{"nom", "expression", "valeur", "se"}, ...]}`.
+Returns `{"components": [{"i", "name", "value"}, ...],
+"predictions": [{"name", "expression", "value", "se"}, ...]}`.
 
 ```python
 >>> vp = vpredict(fit["theta"], fit["hessian"], terms, res,
@@ -643,40 +643,40 @@ subspace. A parameter at an active bound has none, and a direction of zero
 curvature makes the delta method silent rather than wrong: `se` is `NaN`,
 never an invented number.
 
-### `wald(y, X, V, termes_fixes=None)`
+### `wald(y, X, V, fixed_terms=None)`
 
 Wald tests on the fixed effects at **fixed `V`**: `var(beta) = (X'V^-1X)^-1`,
 and for a group of columns `L`,
 `F = (L b)' [L var(b) L']^-1 (L b) / rank`.
 
-`termes_fixes` is a list of `(name, column_indices)`; without it, every column
+`fixed_terms` is a list of `(name, column_indices)`; without it, every column
 is tested on its own, which is meaningless as soon as a factor has more than
 two levels.
 
 Returns `{"beta", "se_beta", "tests"}` where each test is
-`{"terme", "ddl", "F", "chi2", "p"}`.
+`{"term", "df", "F", "chi2", "p"}`.
 
 This is the **conditional** test (each term given all the others), that is,
 type III. asreml's default is sequential (type I). The two coincide on the
 last term of the model. Denominator degrees of freedom are not adjusted, so
 the p-values are those of a `chi2/rank` and are asymptotic.
 
-### `kenward_roger(theta, terms, res, y, X, H=None, termes_fixes=None)`
+### `kenward_roger(theta, terms, res, y, X, fixed_terms=None)`
 
 The Kenward & Roger (1997) adjustment: an inflated covariance of `beta` and
 denominator degrees of freedom.
 
 Returns, when available,
-`{"disponible": True, "tests", "se_beta", "se_beta_brut", "vbeta_kr", "beta",
-"second_ordre_omis"}`; each test carries `{"terme", "ddl", "denDF", "F",
-"F_brut", "echelle", "p"}` and possibly a `note`. When the expected REML
+`{"available": True, "tests", "se_beta", "se_beta_raw", "vbeta_kr", "beta",
+"second_order_omitted"}`; each test carries `{"term", "df", "denDF", "F",
+"F_raw", "scale", "p"}` and possibly a `note`. When the expected REML
 information is not positive definite it returns
-`{"disponible": False, "raison": ...}` rather than a number.
+`{"available": False, "reason": ...}` rather than a number.
 
 ```
-[{'terme': '(Intercept)', 'ddl': 1, 'denDF': 39.08261264539447,
-  'F': 4293.294813883976, 'F_brut': 4293.2948138839765,
-  'echelle': 0.9999999999999998, 'p': 1.406367256974862e-41}]
+[{'term': '(Intercept)', 'df': 1, 'denDF': 39.08261264539447,
+  'F': 4293.294813883976, 'F_raw': 4293.2948138839765,
+  'scale': 0.9999999999999998, 'p': 1.406367256974862e-41}]
 ```
 
 Three implementation points that are easy to get wrong:
@@ -691,7 +691,7 @@ Three implementation points that are easy to get wrong:
   the unadjusted test with residual degrees of freedom rather than computing
   `0/0`, and says so in `note`.
 
-The second-order term is omitted; `second_ordre_omis` is `True` when the model
+The second-order term is omitted; `second_order_omitted` is `True` when the model
 contains between-level correlation parameters, for which the omission is not
 exact. Cost is `O(p_theta^2 n^2)`: the first derivatives of `V` are formed in
 full, one `n x n` matrix per parameter.
@@ -719,9 +719,9 @@ action on `M`.
 
 ```python
 >>> predict(fit["theta"], terms, res, y, X, L=np.ones((1, 1)), vbeta=fit["vbeta"])
-{'valeur': [11.658782], 'se': [0.177934], ...}
+{'value': [11.658782], 'se': [0.177934], ...}
 >>> # with the BLUPs of the first two genotypes
-{'valeur': [10.413671, 12.565078], 'se': [0.487996, 0.487996], ...}
+{'value': [10.413671, 12.565078], 'se': [0.487996, 0.487996], ...}
 ```
 
 ---
@@ -849,18 +849,19 @@ R needs no Python dependency and Python needs no R dependency.
 |---|---|---|
 | `--backend auto\|gpu\|cpu` | `auto` | device; `gpu` refuses if none is visible |
 | `--maxiter N` | 3000 | optimiser iteration cap |
-| `--optimiseur lbfgsb\|ai\|auto` | `lbfgsb` | optimiser |
-| `--moteur dense\|mme\|blocs\|auto` | `dense` | engine |
-| `--inversion auto\|dense\|creuse\|hybride` | `auto` | inversion of `C` with `--moteur mme` |
-| `--memoire standard\|econome` | `standard` | low-memory dense engine |
-| `--finition newton\|rc` | `newton` | Newton polishing, or slow-progress stop and trust-region Newton |
+| `--optimizer lbfgsb\|ai\|auto` | `lbfgsb` | optimiser |
+| `--engine dense\|mme\|blocks\|auto` | `dense` | engine |
+| `--inversion auto\|dense\|sparse\|hybrid` | `auto` | inversion of `C` with `--engine mme` |
+| `--memory standard\|low` | `standard` | low-memory dense engine |
+| `--finish newton\|trust` | `newton` | Newton polishing, or slow-progress stop and trust-region Newton |
+| `--slow-stop W,G` | `100,0.05` | with `--finish trust`: window and minimal gain of `-2logL` |
 | `--polish N` | 25 | Newton polishing steps |
 | `--restarts N` | 0 | perturbed restarts |
 | `--restart-sd X` | 0.5 | perturbation size |
 | `--floor X`, `--ceil X` | -12, 12 | bounds on `theta` |
 | `--no-hessian` | off | skip the Hessian and the diagnostic |
 | `--no-blups` | off | skip `beta`, BLUPs and `Vi` |
-| `--pev`, `--pev-termes a,b` | off | prediction error variances, for all terms or the named ones |
+| `--pev`, `--pev-terms a,b` | off | prediction error variances, for all terms or the named ones |
 | `--quiet` | off | no progress output |
 | `--vpredict "n1=e1;n2=e2"` | none | expressions on the components |
 | `--wald` | off | Wald tests on the fixed effects |
@@ -868,6 +869,15 @@ R needs no Python dependency and Python needs no R dependency.
 | `--predict` | off | read `pred_L.bin` (and `pred_M_<term>.bin`) and predict |
 | `--only-predict` | off | **no fit**: read `in_theta.bin` and predict only |
 | `--fixed-theta i,j` | none | 1-based indices held at their starting value |
+| `--bayes` | off | sample the posterior of the variance parameters (`remlax.bayes`) |
+| `--start map\|reml` | `map` | Bayesian route: start from the posterior mode, or fit by REML first |
+| `--chains N`, `--superchains K` | 0 (8 on CPU, 32 on GPU), 4 | chains, grouped in `K` superchains |
+| `--warmup N`, `--draws N` | 150, 150 | adaptation iterations and kept draws per chain |
+| `--seed N` | 0 | random seed |
+| `--target-accept X` | 0.651 | target acceptance rate of the step size adaptation |
+| `--max-leapfrog N` | 1000 | cap on the leapfrog steps per trajectory |
+| `--prior FILE` | none | prior specification, a JSON file relative to the bundle |
+| `--bayes-effects N` | 100 | draws used for the posterior moments of `beta` and of the BLUPs |
 
 `--only-predict` exists so that `rx_predict()` does not relaunch the whole
 optimisation to recover a `theta` that is already known, and so that nothing
@@ -886,9 +896,16 @@ Files written:
 
 ```
 ['out_beta.bin', 'out_blup_gid.bin', 'out_hessian.bin', 'out_sigma_gid.bin',
- 'out_sigma_res.bin', 'out_sigmares_residuelle.bin', 'out_theta.bin',
+ 'out_sigma_res.bin', 'out_sigmares_residual.bin', 'out_theta.bin',
  'out_vbeta.bin', 'result.json']
 ```
+
+Besides the fields of `fit_reml`, `result.json` carries `chrono` (seconds
+per stage: `origin`, `startup`, `imports`, `device`, `read`, `preparation`,
+`compilation`, `optimisation`, `finish`, `alias`, `effects`, `hessian`,
+`inference`, `write`, and `transfer` in server mode), `cores` (the cores of
+the affinity mask), `threads_bound` (the message of the thread bounding, or
+`null`), `backend` and `devices`.
 
 Non-finite floats are written as JSON `null`, which R reads as `NA`. JSON has
 no `NaN`, and a conforming reader such as jsonlite rejects the **whole** file
@@ -947,7 +964,7 @@ point away from the region where the AI matrix is nearly singular.
 
 ## 12. `remlax.mme`
 
-The mixed model equations engine, selected by `moteur = "mme"`.
+The mixed model equations engine, selected by `engine = "mme"`.
 
 ### `out_of_scope(terms, res, lag=None)`
 
@@ -1067,7 +1084,7 @@ takes 0.3 s with the kernel and 3.9 s with the NumPy loop.
 ## 14. `remlax.econome`
 
 The dense engine with a smaller device footprint, selected by
-`memoire = "econome"` (`memory = "low"` in R). It computes the same
+`memory = "low"` (the same value in R). It computes the same
 likelihood, gradient and AI matrix as the standard dense engine; only the way
 they are computed changes. The standard mode stays the default and is not
 modified.
@@ -1127,7 +1144,7 @@ JAX caps its memory pool at 75 % of the device by default, even without
 preallocation. On a 10 GB MIG slice the cap is 7.65 GB: the autotuning of the
 compilation peaks at 6.1 GB and fragments the pool, after which the 4.1 GB of
 temporaries of one evaluation no longer find a contiguous block. With
-`--memoire econome` the command line sets `XLA_PYTHON_CLIENT_MEM_FRACTION` to
+`--memory low` the command line sets `XLA_PYTHON_CLIENT_MEM_FRACTION` to
 0.95 unless the caller set it, and the R server does the same.
 
 On the model above, on a 10 GB slice, one evaluation of value and gradient

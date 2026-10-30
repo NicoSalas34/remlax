@@ -2,7 +2,7 @@
 # model.R - rx_model(): the model object handed to the solver
 # ==============================================================================
 
-rx_model <- function(y, X, terms, residual = rx_residual(), name = "modele", lag = NULL,
+rx_model <- function(y, X, terms, residual = rx_residual(), name = "model", lag = NULL,
                      weights = NULL) {
   n <- length(y)
   weights <- .rx_check_weights(weights, n)
@@ -20,7 +20,7 @@ rx_model <- function(y, X, terms, residual = rx_residual(), name = "modele", lag
     stop("X est de rang ", r, " pour ", ncol(X), " colonnes : retirer les colonnes redondantes.")
   if (!is.null(residual$n_unit)) residual$n_unit <- as.integer(residual$n_unit)
   structure(list(name = name, y = as.numeric(y), X = X, terms = terms,
-                 X_assign = attr(X, "assign"), X_termes = attr(X, "termes"),
+                 X_assign = attr(X, "assign"), X_terms = attr(X, "term_labels"),
                  residual = residual, n = n, t_res = t_res, lag = lag, weights = weights,
                  n_par = .rx_model_n_par(terms, residual, lag)),
             class = "rx_model")
@@ -61,7 +61,7 @@ rx_model <- function(y, X, terms, residual = rx_residual(), name = "modele", lag
 # Checks the terms and names the list by term name: rx_exposure() and
 # rx_ratios() find terms by model$terms[[name]]. A term given only by its
 # precision Kinv cannot be fitted by the dense engine, which needs a factor of
-# K; the attribute "creux_seulement" tells rx_fit().
+# K; the attribute "kinv_only" tells rx_fit().
 .rx_check_terms <- function(terms, n) {
   for (tm in terms) {
     if (!inherits(tm, "rx_term")) stop("terms doit contenir des objets rx_term.")
@@ -72,7 +72,7 @@ rx_model <- function(y, X, terms, residual = rx_residual(), name = "modele", lag
   if (length(terms)) names(terms) <- term_names
   for (tm in terms) {
     if (!is.null(tm$Kinv) && is.null(tm$LK))
-      attr(terms, "creux_seulement") <- TRUE
+      attr(terms, "kinv_only") <- TRUE
     if (nrow(tm$Zl[[1]]) != n)
       stop("terme '", tm$name, "' : incidence a ", nrow(tm$Zl[[1]]), " lignes pour ", n, " obs.")
   }

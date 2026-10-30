@@ -259,11 +259,11 @@ test_that("rx_ratios et se_theta egalent vpredict du solveur sur un jouet (T1, T
   expect_equal(length(fit[["se_theta"]]), 3L)
   expect_true(all(is.finite(fit[["se_theta"]])))
   # SE(vg) du solveur = 2 vg se_theta[1] (derivee de exp(2 theta))
-  expect_equal(vp$se[vp$nom == "vg"], 2 * exp(2 * fit$theta[1]) * fit$se_theta[1], tolerance = 1e-8)
+  expect_equal(vp$se[vp$name == "vg"], 2 * exp(2 * fit$theta[1]) * fit$se_theta[1], tolerance = 1e-8)
   r <- rx_ratios(fit, data.frame(target = "y", direct = "gid", other = "bloc+residual"),
                  model = mod, quantities = "h2")
-  expect_equal(r$estimate[r$component == "h2"], vp$valeur[vp$nom == "h2"], tolerance = 1e-10)
-  expect_equal(r$se[r$component == "h2"], vp$se[vp$nom == "h2"], tolerance = 1e-6)
+  expect_equal(r$estimate[r$component == "h2"], vp$value[vp$name == "h2"], tolerance = 1e-10)
+  expect_equal(r$se[r$component == "h2"], vp$se[vp$name == "h2"], tolerance = 1e-6)
   expect_equal(attr(r, "check_se"), 1, tolerance = 1e-12)
 })
 

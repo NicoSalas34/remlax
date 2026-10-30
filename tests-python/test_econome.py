@@ -181,9 +181,9 @@ def test_plan_couvre_tous_les_modes():
 def test_ajustement_identique(optimiseur):
     terms, res, y, X = cas_ige()
     kw = dict(verbose=False, hessian=True, blups=True, pev=True, optimizer=optimiseur)
-    r1 = fit_reml(terms, res, y, X, memoire="standard", **kw)
-    r2 = fit_reml(terms, res, y, X, memoire="econome", **kw)
-    assert r2.get("memoire") == "econome"
+    r1 = fit_reml(terms, res, y, X, memory="standard", **kw)
+    r2 = fit_reml(terms, res, y, X, memory="low", **kw)
+    assert r2.get("memory") == "low"
     assert abs(r1["neg2_reml"] - r2["neg2_reml"]) <= 1e-8 * abs(r1["neg2_reml"])
     # Une variance collee a la borne (theta pres de -12) est dans une direction
     # plate : sa position exacte, et les BLUP ~1e-10 du terme, ne sont pas
@@ -204,8 +204,8 @@ def test_sorties_identiques_au_meme_theta(nom):
     th = _thetas(terms, res, y)[1]
     kw = dict(theta_init=th, maxiter=0, polish=0, verbose=False, hessian=False,
               blups=True, pev=True)
-    r1 = fit_reml(terms, res, y, X, memoire="standard", **kw)
-    r2 = fit_reml(terms, res, y, X, memoire="econome", **kw)
+    r1 = fit_reml(terms, res, y, X, memory="standard", **kw)
+    r2 = fit_reml(terms, res, y, X, memory="low", **kw)
     assert np.array_equal(r1["theta"], r2["theta"])
     assert _rel(r2["beta"], r1["beta"]) <= 1e-9
     assert _rel(r2["vbeta"], r1["vbeta"]) <= 1e-9

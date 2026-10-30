@@ -38,9 +38,9 @@
 #'   for the parameters without a natural prior (ranges, Matern parameters,
 #'   rare covariance structures). A message lists them.
 #' @param terms named list of per-term overrides, for instance
-#'   `list(gid = list(sd = "half_normal", scale = 0.5), residuelle = list(scale = 2))`.
+#'   `list(gid = list(sd = "half_normal", scale = 0.5), residual = list(scale = 2))`.
 #'   Each element may set `sd`, `df`, `scale`, `shape`, `rate`, `lkj` and
-#'   `loading_scale`. The residual is named `"residuelle"`.
+#'   `loading_scale`. The residual is named `"residual"`.
 #' @return An object of class `rx_prior`.
 #' @seealso [rx_bayes()], [rx_fit()]
 #' @examples
@@ -173,33 +173,32 @@ rx_bayes_available <- function() {
   is.null(attr(out, "status"))
 }
 
-# The prior as the JSON read by bayes._resoudre_prior (keys in French).
+# The prior as the JSON read by bayes._resolve_prior.
 .rx_prior_json <- function(pr) {
-  fam <- function(x) if (identical(x, "uniform")) "uniforme" else x
   sd_spec <- function(o) {
     s <- list()
-    if (!is.null(o$sd)) s$famille <- fam(o$sd)
+    if (!is.null(o$sd)) s$family <- o$sd
     if (!is.null(o$df)) s$df <- o$df
-    if (!is.null(o$scale)) s$echelle <- o$scale
-    if (!is.null(o$shape)) s$forme <- o$shape
-    if (!is.null(o$rate)) s$taux <- o$rate
+    if (!is.null(o$scale)) s$scale <- o$scale
+    if (!is.null(o$shape)) s$shape <- o$shape
+    if (!is.null(o$rate)) s$rate <- o$rate
     s
   }
-  j <- list(sd = c(list(famille = fam(pr$sd), df = pr$df, forme = pr$shape, taux = pr$rate),
-                   if (!is.null(pr$scale)) list(echelle = pr$scale)),
+  j <- list(sd = c(list(family = pr$sd, df = pr$df, shape = pr$shape, rate = pr$rate),
+                   if (!is.null(pr$scale)) list(scale = pr$scale)),
             lkj = pr$lkj,
-            loading = if (!is.null(pr$loading_scale)) list(echelle = pr$loading_scale) else
+            loading = if (!is.null(pr$loading_scale)) list(scale = pr$loading_scale) else
               structure(list(), names = character(0)),
-            niveau = if (pr$level == "uniform") "uniforme" else "normale",
-            generique = pr$theta_sd,
-            termes = structure(list(), names = character(0)))
+            level = pr$level,
+            generic = pr$theta_sd,
+            terms = structure(list(), names = character(0)))
   for (nm in names(pr$terms)) {
     o <- pr$terms[[nm]]; t <- list()
     s <- sd_spec(o)
     if (length(s)) t$sd <- s
     if (!is.null(o$lkj)) t$lkj <- o$lkj
-    if (!is.null(o$loading_scale)) t$loading <- list(echelle = o$loading_scale)
-    j$termes[[nm]] <- if (length(t)) t else structure(list(), names = character(0))
+    if (!is.null(o$loading_scale)) t$loading <- list(scale = o$loading_scale)
+    j$terms[[nm]] <- if (length(t)) t else structure(list(), names = character(0))
   }
   j
 }
@@ -211,46 +210,41 @@ rx_bayes_available <- function() {
     stop("rx_fit : `bayes` doit venir de rx_bayes()", call. = FALSE)
   jsonlite::write_json(.rx_prior_json(bayes$prior), file.path(dir, "prior.json"),
                        auto_unbox = TRUE, digits = NA)
-  c("--bayes", "--depart", bayes$start %||% "map",
-    "--chaines", bayes$chains %||% 0L, "--superchaines", bayes$superchains,
-    "--chauffe", bayes$warmup, "--tirages", bayes$draws, "--graine", bayes$seed,
-    "--acceptation", format(bayes$target_accept, digits = 15),
-    "--sauts-max", bayes$max_leapfrog, "--prior", "prior.json",
-    "--bayes-effets", bayes$effects)
+  c("--bayes", "--start", bayes$start %||% "map",
+    "--chains", bayes$chains %||% 0L, "--superchains", bayes$superchains,
+    "--warmup", bayes$warmup, "--draws", bayes$draws, "--seed", bayes$seed,
+    "--target-accept", format(bayes$target_accept, digits = 15),
+    "--max-leapfrog", bayes$max_leapfrog, "--prior", "prior.json",
+    "--bayes-effects", bayes$effects)
 }
 
-# Reads the draws, their summary (columns renamed in English) and the
+# Reads the draws, their summary and the
 # Rao-Blackwellised means of beta and of the BLUPs; `rd` reads a binary file.
 .rx_bayes_read <- function(r, rd) {
   b <- r[["bayes"]]
   if (is.null(b)) return(r)
-  dm <- b[["dims"]]; C <- dm[["chaines"]]; D <- dm[["tirages"]]; N <- C * D
+  dm <- b[["dims"]]; C <- dm[["chains"]]; D <- dm[["draws"]]; N <- C * D
   out <- list(chain = rep(seq_len(C), each = D), draw = rep(seq_len(D), times = C))
   v <- rd("out_bayes_theta")
   if (!is.null(v)) out$theta <- matrix(v, N, dm[["p"]])
   v <- rd("out_bayes_comp")
   if (!is.null(v)) out$components <- matrix(v, N, dm[["k"]],
-                                            dimnames = list(NULL, b[["composantes_noms"]]))
+                                            dimnames = list(NULL, b[["component_names"]]))
   v <- rd("out_bayes_vp")
   if (!is.null(v)) out$functions <- matrix(v, N, dm[["e"]],
-                                           dimnames = list(NULL, b[["expressions_noms"]]))
-  s <- b[["resume"]]
-  if (is.data.frame(s)) {
-    names(s)[names(s) == "nom"] <- "name"
-    names(s)[names(s) == "moyenne"] <- "mean"
-    names(s)[names(s) == "mediane"] <- "median"
-    out$summary <- s
-  }
+                                           dimnames = list(NULL, b[["expression_names"]]))
+  s <- b[["summary"]]
+  if (is.data.frame(s)) out$summary <- s
   out$diagnostics <- b[["diagnostics"]]
   out$prior <- b[["prior"]]
-  ef <- b[["effets"]]
+  ef <- b[["effects"]]
   if (!is.null(ef)) {
-    bm <- rd("out_bayes_beta_moy"); p_ <- length(bm)
+    bm <- rd("out_bayes_beta_mean"); p_ <- length(bm)
     out$beta <- list(mean = bm, cov = matrix(rd("out_bayes_beta_cov"), p_, p_), n_draws = ef[["n"]])
     out$blups <- list(mean = list(), sd = list())
     for (nm in names(ef[["blup_dims"]])) {
       d_ <- ef[["blup_dims"]][[nm]]
-      v <- rd(paste0("out_bayes_blup_moy_", nm))
+      v <- rd(paste0("out_bayes_blup_mean_", nm))
       if (!is.null(v)) out$blups$mean[[nm]] <- matrix(v, d_[1], d_[2])
       v <- rd(paste0("out_bayes_blup_sd_", nm))
       if (!is.null(v)) out$blups$sd[[nm]] <- matrix(v, d_[1], d_[2])
@@ -267,16 +261,16 @@ rx_bayes_available <- function() {
   dg <- b$diagnostics
   cat(sprintf(paste0("  Loi a posteriori (%s, %d chaines en %d super-chaines x %d tirages) : ",
                      "%d divergence(s), acceptation %.2f, R-hat emboite max %.3f, ESS min %.0f, %.1f s\n"),
-              dg$algorithme, as.integer(dg$chaines), as.integer(dg$superchaines),
-              as.integer(dg$tirages), as.integer(dg$divergences), dg$acceptation,
-              dg$rhat_emboite_max, dg$ess_min, dg$secondes))
+              dg$algorithm, as.integer(dg$chains), as.integer(dg$superchains),
+              as.integer(dg$draws), as.integer(dg$divergences), dg$acceptance,
+              dg$nested_rhat_max, dg$ess_min, dg$seconds))
   s <- b$summary
   for (i in seq_len(nrow(s)))
     cat(sprintf("    %-22s moy %10.5g  med %10.5g  IC95 [%10.5g, %10.5g]  nR-hat %.3f  ESS %5.0f\n",
-                s$name[i], s$mean[i], s$median[i], s$q025[i], s$q975[i], s$rhat_emboite[i], s$ess[i]))
+                s$name[i], s$mean[i], s$median[i], s$q025[i], s$q975[i], s$nested_rhat[i], s$ess[i]))
   if (isTRUE(dg$divergences > 0))
     cat("    ATTENTION : des divergences ; augmenter target_accept (rx_bayes) et verifier les a priori\n")
-  if (isTRUE(dg$rhat_emboite_max > 1.01))
+  if (isTRUE(dg$nested_rhat_max > 1.01))
     cat("    ATTENTION : R-hat emboite > 1,01 ; les super-chaines ne s'accordent pas, allonger la chauffe\n")
   invisible()
 }

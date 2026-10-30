@@ -24,7 +24,7 @@ summary.rx_fit <- function(object, coef = FALSE, ...) {
   # Entries of Sigma with the same pattern in V (the residual-IEE block of a
   # plant term [I, W] with a symmetric W) enter only through their sum: they
   # count neither in the AIC and BIC nor in the degrees of freedom of a LRT.
-  n_plat <- as.integer(x[["n_plat_attendu"]] %||% 0L)
+  n_plat <- as.integer(x[["n_flat_expected"]] %||% 0L)
   n_est <- n_par - n_plat - as.integer(x$n_fixed %||% 0)
   m2l <- -2 * x$logLik
   info <- data.frame(
@@ -37,7 +37,7 @@ summary.rx_fit <- function(object, coef = FALSE, ...) {
   dims <- if (length(x$pev) && !is.null(x$model))
     tryCatch(rx_dimensions(x), error = function(e) NULL) else NULL
 
-  conv <- c(decrement = x$conv_decrement, gradient = x$conv_grad_rel, hessian = x$conv_hessien_ok)
+  conv <- c(decrement = x$conv_decrement, gradient = x$conv_grad_rel, hessian = x$conv_hessian_ok)
   structure(list(
     call = x$call, backend = x$backend, n_obs = n, nedf = nedf, n_par = n_par,
     n_estimated = n_est, n_not_identified = n_plat, n_at_bound = as.integer(x$n_at_bound %||% NA),
@@ -46,10 +46,10 @@ summary.rx_fit <- function(object, coef = FALSE, ...) {
     converged = length(conv) > 0 && all(as.logical(conv)),
     convergence = list(max_grad = x$max_grad, newton_decrement = x$newton_decrement %||% NA,
                        n_iter = x$n_iter %||% NA, n_neg_eig = x$n_neg_eig %||% NA,
-                       seconds = x$secondes %||% NA),
+                       seconds = x$seconds %||% NA),
     varcomp = varcomp, dimensions = dims, surfaces = .rx_spats_names(x),
-    lag = if (!is.null(x[["lag"]])) x[["lag"]][c("criterion", "chemin", "logdet_A", "logdet_mean",
-                                                 "rayon_spectral", "admissible", "logLik_ystar",
+    lag = if (!is.null(x[["lag"]])) x[["lag"]][c("criterion", "path", "logdet_A", "logdet_mean",
+                                                 "spectral_radius", "admissible", "logLik_ystar",
                                                  "logLik_jacobian", "Psi", "Psi_se")],
     coef.fixed = fixed, coef.random = random,
     vpredict = x$vpredict$predictions, wald = x$wald$tests),
@@ -61,17 +61,17 @@ summary.rx_fit <- function(object, coef = FALSE, ...) {
 .rx_varcomp_table <- function(x) {
   vc <- x$varcomp
   if (is.null(vc) || !NROW(vc)) {
-    comp_names <- x$composantes_noms %||% character()
-    vc <- data.frame(i = seq_along(comp_names), nom = comp_names, valeur = NA_real_, se = NA_real_,
-                     contrainte = NA_character_, stringsAsFactors = FALSE)
+    comp_names <- x$component_names %||% character()
+    vc <- data.frame(i = seq_along(comp_names), name = comp_names, value = NA_real_, se = NA_real_,
+                     constraint = NA_character_, stringsAsFactors = FALSE)
     if (length(comp_names)) warning("summary : ajustement sans table des composantes ",
                                     "(moteur anterieur ?) ; refaire l'ajustement.", call. = FALSE)
   }
-  varcomp <- data.frame(component = as.numeric(vc$valeur),
+  varcomp <- data.frame(component = as.numeric(vc$value),
                         std.error = as.numeric(vc$se),
-                        z.ratio = as.numeric(vc$valeur) / as.numeric(vc$se),
-                        bound = as.character(vc$contrainte),
-                        row.names = make.unique(as.character(vc$nom)),
+                        z.ratio = as.numeric(vc$value) / as.numeric(vc$se),
+                        bound = as.character(vc$constraint),
+                        row.names = make.unique(as.character(vc$name)),
                         stringsAsFactors = FALSE)
   varcomp$z.ratio[!is.finite(varcomp$z.ratio)] <- NA_real_
   varcomp
@@ -132,7 +132,7 @@ print.summary.rx_fit <- function(x, digits = max(4L, getOption("digits") - 3L), 
     Lg <- x$lag
     cat(sprintf("\nDecalage spatial (Psi : receveur en ligne, emetteur en colonne, unites de W)\n"))
     cat(sprintf("  critere %s | log|det(I - M)| %.6f | terme de moyenne %.6f | rayon spectral de M %.4f | chemin %s%s\n",
-                Lg$criterion, Lg$logdet_A, Lg$logdet_mean, Lg$rayon_spectral, Lg$chemin,
+                Lg$criterion, Lg$logdet_A, Lg$logdet_mean, Lg$spectral_radius, Lg$path,
                 if (isFALSE(Lg$admissible)) " | HORS REGION ADMISSIBLE" else ""))
     cat(sprintf("  logLik de y* seule %.4f ; avec le jacobien %.4f\n", Lg$logLik_ystar,
                 Lg$logLik_jacobian %||% NA_real_))
@@ -152,9 +152,9 @@ print.summary.rx_fit <- function(x, digits = max(4L, getOption("digits") - 3L), 
   }
   if (!is.null(x$vpredict) && NROW(x$vpredict)) {
     cat("\nFonctions des composantes (vpredict) :\n")
-    vp <- data.frame(estimate = signif(x$vpredict$valeur, digits),
+    vp <- data.frame(estimate = signif(x$vpredict$value, digits),
                      std.error = signif(x$vpredict$se, digits),
-                     expression = x$vpredict$expression, row.names = x$vpredict$nom)
+                     expression = x$vpredict$expression, row.names = x$vpredict$name)
     print(vp, na.print = "")
   }
   if (!is.null(x$coef.fixed)) {
@@ -165,8 +165,8 @@ print.summary.rx_fit <- function(x, digits = max(4L, getOption("digits") - 3L), 
   }
   if (!is.null(x$wald) && NROW(x$wald)) {
     cat("\nTests de Wald (conditionnels) :\n")
-    print(data.frame(df = x$wald$ddl, F.value = round(x$wald$F, 3),
-                     Pr = format.pval(x$wald$p, digits = 3), row.names = x$wald$terme))
+    print(data.frame(df = x$wald$df, F.value = round(x$wald$F, 3),
+                     Pr = format.pval(x$wald$p, digits = 3), row.names = x$wald$term))
   }
   if (!is.null(x$coef.random)) {
     cr <- x$coef.random

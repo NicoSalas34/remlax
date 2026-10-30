@@ -4,8 +4,8 @@
 # rx_fit() writes the model to a bundle, writes the optional inputs (starting
 # theta, prediction matrices), builds the solver's command line, runs it
 # (persistent server or subprocess), and reads the result back. The options of
-# the R interface are translated once, in .rx_fit_options(), into the names of
-# the solver's command line.
+# the R interface are checked once, in .rx_fit_options(), and passed to the
+# solver's command line under the same names and values.
 # ==============================================================================
 
 rx_fit <- function(model, backend = c("auto", "gpu", "cpu"), dir = NULL,
@@ -36,9 +36,9 @@ rx_fit <- function(model, backend = c("auto", "gpu", "cpu"), dir = NULL,
   .rx_write_fit_inputs(dir, predict, theta_init)
   py <- rx_python_cmd()
   a <- c(rx_solver_args(), dir, "--backend", backend, "--maxiter", maxiter, "--polish", polish,
-         "--optimiseur", opt$optimizer, "--moteur", opt$engine_cli,
-         "--inversion", opt$inversion_cli,
-         "--memoire", opt$memory_cli, "--finition", opt$finish_cli,
+         "--optimizer", opt$optimizer, "--engine", opt$engine,
+         "--inversion", opt$inversion,
+         "--memory", opt$memory, "--finish", opt$finish,
          .rx_bayes_args(bayes, dir),
          "--restarts", n_restarts,
          "--floor", format(bounds[1], digits = 15), "--ceil", format(bounds[2], digits = 15),
@@ -54,7 +54,6 @@ rx_fit <- function(model, backend = c("auto", "gpu", "cpu"), dir = NULL,
   res <- rx_read_result(dir, model = model, fixed_theta = fixed_theta)
   t_R3 <- Sys.time()
   res[["chrono"]] <- .rx_fit_chrono(res[["chrono"]], t_R0, t_R1, t_R2, t_R3)
-  res[["inversion"]] <- .rx_inversion_api_name(res[["inversion"]])
   .rx_warn_fit(res, maxiter)
   res
 }
@@ -64,7 +63,7 @@ rx_fit <- function(model, backend = c("auto", "gpu", "cpu"), dir = NULL,
 # saddle point, and a posterior sample whose chains did not mix.
 .rx_warn_fit <- function(res, maxiter) {
   fmt <- function(v) if (is.null(v) || !is.finite(v)) "n.d." else sprintf("%.2e", v)
-  if (as.numeric(maxiter) > 0 && is.null(res[["depart_bayes"]])) {
+  if (as.numeric(maxiter) > 0 && is.null(res[["bayes_start"]])) {
     crit <- c(res[["conv_grad_rel"]], res[["conv_decrement"]])
     crit <- as.logical(crit[!vapply(crit, is.null, TRUE)])
     if (length(crit) && !any(crit, na.rm = TRUE) && any(!crit, na.rm = TRUE))
@@ -90,12 +89,12 @@ rx_fit <- function(model, backend = c("auto", "gpu", "cpu"), dir = NULL,
   dg <- res[["bayes"]][["diagnostics"]]
   if (is.null(dg)) return(character(0))
   pb <- character(0)
-  if (isFALSE(res[["mode_posterieur"]][["succes"]]))
+  if (isFALSE(res[["posterior_mode"]][["success"]]))
     pb <- c(pb, "la recherche du mode a posteriori n'a pas converge")
-  if (isTRUE(dg[["pas"]] < 1e-6))
-    pb <- c(pb, sprintf("pas d'integration %.1e, les chaines n'avancent pas", dg[["pas"]]))
-  if (isTRUE(dg[["rhat_emboite_max"]] > 1.01))
-    pb <- c(pb, sprintf("R-hat emboite max %.3g > 1,01", dg[["rhat_emboite_max"]]))
+  if (isTRUE(dg[["step_size"]] < 1e-6))
+    pb <- c(pb, sprintf("pas d'integration %.1e, les chaines n'avancent pas", dg[["step_size"]]))
+  if (isTRUE(dg[["nested_rhat_max"]] > 1.01))
+    pb <- c(pb, sprintf("R-hat emboite max %.3g > 1,01", dg[["nested_rhat_max"]]))
   if (isTRUE(dg[["ess_min"]] < 100))
     pb <- c(pb, sprintf("ESS min %.0f < 100", dg[["ess_min"]]))
   if (isTRUE(dg[["divergences"]] > 0))
@@ -105,36 +104,25 @@ rx_fit <- function(model, backend = c("auto", "gpu", "cpu"), dir = NULL,
 
 # --- options -------------------------------------------------------------------
 
-# The options of rx_fit() and their names on the solver's command line:
+# The options of rx_fit(), checked once; the solver's command line takes the
+# same values:
 #   optimizer  "lbfgsb", "ai" or "auto"
-#   engine     "dense", "mme", "blocks" (solver: "blocs") or "auto"
-#   inversion  "auto", "dense", "sparse" (solver: "creuse"), "hybrid" ("hybride")
-#   memory     "standard" or "low" (solver: "econome")
-#   finish     "newton" or "trust" (solver: "rc")
+#   engine     "dense", "mme", "blocks" or "auto"
+#   inversion  "auto", "dense", "sparse" or "hybrid"
+#   memory     "standard" or "low"
+#   finish     "newton" or "trust"
 .rx_fit_options <- function(optimizer, engine, inversion, memory, finish) {
-  optimizer <- match.arg(optimizer, c("lbfgsb", "ai", "auto"))
-  engine <- match.arg(engine, c("dense", "mme", "blocks", "auto"))
-  inversion <- .rx_match_inversion(inversion)
-  memory <- match.arg(memory, c("standard", "low"))
-  finish <- match.arg(finish, c("newton", "trust"))
-  list(optimizer = optimizer,
-       engine_cli = if (engine == "blocks") "blocs" else engine,
-       inversion_cli = switch(inversion, sparse = "creuse", hybrid = "hybride", inversion),
-       memory_cli = if (memory == "low") "econome" else "standard",
-       finish_cli = if (finish == "trust") "rc" else "newton")
+  list(optimizer = match.arg(optimizer, c("lbfgsb", "ai", "auto")),
+       engine = match.arg(engine, c("dense", "mme", "blocks", "auto")),
+       inversion = .rx_match_inversion(inversion),
+       memory = match.arg(memory, c("standard", "low")),
+       finish = match.arg(finish, c("newton", "trust")))
 }
 
 # "creuse", the original name of the sparse inversion, is still accepted.
 .rx_match_inversion <- function(inversion) {
   if (identical(inversion, "creuse")) inversion <- "sparse"
   match.arg(inversion, c("auto", "dense", "sparse", "hybrid"))
-}
-
-# The solver names the sparse and hybrid inversions "creuse" and "hybride".
-.rx_inversion_api_name <- function(inversion) {
-  if (identical(inversion, "creuse")) return("sparse")
-  if (identical(inversion, "hybride")) return("hybrid")
-  inversion
 }
 
 # Bounds on every theta. theta is a log standard deviation, var = exp(2 theta),
@@ -152,7 +140,7 @@ rx_fit <- function(model, backend = c("auto", "gpu", "cpu"), dir = NULL,
 # A term given only by its precision Kinv cannot be fitted by the dense engine,
 # which would silently treat it as independent.
 .rx_check_kinv_engine <- function(model, engine) {
-  if (isTRUE(attr(model$terms, "creux_seulement")) && !(as.character(engine)[1] %in% c("mme", "auto")))
+  if (isTRUE(attr(model$terms, "kinv_only")) && !(as.character(engine)[1] %in% c("mme", "auto")))
     stop("rx_fit : ce modele contient un ou plusieurs termes declares par leur ",
          "PRECISION (Kinv) sans facteur de K. Le moteur dense a besoin de K et ",
          "ignorerait silencieusement la parente, en estimant les effets comme ",
@@ -198,20 +186,20 @@ rx_fit <- function(model, backend = c("auto", "gpu", "cpu"), dir = NULL,
       paste(as.integer(fixed_theta), collapse = ",")) else NULL,
     if (!hessian) "--no-hessian" else NULL, if (!blups) "--no-blups" else NULL,
     if (isTRUE(pev)) "--pev" else
-      if (is.character(pev) && length(pev)) c("--pev-termes", paste(pev, collapse = ",")) else NULL,
+      if (is.character(pev) && length(pev)) c("--pev-terms", paste(pev, collapse = ",")) else NULL,
     if (!verbose) "--quiet" else NULL)
 }
 
 # Timing by stage: the solver's stages (chrono.py) framed by those of R.
-# solveur_total is the wall time from launch to return; demarrage_serveur is
+# solver_total is the wall time from launch to return; server_startup is
 # what it has beyond the solver's stages (start of the persistent server at the
 # first fit of a session, or the end of a subprocess).
 .rx_fit_chrono <- function(solver_chrono, t_R0, t_R1, t_R2, t_R3) {
   dt <- function(a, b) as.numeric(difftime(b, a, units = "secs"))
   ch_py <- unlist(solver_chrono)
   c(export_R = dt(t_R0, t_R1), ch_py,
-    demarrage_serveur = max(dt(t_R1, t_R2) - sum(ch_py), 0),
-    solveur_total = dt(t_R1, t_R2), lecture_R = dt(t_R2, t_R3))
+    server_startup = max(dt(t_R1, t_R2) - sum(ch_py), 0),
+    solver_total = dt(t_R1, t_R2), read_R = dt(t_R2, t_R3))
 }
 
 # --- standard errors -------------------------------------------------------------
@@ -277,11 +265,11 @@ rx_se_theta <- function(theta, hessian, par_floor = -12, par_ceil = 12,
 #' @param optimizer `"ai"` (default) or `"lbfgsb"`; see [rx_fit()].
 #' @param ... passed to [rx_fit()]: `backend`, `maxiter`, `polish`,
 #'   `hessian`, `blups`, `vpredict`, `verbose`, and the others.
-#' @return An object of class `rx_fit`, with `moteur = "mme"` and the
+#' @return An object of class `rx_fit`, with `engine = "mme"` and the
 #'   inversion actually used in `inversion`. Prediction error variances
 #'   (`pev`) are the diagonal of the random-effect block of `C^-1`, read from
 #'   the same inversion. A fit that ends with a large relative gradient is
-#'   finished by the dense engine from the point reached, and `moteur` then
+#'   finished by the dense engine from the point reached, and `engine` then
 #'   reads `"mme+dense"`.
 #' @seealso [rx_fit()]
 #' @examplesIf rx_python_check(quiet = TRUE)$ok

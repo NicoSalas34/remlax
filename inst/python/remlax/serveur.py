@@ -12,8 +12,8 @@ As soon as it listens, on 127.0.0.1 only, the server writes "<port> <pid>"
 into <port_file> (atomically). Each connection carries one request, a JSON
 line:
 
-    {"jeton": "...", "argv": [...]}        runs cli.main(argv)
-    {"jeton": "...", "ordre": "stop"}      stops the server
+    {"token": "...", "argv": [...]}        runs cli.main(argv)
+    {"token": "...", "order": "stop"}      stops the server
 
 The output of cli.main (stdout and stderr) is sent back line by line during
 the fit, then a line "\\x1eRXFIN <code>". 0x1E is the ASCII record separator,
@@ -104,10 +104,10 @@ def main(argv=None):
         except (OSError, ValueError):
             conn.close()
             continue
-        if req.get("jeton") != token:
+        if req.get("token") != token:
             conn.close()
             continue
-        if req.get("ordre") == "stop":
+        if req.get("order") == "stop":
             conn.close()
             break
         stream = _LineStream(conn)
@@ -115,8 +115,8 @@ def main(argv=None):
         sys.stdout = sys.stderr = stream
         try:
             # chrono reset: the origin is the launch on the R side, if passed
-            cli.chrono.reset(req.get("t_lancement"))
-            cli.chrono.mark("transmission")
+            cli.chrono.reset(req.get("t_launch"))
+            cli.chrono.mark("transfer")
             code = cli.main([str(a) for a in req.get("argv", [])])
         except SystemExit as e:
             code = e.code if isinstance(e.code, int) else 1

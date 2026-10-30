@@ -296,8 +296,8 @@ Ajustement REML (cpu) : logLik -78.941857 | 6 parametres | 60 obs | 0.4 s
   Sigma[gid] 1x1, diagonale : 3.775e-11
   residuelle : 0.6717 1.0029
    rho : 0.122630 0.036921
-   noms : gid, residuelle[1,1], residuelle[2,1], residuelle[2,2],
-          residuelle!ar1ar11, residuelle!ar1ar12
+   noms : gid, residual[1,1], residual[2,1], residual[2,2],
+          residual!ar1ar11, residual!ar1ar12
 ```
 
 The guard still refuses a genuine repetition, with the same trait twice in
@@ -403,7 +403,7 @@ rx_fit(model, backend = c("auto", "gpu", "cpu"), dir = NULL,
 
 ### `vpredict`
 
-The `Vi` are numbered in the order of `fit$composantes_noms`. That order is fixed and
+The `Vi` are numbered in the order of `fit$component_names`. That order is fixed and
 documented, because a silent renumbering would make every expression
 wrong on the next run. Expressions use `V1, V2, ...` and the usual operators,
 plus `sqrt`, `log`, `exp`, `abs`.
@@ -412,33 +412,33 @@ plus `sqrt`, `log`, `exp`, `abs`.
 fit <- rx_reml(y ~ 1, random = ~ gid + iid(bloc), data = d,
                vpredict = c(h2 = "V1/(V1+V2+V3)", vg = "V1",
                             pct = "100*V1/(V1+V2+V3)"))
-fit$vpredict$composantes
+fit$vpredict$components
 fit$vpredict$predictions
 ```
 
 ```
-  i        nom      valeur
-1 1        gid 1.401362464
-2 2       bloc 0.007220142
-3 3 residuelle 0.898773260
+  i     name       value
+1 1      gid 1.401362464
+2 2     bloc 0.007220142
+3 3 residual 0.898773260
 
-  nom        expression     valeur         se
-1  h2     V1/(V1+V2+V3)  0.6073456 0.05871483
-2  vg                V1  1.4013625 0.30033238
-3 pct 100*V1/(V1+V2+V3) 60.7345614 5.87148261
+  name        expression      value         se
+1   h2     V1/(V1+V2+V3)  0.6073456 0.05871483
+2   vg                V1  1.4013625 0.30033238
+3  pct 100*V1/(V1+V2+V3) 60.7345614 5.87148261
 ```
 
 For a matrix structure the components are the **lower triangle of Sigma**, row
 by row, then the between-level parameters:
 
 ```
-  i             nom    valeur
-1 1        gid[1,1] 2.1360812
-2 2        gid[2,1] 0.4163982
-3 3        gid[2,2] 0.2001556
-4 4 residuelle[1,1] 0.5630491
-5 5 residuelle[2,1] 0.3264990
-6 6 residuelle[2,2] 1.9670976
+  i          name     value
+1 1      gid[1,1] 2.1360812
+2 2      gid[2,1] 0.4163982
+3 3      gid[2,2] 0.2001556
+4 4 residual[1,1] 0.5630491
+5 5 residual[2,1] 0.3264990
+6 6 residual[2,2] 1.9670976
 ```
 
 Standard errors come from the delta method on the Hessian of `-2 logL`:
@@ -454,29 +454,29 @@ freedom are not adjusted, so the p-values are those of a `chi2/df` and are
 asymptotically valid.
 
 ```
-        terme ddl          F      chi2            p
-1 (Intercept)   1 139.794105 139.79411 2.952830e-32
-2         trt   2   5.091395  10.18279 6.149437e-03
+         term df          F      chi2            p
+1 (Intercept)  1 139.794105 139.79411 2.952830e-32
+2         trt  2   5.091395  10.18279 6.149437e-03
 ```
 
 ### `kenward_roger`
 
-Adds `fit$kenward_roger` with `tests`, `se_beta`, `se_beta_brut`,
-`second_ordre_omis`, and `fit$vbeta_kr`. On the same unbalanced block design:
+Adds `fit$kenward_roger` with `available`, `tests`, `se_beta`, `se_beta_raw`,
+`second_order_omitted`, and `fit$vbeta_kr`. On the same unbalanced block design:
 
 ```
-        terme ddl     denDF          F     F_brut   echelle            p
-1 (Intercept)   1  9.508858 139.012320 139.012320 1.0000000 5.471722e-07
-2         trt   2 20.188279   5.076542   5.076565 0.9999954 1.636762e-02
+         term df     denDF          F      F_raw     scale            p
+1 (Intercept)  1  9.508858 139.012320 139.012320 1.0000000 5.471722e-07
+2         trt  2 20.188279   5.076542   5.076565 0.9999954 1.636762e-02
 
-    se_brut     se_KR
+     se_raw     se_KR
 1 0.4336283 0.4348459
 2 0.4635461 0.4635461
 3 0.4666903 0.4684138
-second_ordre_omis : FALSE
+second_order_omitted : FALSE
 ```
 
-`second_ordre_omis` is `TRUE` when the model carries between-level correlation
+`second_order_omitted` is `TRUE` when the model carries between-level correlation
 parameters, for which the omitted second-order term is not exactly zero.
 
 ### `fixed_theta` and `n_restarts`
@@ -525,7 +525,7 @@ The mixed model equations engine forms `C`, an `m x m` matrix, where `m`
 counts the fixed effects and the random levels. It pays off when `m` is small
 against `n`, or when `C` is sparse, as with a pedigree or a separable field.
 Both engines maximise the same likelihood, with the same `theta`, and return
-the same fields. `fit$moteur` reports the engine actually used: a model outside
+the same fields. `fit$engine` reports the engine actually used: a model outside
 the scope of `"mme"` (residual `"none"`, `rr`, a spatial lag, Gaussian metric
 kernels) is fitted by the dense engine, with a message. With `"mme"`,
 `fit$inversion` reports how `C` was inverted. Prediction error variances come
@@ -628,7 +628,7 @@ structure between units, exactly as for a term. `sections` holds a list of
 ## 7. `rx_model()`
 
 ```r
-rx_model(y, X, terms, residual = rx_residual(), name = "modele")
+rx_model(y, X, terms, residual = rx_residual(), name = "model")
 ```
 
 Assembles and checks. Refuses: a term whose incidence has the wrong number of
@@ -641,13 +641,13 @@ structured (`residual = ~ ar1(row):ar1(col)`), which is the commonest spatial
 field trial model. A model with no random term and an `iid` residual is
 refused: there is nothing to estimate.
 
-`attr(X, "assign")` and `attr(X, "termes")` are carried through so that Wald
+`attr(X, "assign")` and `attr(X, "term_labels")` are carried through so that Wald
 tests operate on whole terms.
 
 `print.rx_model()` gives the inventory:
 
 ```
-Modele REML 'modele' : 240 observations, 1 effets fixes
+Modele REML 'model' : 240 observations, 1 effets fixes
   terme dge_ige        us    t=2   q=60    K=I        (3 parametres)
   terme champ          iid   t=1   q=240   AR1xAR1    (3 parametres)
   residuelle     iid   t=1  (1 parametre)
@@ -710,7 +710,7 @@ building the right combination.
   flagged and its value is `NA`, rather than returning a number that depends
   on the parametrisation chosen.
 - `sed = TRUE` attaches the matrix of standard errors of differences
-  (`attr(out, "sed")`) and their quadratic mean (`attr(out, "sed.moyen")`).
+  (`attr(out, "sed")`) and their quadratic mean (`attr(out, "sed.mean")`).
 
 ```r
 pv <- rx_predict(f, classify = "trt", sed = TRUE)
@@ -793,10 +793,10 @@ Ajustement REML (cpu) : logLik -388.088838 | 3 parametres | 240 obs | 1.6 s
 |---|---|
 | `theta` | estimate on the internal scale |
 | `logLik`, `logLik_asreml`, `const_2pi` | remlax includes `(n-p)/2 log(2 pi)`, asreml omits it |
-| `n_par`, `n_obs`, `secondes`, `backend` | |
+| `n_par`, `n_obs`, `seconds`, `backend` | |
 | `sigmas` | named list of `Sigma` matrices |
 | `sigmas_res`, `sigma_res` | per-section residual matrices, and the first one |
-| `rho` | between-level parameters, **on the scale actually used in `C`**; a single-parameter structure keeps the bare key (`rho$residuelle`), several are prefixed (`rho[["residuelle!phi"]]`). A `cor` structure also carries `!borne_inf`, and the metric families `!signe_non_identifie` |
+| `rho` | between-level parameters, **on the scale actually used in `C`**; a single-parameter structure keeps the bare key (`rho$residual`), several are prefixed (`rho[["residual!phi"]]`). A `cor` structure also carries `!lower_bound`, the metric families `!sign_not_identified`, and `sph`, `cir`, `lvr` report `!range` |
 | `pacf` | partial autocorrelations of `ar2`/`ar3` |
 | `blups` | named list of `q x t` matrices |
 | `beta`, `vbeta`, `vbeta_kr` | fixed effects and their covariance |
@@ -805,9 +805,9 @@ Ajustement REML (cpu) : logLik -388.088838 | 3 parametres | 240 obs | 1.6 s
 | `n_at_bound`, `n_fixed`, `n_fixed_out`, `n_par_free` | bounds, fixed parameters, and the free-subspace dimension |
 | `par_floor`, `par_ceil` | the bounds the solver actually used |
 | `optim_msg` | the optimiser's stopping message; read it first. With `optimizer = "ai"` it says why the AI loop stopped, and whether L-BFGS-B took over. From L-BFGS-B, `ABNORMAL` is a failed line search, whatever the gradient says |
-| `moteur`, `inversion` | engine actually used (`"dense"` or `"mme"`) and, with `"mme"`, the inversion of `C` (`"dense"` or `"sparse"`) |
-| `composantes_degenerees` | terms with a parameter at the floor |
-| `composantes_noms` | the `Vi` numbering |
+| `engine`, `memory`, `inversion` | engine actually used (`"dense"`, `"mme"`, `"blocks"`, or `"mme+dense"` when the dense engine finished a failed MME fit), memory mode (`"standard"` or `"low"`) and, with `"mme"`, the inversion of `C` (`"dense"`, `"sparse"` or `"hybrid"`) |
+| `degenerate_components` | terms with a parameter at the floor |
+| `component_names` | the `Vi` numbering |
 | `vpredict`, `wald`, `kenward_roger`, `predictions` | present when requested |
 
 **Read `newton_decrement`, not `max_grad`.** The latter is several units at

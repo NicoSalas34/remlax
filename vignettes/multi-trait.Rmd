@@ -139,12 +139,12 @@ errors below say so plainly.
 ## Component numbering for a matrix structure
 
 ```r
-fit$composantes_noms
+fit$component_names
 ```
 
 ```
-[1] "gid[1,1]"        "gid[2,1]"        "gid[2,2]"        "residuelle[1,1]"
-[5] "residuelle[2,1]" "residuelle[2,2]"
+[1] "gid[1,1]"      "gid[2,1]"      "gid[2,2]"      "residual[1,1]"
+[5] "residual[2,1]" "residual[2,2]"
 ```
 
 For a `t`-column term the components are the **lower triangle of Sigma**, row
@@ -169,20 +169,20 @@ f2 <- rx_reml(y ~ trait, random = ~ us(gid, K = K),
                            h2_t2 = "V3/(V3+V6)",
                            rg    = "V2/sqrt(V1*V3)"),
               backend = "cpu", verbose = FALSE)
-f2$vpredict$composantes
+f2$vpredict$components
 f2$vpredict$predictions
 ```
 
 ```
-  i             nom    valeur
-1 1        gid[1,1] 2.1360812
-2 2        gid[2,1] 0.4163982
-3 3        gid[2,2] 0.2001556
-4 4 residuelle[1,1] 0.5630491
-5 5 residuelle[2,1] 0.3264990
-6 6 residuelle[2,2] 1.9670976
+  i          name     value
+1 1      gid[1,1] 2.1360812
+2 2      gid[2,1] 0.4163982
+3 3      gid[2,2] 0.2001556
+4 4 residual[1,1] 0.5630491
+5 5 residual[2,1] 0.3264990
+6 6 residual[2,2] 1.9670976
 
-    nom     expression     valeur        se
+   name     expression      value        se
 1 h2_t1     V1/(V1+V4) 0.79139612 0.2844880
 2 h2_t2     V3/(V3+V6) 0.09235449 0.3958083
 3    rg V2/sqrt(V1*V3) 0.63681917 1.2196191

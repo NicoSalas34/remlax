@@ -50,9 +50,9 @@ for the parameters without a natural prior (ranges, Matern parameters,
 rare covariance structures). A message lists them.}
 
 \item{terms}{named list of per-term overrides, for instance
-\code{list(gid = list(sd = "half_normal", scale = 0.5), residuelle = list(scale = 2))}.
+\code{list(gid = list(sd = "half_normal", scale = 0.5), residual = list(scale = 2))}.
 Each element may set \code{sd}, \code{df}, \code{scale}, \code{shape}, \code{rate}, \code{lkj} and
-\code{loading_scale}. The residual is named \code{"residuelle"}.}
+\code{loading_scale}. The residual is named \code{"residual"}.}
 }
 \value{
 An object of class \code{rx_prior}.

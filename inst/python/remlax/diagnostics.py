@@ -59,10 +59,10 @@ def _verdict(d):
                            else bool(dec < DECREMENT_THRESHOLD))
     v["conv_grad_rel"] = (None if gr is None or not np.isfinite(gr)
                           else bool(gr < GRAD_REL_THRESHOLD))
-    v["conv_hessien_ok"] = (None if d.get("n_neg_eig", -1) < 0
+    v["conv_hessian_ok"] = (None if d.get("n_neg_eig", -1) < 0
                             else bool(d["n_neg_eig"] == 0 and d.get("n_null_dir", 0) == 0))
-    v["seuil_decrement"] = DECREMENT_THRESHOLD
-    v["seuil_grad_rel"] = GRAD_REL_THRESHOLD
+    v["decrement_threshold"] = DECREMENT_THRESHOLD
+    v["grad_rel_threshold"] = GRAD_REL_THRESHOLD
     return v
 
 
@@ -98,7 +98,7 @@ def gradient_diagnostic(g, theta, floor, ceil, tol_bound=1e-7, fixed_idx=None,
 
 
 def diagnostic(H, g, theta, floor, ceil, tol_bound=1e-7, fixed_idx=None, f_obj=None,
-               n_plat_attendu=0):
+               n_flat_expected=0):
     """Three separate questions, never merged into one boolean:
 
       at the top?        Newton decrement g' H^+ g, in logLik units
@@ -111,7 +111,7 @@ def diagnostic(H, g, theta, floor, ceil, tol_bound=1e-7, fixed_idx=None, f_obj=N
     be floor or ceil. n_at_bound and n_fixed_out are reported separately; only
     their total defines the free subspace.
 
-    The n_plat_attendu smallest eigenvalues in modulus are the expected flat
+    The n_flat_expected smallest eigenvalues in modulus are the expected flat
     directions of entries not identified separately (aliased_entries): they are
     set aside when counting negative and null eigenvalues."""
     fixed, free, out = _free_subspace(theta, floor, ceil, tol_bound, fixed_idx)
@@ -119,7 +119,7 @@ def diagnostic(H, g, theta, floor, ceil, tol_bound=1e-7, fixed_idx=None, f_obj=N
         return dict(out, newton_decrement=np.nan, grad_proj_max=np.nan,
                     grad_rel=np.nan, n_neg_eig=0, n_null_dir=0,
                     cond=np.nan, conv_decrement=None, conv_grad_rel=None,
-                    conv_hessien_ok=None)
+                    conv_hessian_ok=None)
     Hf, gf = H[np.ix_(free, free)], g[free]
     if not np.all(np.isfinite(Hf)) or not np.all(np.isfinite(gf)):
         return dict(out, newton_decrement=np.nan, leak=np.nan, n_neg_eig=-1,
@@ -133,8 +133,8 @@ def diagnostic(H, g, theta, floor, ceil, tol_bound=1e-7, fixed_idx=None, f_obj=N
                     diag_note="decomposition spectrale echouee (%s)" % e)
     tol = 1e-8 * max(abs(w).max(), 1.0)
     expected = np.zeros(len(w), dtype=bool)
-    if n_plat_attendu:
-        expected[np.argsort(np.abs(w))[:min(int(n_plat_attendu), len(w))]] = True
+    if n_flat_expected:
+        expected[np.argsort(np.abs(w))[:min(int(n_flat_expected), len(w))]] = True
     keep = (w > tol) & ~expected
     dec = float(gf @ (Vv[:, keep] @ ((Vv[:, keep].T @ gf) / w[keep]))) if keep.any() else np.nan
     leak = float(np.max(np.abs(Vv[:, ~keep].T @ gf))) if (~keep).any() else 0.0
@@ -144,7 +144,7 @@ def diagnostic(H, g, theta, floor, ceil, tol_bound=1e-7, fixed_idx=None, f_obj=N
                grad_proj_max=gpm, grad_rel=grad_rel,
                n_neg_eig=int(((w < -tol) & ~expected).sum()),
                n_null_dir=int(((np.abs(w) <= tol) & ~expected).sum()),
-               n_plat_exclues=int(expected.sum()),
+               n_flat_excluded=int(expected.sum()),
                lambda_min=float(w[~expected].min()) if (~expected).any() else np.nan,
                lambda_max=float(w.max()),
                cond=(float(abs(w[~expected]).max() / max(abs(w[~expected]).min(), 1e-300))

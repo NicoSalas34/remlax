@@ -168,7 +168,7 @@ rx_validate <- function(which = c("lme4", "nlme", "sommer"), backend = "cpu",
     m <- lme4::lmer(y ~ x + (1 + x | g), d, REML = TRUE, control = ctl)
     Z0 <- .rx_indicator(g)
     mod <- rx_model(y, stats::model.matrix(~ x, d),
-                    list(rx_term("g", list(int = Z0, pente = Z0 * x), struct = "us", levels = levels(g))))
+                    list(rx_term("g", list(int = Z0, slope = Z0 * x), struct = "us", levels = levels(g))))
     f <- rx_fit(mod, backend = backend, verbose = FALSE)
     G4 <- as.matrix(lme4::VarCorr(m)$g)[1:2, 1:2]
     .rx_validation_compare(log, "lme4", "correlated random slopes", f, .rx_n2l(m), lme4::fixef(m),
@@ -193,7 +193,7 @@ rx_validate <- function(which = c("lme4", "nlme", "sommer"), backend = "cpu",
     m <- nlme::gls(y ~ x, d, correlation = nlme::corAR1(form = ~ t | g), method = "REML", control = ctl)
     f <- rx_reml(y ~ x, residual = ~ id(g):ar1(tf), data = d, trait = "g", backend = backend, verbose = FALSE)
     .rx_validation_compare(log, "nlme", "AR1 residual within groups", f, .rx_n2l(m), stats::coef(m),
-                           c(f$sigma_res[1, 1], f$rho[["residuelle"]]), c(m$sigma^2, cor_par(m)))
+                           c(f$sigma_res[1, 1], f$rho[["residual"]]), c(m$sigma^2, cor_par(m)))
   })
   .rx_validation_case(log, "nlme", "exponential in continuous time", {
     set.seed(2); G <- 10; Tn <- 12; n <- G * Tn
@@ -206,7 +206,7 @@ rx_validate <- function(which = c("lme4", "nlme", "sommer"), backend = "cpu",
     m <- nlme::gls(y ~ x, d, correlation = nlme::corCAR1(form = ~ pos | g), method = "REML", control = ctl)
     f <- rx_reml(y ~ x, residual = ~ id(g):exp(pos), data = d, trait = "g", backend = backend, verbose = FALSE)
     .rx_validation_compare(log, "nlme", "exponential in continuous time", f, .rx_n2l(m), stats::coef(m),
-                           c(f$sigma_res[1, 1], f$rho[["residuelle"]]), c(m$sigma^2, cor_par(m)))
+                           c(f$sigma_res[1, 1], f$rho[["residual"]]), c(m$sigma^2, cor_par(m)))
   })
 }
 

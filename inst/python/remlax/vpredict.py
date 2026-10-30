@@ -61,8 +61,8 @@ def vpredict(theta, H, terms, res, expressions, free=None, lag=None, alias=None)
         val = float(g(jnp.asarray(theta)))
         J = np.asarray(jax.grad(g)(jnp.asarray(theta)))
         se = float(np.sqrt(max(J @ Vth @ J, 0.0))) if np.all(np.isfinite(Vth)) else np.nan
-        out.append(dict(nom=name, expression=expr, valeur=val, se=se))
-    return dict(composantes=[{"i": i + 1, "nom": names[i], "valeur": float(comps[i])}
+        out.append(dict(name=name, expression=expr, value=val, se=se))
+    return dict(components=[{"i": i + 1, "name": names[i], "value": float(comps[i])}
                              for i in range(len(names))],
                 predictions=out)
 
@@ -80,7 +80,7 @@ def _theta_cov_all_positive(H, free, p, alias):
             w, U = np.linalg.eigh(Hf)
             tol = 1e-8 * max(abs(w).max(), 1.0)
             keep = np.ones(len(w), dtype=bool)
-            n_flat = int(sum(len(g["entrees"]) - 1 for g in (alias or [])))
+            n_flat = int(sum(len(g["entries"]) - 1 for g in (alias or [])))
             if n_flat:
                 keep[np.argsort(np.abs(w))[:min(n_flat, len(w))]] = False
             if np.all(w[keep] > tol):

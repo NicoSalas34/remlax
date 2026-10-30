@@ -10,7 +10,7 @@ test_that("summary : table des composantes, effets fixes, criteres", {
   f <- rx_fit(m, backend = "cpu", verbose = FALSE)
   s <- summary(f)
   expect_s3_class(s, "summary.rx_fit")
-  expect_identical(rownames(s$varcomp), c("gid", "residuelle"))
+  expect_identical(rownames(s$varcomp), c("gid", "residual"))
   expect_identical(s$varcomp$bound, c("P", "P"))
   expect_equal(s$varcomp$component, c(f$sigmas$gid[1, 1], f$sigma_res[1, 1]), tolerance = 1e-10)
   # erreurs-types du moteur (jacobienne exacte) contre rx_ratios (differences
@@ -38,7 +38,7 @@ test_that("summary : une variance nulle est marquee B sans erreur-type, les autr
   skip_if(vc["bloc", "component"] > 1e-4, "variance de bloc non nulle sur ce tirage")
   expect_identical(vc["bloc", "bound"], "B")
   expect_true(is.na(vc["bloc", "std.error"]))
-  expect_true(all(is.finite(vc[c("gid", "residuelle"), "std.error"])))
+  expect_true(all(is.finite(vc[c("gid", "residual"), "std.error"])))
 })
 
 test_that("summary : covariances multi-caracteres codees U, variances P", {

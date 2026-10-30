@@ -202,15 +202,15 @@ hold, and both are handled.
 
 | family | key | reported value |
 |---|---|---|
-| `cor` | `phi`, `borne_inf` | the correlation in `C`, already rescaled onto `(-1/(q-1), 1)`, plus that lower bound |
+| `cor` | `phi`, `lower_bound` | the correlation in `C`, already rescaled onto `(-1/(q-1), 1)`, plus that lower bound |
 | `ar1`, `sar`, `ma1` | `phi` | `tanh(theta)`; the sign is meaningful |
 | `ma2`, `arma` | `phi` (2) | `tanh(theta_i)`; the MA sign may differ from asreml, see below |
 | `ar2`, `ar3` | `phi`, `pacf` | asreml's autoregressive coefficients, and the internal partial autocorrelations |
 | `corb(b)` | `phi` (b) | `tanh(theta_k)` per band |
 | `corg` | (none) | the free correlation matrix is not summarised by scalars |
-| `exp`, `gau`, `iexp`, `igau`, `ieuc` | `phi`, `signe_non_identifie` | `abs(tanh(theta))`, floored at `1e-12` |
-| `aexp`, `agau` | `phi` (2), `signe_non_identifie` | `abs(tanh(theta_i))` per axis |
-| `sph`, `cir`, `lvr` | `portee` | the range `exp(theta)`, not a correlation |
+| `exp`, `gau`, `iexp`, `igau`, `ieuc` | `phi`, `sign_not_identified` | `abs(tanh(theta))`, floored at `1e-12` |
+| `aexp`, `agau` | `phi` (2), `sign_not_identified` | `abs(tanh(theta_i))` per axis |
+| `sph`, `cir`, `lvr` | `range` | the range `exp(theta)`, not a correlation |
 | `mtrn` | `phi`, `nu`, `delta`, `alpha` | only the declared parameters; `exp(theta)` except `alpha`, which is an angle |
 | `own` | `own` | the **raw** unconstrained parameters; the expression decides what they mean |
 | `ar1ar1` | `phi` (2) | `tanh(theta_i)` for the row and column factors |
@@ -218,10 +218,10 @@ hold, and both are handled.
 Measured, at `q = 4`:
 
 ```
-theta -2.000000   phi rapporte -0.309352   C[0,1] -0.309352   borne_inf -0.333333
-theta -0.500000   phi rapporte  0.025255   C[0,1]  0.025255   borne_inf -0.333333
-theta  0.000000   phi rapporte  0.333333   C[0,1]  0.333333   borne_inf -0.333333
-theta  1.040774   phi rapporte  0.852129   C[0,1]  0.852129   borne_inf -0.333333
+theta -2.000000   phi rapporte -0.309352   C[0,1] -0.309352   lower_bound -0.333333
+theta -0.500000   phi rapporte  0.025255   C[0,1]  0.025255   lower_bound -0.333333
+theta  0.000000   phi rapporte  0.333333   C[0,1]  0.333333   lower_bound -0.333333
+theta  1.040774   phi rapporte  0.852129   C[0,1]  0.852129   lower_bound -0.333333
 ```
 
 The reported `phi` of `cor` is now the entry of `C`, to the digit. `q` is a
@@ -240,16 +240,16 @@ midpoint of `(-1, 1)` to the midpoint of `(-1/(q-1), 1)`.
 
 The metric families raise `abs(tanh(theta))` to a distance, so `theta` and
 `-theta` give **the same** correlation matrix. The reported `phi` is therefore
-always positive, and the report carries `signe_non_identifie` to say why:
+always positive, and the report carries `sign_not_identified` to say why:
 
 ```
-exp   phi(+theta)  0.761594  phi(-theta)  0.761594  max|C(+)-C(-)| 0.00e+00  signe_non_identifie 1
-gau   phi(+theta)  0.761594  phi(-theta)  0.761594  max|C(+)-C(-)| 0.00e+00  signe_non_identifie 1
-iexp  phi(+theta)  0.761594  phi(-theta)  0.761594  max|C(+)-C(-)| 0.00e+00  signe_non_identifie 1
-igau  phi(+theta)  0.761594  phi(-theta)  0.761594  max|C(+)-C(-)| 0.00e+00  signe_non_identifie 1
-ieuc  phi(+theta)  0.761594  phi(-theta)  0.761594  max|C(+)-C(-)| 0.00e+00  signe_non_identifie 1
-aexp  phi [0.761594 0.604368]  max|C(+)-C(-)| 0.00e+00  signe_non_identifie 1
-agau  phi [0.761594 0.604368]  max|C(+)-C(-)| 0.00e+00  signe_non_identifie 1
+exp   phi(+theta)  0.761594  phi(-theta)  0.761594  max|C(+)-C(-)| 0.00e+00  sign_not_identified 1
+gau   phi(+theta)  0.761594  phi(-theta)  0.761594  max|C(+)-C(-)| 0.00e+00  sign_not_identified 1
+iexp  phi(+theta)  0.761594  phi(-theta)  0.761594  max|C(+)-C(-)| 0.00e+00  sign_not_identified 1
+igau  phi(+theta)  0.761594  phi(-theta)  0.761594  max|C(+)-C(-)| 0.00e+00  sign_not_identified 1
+ieuc  phi(+theta)  0.761594  phi(-theta)  0.761594  max|C(+)-C(-)| 0.00e+00  sign_not_identified 1
+aexp  phi [0.761594 0.604368]  max|C(+)-C(-)| 0.00e+00  sign_not_identified 1
+agau  phi [0.761594 0.604368]  max|C(+)-C(-)| 0.00e+00  sign_not_identified 1
 ```
 
 `max|C(+) - C(-)| = 0` exactly: this is a genuine non-identification of the

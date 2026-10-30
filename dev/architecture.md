@@ -95,7 +95,7 @@ and `fit.py` falls back to the dense engine.
   parameters, then each residual section, then the free entries of Psi.
   `layout.py` and `R/counts.R` must agree.
 - The engines agree on -2logL to about 1e-9 relative; a larger gap is a bug.
-- Result field names (`secondes`, `moteur`, `composantes_noms`, ...), command
+- Result field names (`seconds`, `engine`, `component_names`, ...), command
   line flags and environment variables are part of the interface between R
   and Python and of user scripts.
 

@@ -30,7 +30,7 @@ reader reads them back. `manifest.json` cannot be corrupted this way.
     scan_M               doses shared by both families (replaces the two above)
     scan_snp             SNP names (optional)
     scan_chr, scan_pos   map (optional)
-    scan_garder          0/1 mask of the SNPs to process (optional)
+    scan_keep          0/1 mask of the SNPs to process (optional)
 """
 import argparse
 import json
@@ -81,9 +81,9 @@ def main(argv=None):
                          "seulement EVALUE, sans reoptimisation")
     ap.add_argument("--maxiter", type=int, default=0)
     ap.add_argument("--polish", type=int, default=0)
-    ap.add_argument("--bloc", type=int, default=1024,
+    ap.add_argument("--block", type=int, default=1024,
                     help="largeur des blocs de SNP pour la famille 'sim'")
-    ap.add_argument("--sortie", default="scan_resultats.csv")
+    ap.add_argument("--output", default="scan_results.csv")
     ap.add_argument("--quiet", action="store_true")
     a = ap.parse_args(argv)
 
@@ -152,16 +152,16 @@ def main(argv=None):
     proj = project(fit, X, incid)
     t_proj = time.time() - t0
     t0 = time.time()
-    r = scan(proj, M, tests=tests, bloc=a.bloc, verbose=not a.quiet,
-             garder=(_read_array(a.bundle, man, "scan_garder").astype(bool)
-                     if "scan_garder" in man else None))
+    r = scan(proj, M, tests=tests, block=a.block, verbose=not a.quiet,
+             keep=(_read_array(a.bundle, man, "scan_keep").astype(bool)
+                     if "scan_keep" in man else None))
     t_scan = time.time() - t0
     if not a.quiet:
         print("[scan] projection %.2f s | scan de %d SNP %.2f s"
               % (t_proj, int(meta["p"]), t_scan), flush=True)
         for t in tests:
             print("        lambda(%s) = %.3f"
-                  % (t, lambda_gc(r["chi2_" + t], int(r["ddl_" + t][0]))), flush=True)
+                  % (t, lambda_gc(r["chi2_" + t], int(r["df_" + t][0]))), flush=True)
 
     # ---- output table ------------------------------------------------------
     p = int(meta["p"])
@@ -175,7 +175,7 @@ def main(argv=None):
     for k, v in r.items():
         cols[k] = v
     names = list(cols)
-    out_path = os.path.join(a.bundle, a.sortie)
+    out_path = os.path.join(a.bundle, a.output)
     with open(out_path, "w") as f:
         f.write(",".join(names) + "\n")
         for i in range(p):
@@ -185,11 +185,11 @@ def main(argv=None):
                        else "%.10g" % cols[k][i]))
                 for k in names) + "\n")
     with open(os.path.join(a.bundle, "scan_meta.json"), "w") as f:
-        json.dump(dict(tests=tests, n=n, p=p, secondes_fit=t_fit,
-                       secondes_projection=t_proj, secondes_scan=t_scan,
+        json.dump(dict(tests=tests, n=n, p=p, seconds_fit=t_fit,
+                       seconds_projection=t_proj, seconds_scan=t_scan,
                        neg2_reml=float(fit["neg2_reml"]),
                        lambda_gc={t: lambda_gc(r["chi2_" + t],
-                                               int(r["ddl_" + t][0]))
+                                               int(r["df_" + t][0]))
                                   for t in tests}), f, indent=1)
     if not a.quiet:
         print("[scan] ecrit : %s" % out_path, flush=True)

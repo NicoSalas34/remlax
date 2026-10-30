@@ -5,7 +5,7 @@ standard dense engine (model.make_objective, ai.make_fga,
 effects.dense_effects). Only the way they are computed changes. The aim is to
 reduce the number of n x n matrices and factors alive on the GPU at the same
 time. The standard mode stays the default and is left untouched.
-fit_reml(..., memoire="econome") selects this one.
+fit_reml(..., memory="low") selects this one.
 
 The standard mode keeps several large objects that this mode avoids.
 

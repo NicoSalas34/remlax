@@ -55,7 +55,7 @@ rx_term <- function(name, Z, K = NULL, struct = "iid", rank = 0L,
                     opts = NULL, expr = NULL, parts = NULL,
                     Kinv = NULL, Kinv_logdet = NULL, colnames = NULL) {
   # Names of the columns of Sigma travel to fit$sigmas, fit$blups and
-  # fit$composantes_noms. By default, the names of a list of incidences.
+  # fit$component_names. By default, the names of a list of incidences.
   if (is.null(colnames) && is.list(Z) && !is.null(names(Z)) && all(nzchar(names(Z))))
     colnames <- names(Z)
   if (!is.null(Kinv) && !is.null(K))

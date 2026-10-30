@@ -2,7 +2,7 @@
 
 Ce qui est verifie, et contre quoi :
   - la valeur de l'objectif, pour les trois criteres (reml_y, jacobian, ml) et
-    les trois chemins de log|det A| (nilpotent, rapide, general), contre un
+    les trois chemins de log|det A| (nilpotent, fast, general), contre un
     calcul dense ECRIT ICI en numpy (V^-1, P, slogdet(A), A^-1 X), sans rien
     reprendre du moteur ;
   - le gradient automatique (theta de covariance ET Psi), contre des
@@ -64,7 +64,7 @@ def jeu(nr=6, nc=5, q=2, ng=10, seed=1):
 def lag_de(W_list, tr, un, q, N, mask, crit, force=None):
     return dict(q=q, N=N, W=[sp.csr_matrix(w) for w in W_list], trait=tr, unit=un,
                 mask=np.asarray(mask, bool), value=np.zeros((q, q)), init=np.zeros((q, q)),
-                traits=["T%d" % (k + 1) for k in range(q)], criterion=crit, force_chemin=force)
+                traits=["T%d" % (k + 1) for k in range(q)], criterion=crit, force_path=force)
 
 
 def brute(th_cov, Psi, W_list, term, res, y, X, crit):
@@ -101,7 +101,7 @@ TRI = np.array([[0, 0], [1, 0]], bool)     # T2 <- T1 seulement : sans boucle
 
 
 @pytest.mark.parametrize("crit", ["reml_y", "jacobian", "ml"])
-@pytest.mark.parametrize("cas", ["rapide", "general", "nilpotent", "general_2W", "nilpotent_2W"])
+@pytest.mark.parametrize("cas", ["fast", "general", "nilpotent", "general_2W", "nilpotent_2W"])
 def test_valeur_contre_calcul_dense_et_gradient_contre_differences_finies(crit, cas):
     W, tr, un, y, X, term, res = jeu()
     N, q = W.shape[0], 2
@@ -111,9 +111,9 @@ def test_valeur_contre_calcul_dense_et_gradient_contre_differences_finies(crit, 
     mask = TRI if cas.startswith("nilpotent") else PLEIN
     force = "general" if cas == "general" else None
     L = prepare_lag(lag_de(Wl, tr, un, q, N, mask, crit, force), y, X)
-    attendu = {"rapide": "rapide", "general": "general", "nilpotent": "nilpotent",
+    attendu = {"fast": "fast", "general": "general", "nilpotent": "nilpotent",
                "general_2W": "general", "nilpotent_2W": "nilpotent"}[cas]
-    assert L["chemin"] == attendu
+    assert L["path"] == attendu
     th_lag = np.array([0.4, -0.5, 0.6, 0.2])[:int(mask.sum())] if mask.sum() == 4 else np.array([0.7])
     th = np.concatenate([TH_COV, th_lag])
     _, fj, _, _ = make_objective([term], res, y, X, lag=L)
@@ -173,7 +173,7 @@ def test_psi_fixe_a_zero_reproduit_le_modele_sans_decalage():
             # (theta ~ -11,93, var ~ 4e-11), direction plate ou l'arret varie
             np.testing.assert_allclose(avec["theta"], sans["theta"], rtol=1e-6, atol=1e-4)
             np.testing.assert_allclose(avec["beta"], sans["beta"], rtol=1e-6, atol=1e-7)
-        assert avec["lag"]["logdet_A"] == 0.0 and avec["lag"]["chemin"] == "nilpotent"
+        assert avec["lag"]["logdet_A"] == 0.0 and avec["lag"]["path"] == "nilpotent"
 
 
 def test_hors_region_penalite_finie_et_gradient_nul():
@@ -254,10 +254,10 @@ def test_alias_vp_plus_q_moins_1_sur_2_directions_plates():
         g = np.asarray(term["zj"][:N]) % 6
         gen, plante = _vp_plus(W, tr, un, g, 6, q, N)
         al = aliased_entries([gen, plante], N * q)
-        assert [a["terme"] for a in al] == ["plante"] * attendu
-        assert all(len(a["entrees"]) == 2 for a in al)
+        assert [a["term"] for a in al] == ["plante"] * attendu
+        assert all(len(a["entries"]) == 2 for a in al)
         if q == 2:
-            assert sorted(al[0]["entrees"]) == [(2, 1), (3, 0)]   # IEE1-res2 = IEE2-res1
+            assert sorted(al[0]["entries"]) == [(2, 1), (3, 0)]   # IEE1-res2 = IEE2-res1
         Wa = W.copy()
         Wa[0, 1] = 2.0                                          # W non symetrique
         gen, plante = _vp_plus(Wa, tr, un, g, 6, q, N)
@@ -272,11 +272,11 @@ def test_vp_plus_directions_plates_exclues_du_verdict_et_sommes_identifiees():
     g = np.asarray(term["zj"][:N]) % 6
     gen, plante = _vp_plus(W, tr, un, g, 6, q, N)
     r = fit_reml([gen, plante], aucune, y, X, verbose=False, blups=False, maxiter=500)
-    assert r["n_plat_attendu"] == 1 and r["n_par_identifies"] == r["n_par"] - 1 == 19
-    assert r["n_plat_exclues"] == 1 and r["n_neg_eig"] == 0
+    assert r["n_flat_expected"] == 1 and r["n_par_identified"] == r["n_par"] - 1 == 19
+    assert r["n_flat_excluded"] == 1 and r["n_neg_eig"] == 0
     vc = varcomp_table(r["theta"], r["hessian"], [gen, plante], aucune, alias=r["alias"])
-    code = {d["nom"]: d for d in vc}
-    assert code["plante[3,2]"]["contrainte"] == "N" and code["plante[4,1]"]["contrainte"] == "N"
+    code = {d["name"]: d for d in vc}
+    assert code["plante[3,2]"]["constraint"] == "N" and code["plante[4,1]"]["constraint"] == "N"
     s = code["plante[3,2]+plante[4,1]"]
-    assert abs(s["valeur"] - (code["plante[3,2]"]["valeur"] + code["plante[4,1]"]["valeur"])) < 1e-12
+    assert abs(s["value"] - (code["plante[3,2]"]["value"] + code["plante[4,1]"]["value"])) < 1e-12
     assert np.isfinite(s["se"]) and s["se"] > 0

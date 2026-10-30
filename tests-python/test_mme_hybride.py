@@ -24,8 +24,8 @@ def test_valeur_gradient_ai_identiques(nom):
     fab, sep = CAS[nom]
     terms, res, y, X = fab()
     Md = MME(terms, res, y, X, inversion="dense", verbose=False)
-    Mh = MME(terms, res, y, X, inversion="hybride", verbose=False, separateur=sep)
-    assert Mh.inversion == "hybride" and len(Mh.factor.batches) >= 1
+    Mh = MME(terms, res, y, X, inversion="hybrid", verbose=False, separateur=sep)
+    assert Mh.inversion == "hybrid" and len(Mh.factor.batches) >= 1
     rng = np.random.default_rng(5)
     th0 = initial_theta(terms, res, y)
     for th in [th0, th0 + rng.normal(0, 0.3, len(th0))]:
@@ -41,7 +41,7 @@ def test_sorties_identiques(nom):
     terms, res, y, X = fab()
     th = initial_theta(terms, res, y)
     sa = MME(terms, res, y, X, inversion="dense", verbose=False).outputs(th, pev=True)
-    sb = MME(terms, res, y, X, inversion="hybride", verbose=False, separateur=sep).outputs(th, pev=True)
+    sb = MME(terms, res, y, X, inversion="hybrid", verbose=False, separateur=sep).outputs(th, pev=True)
     assert _rel(sb["beta"], sa["beta"]) <= 1e-9
     for k in sa["blups"]:
         assert _rel(sb["blups"][k], sa["blups"][k]) <= 1e-9
@@ -58,5 +58,5 @@ def test_hors_perimetre_composante_trop_grande():
 def test_choix_automatique_sur_petit_modele():
     """Sans separateur impose, un petit modele reste en dense (moins cher)."""
     terms, res, y, X = cas_ige()
-    M = MME(terms, res, y, X, inversion="hybride", verbose=False)
-    assert M.inversion == "hybride" and M.factor.batches == []
+    M = MME(terms, res, y, X, inversion="hybrid", verbose=False)
+    assert M.inversion == "hybrid" and M.factor.batches == []

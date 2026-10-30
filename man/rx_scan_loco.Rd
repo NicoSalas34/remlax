@@ -54,7 +54,7 @@ log-likelihood, convergence, time and \code{theta} of the null) and an
 attribute \code{"lambda"} (genomic control per test, over all SNPs).
 
 \code{rx_scan_exact()} returns one row per refitted SNP: p-value at fixed V
-(\code{p_fige}), Wald statistic and p-value of the refit (\code{chi2_exact},
+(\code{p_fixed_V}), Wald statistic and p-value of the refit (\code{chi2_exact},
 \code{p_exact}), estimates and standard errors of the added columns
 (\code{beta_dir}, \code{se_dir}, \code{beta_ind}, \code{se_ind}), log-likelihood, convergence
 and time of the refit.

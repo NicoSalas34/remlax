@@ -2,7 +2,7 @@
 
 Each stage sets a mark. The result gives, in order, the time elapsed since the
 previous mark. The R interface passes the instant at which it launches the
-solver (variable RX_T_LANCEMENT, seconds since the epoch). The first stage then
+solver (variable RX_T_LAUNCH, seconds since the epoch). The first stage then
 measures the start-up of the interpreter, which Python alone cannot see.
 
 The module has no dependency. cli.py imports it first, before JAX.
@@ -18,11 +18,11 @@ def reset(t0=None):
     del _marks[:]
     if t0 is None:
         try:
-            t0 = float(os.environ.get("RX_T_LANCEMENT", ""))
+            t0 = float(os.environ.get("RX_T_LAUNCH", ""))
         except ValueError:
             t0 = None
     if t0 is not None:
-        _marks.append(("origine", t0))
+        _marks.append(("origin", t0))
 
 
 def mark(name):

@@ -196,10 +196,10 @@ def finish(fun_jac, theta, lo, hi, hessian, maxit=300, tol_dec=1e-6, tol_gain=1e
         if delta <= 1e-8 and fresh:
             msg, ok = "region de confiance effondree (Delta %.1e)" % delta, dec < 1e-3
             break
-    info = dict(success=ok, message="finition : %s" % msg, n_eval=n_eval[0], n_hessiens=n_hess,
+    info = dict(success=ok, message="finition : %s" % msg, n_eval=n_eval[0], n_hessians=n_hess,
                 decrement=decrement(g[_free(theta, g, lo, hi)], H[np.ix_(*(2 * [_free(theta, g, lo, hi)]))]),
-                secondes=time.time() - t0)
+                seconds=time.time() - t0)
     if verbose:
         print("  [finition] fin : %s | -2logL %.8f | %d evaluations, %d Hessiens | %.0f s"
-              % (msg, f, n_eval[0], n_hess, info["secondes"]), flush=True)
+              % (msg, f, n_eval[0], n_hess, info["seconds"]), flush=True)
     return theta, info

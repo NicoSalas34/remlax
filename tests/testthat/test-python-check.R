@@ -54,7 +54,7 @@ test_that("une expression vpredict fautive est refusee avant l'ajustement, avec 
     expect_error(suppressMessages(capture.output(
       rx_reml(y ~ 1, random = ~ gid, data = d, vpredict = c(h2 = "V1/(V1+V2+V3)"),
               backend = "cpu", verbose = v))),
-      "V3 inconnu.*V1 = gid, V2 = residuelle")
+      "V3 inconnu.*V1 = gid, V2 = residual")
 })
 
 test_that("rx_python_check() confirme l'interpreteur quand il convient", {

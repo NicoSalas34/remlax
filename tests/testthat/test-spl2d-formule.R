@@ -23,7 +23,7 @@ test_that("spl2d() dans rx_reml() equivaut a rx_spl2d() + rx_model()", {
   expect_equal(f$logLik, fe$logLik, tolerance = 1e-8)
   expect_identical(names(f$sigmas), c("gid", paste0("spl_", c("fx", "fy", "fx_y", "x_fy", "fx_fy"))))
   expect_identical(f$spl2d$columns, colnames(sp$X))
-  expect_identical(attr(f$model$X, "termes"), c("(Intercept)", "trt", "spl2d(r, c, nseg = c(4, 4))"))
+  expect_identical(attr(f$model$X, "term_labels"), c("(Intercept)", "trt", "spl2d(r, c, nseg = c(4, 4))"))
 })
 
 test_that("spl2d() : nom, arguments nommes, coordonnees en facteur, erreurs", {
@@ -46,7 +46,7 @@ test_that("spl2d() : predictions, Wald et summary tiennent compte de la partie n
   expect_true(all(p$estimable))
   # l'ecart des deux traitements est exactement le coefficient trtb
   expect_equal(diff(p$predicted.value), unname(f$beta[2]), tolerance = 1e-10)
-  expect_true("spl2d(r, c, nseg = c(4, 4))" %in% f$wald$tests$terme)
+  expect_true("spl2d(r, c, nseg = c(4, 4))" %in% f$wald$tests$term)
   s <- summary(f)
   expect_true(all(paste0("spl_", c("fx", "fy", "fx_y", "x_fy", "fx_fy")) %in% rownames(s$varcomp)))
   expect_true(all(grepl("^spl_lin", tail(rownames(s$coef.fixed), length(f$spl2d$columns)))))

@@ -190,15 +190,15 @@ def test_level_params_report_rend_la_valeur_utilisee():
     r = Lv.level_params_report(np.array([0.4]), "cor", q=Q)
     lo = -1.0 / (Q - 1)
     assert np.isclose(r["phi"][0], lo + (np.tanh(0.4) + 1) / 2 * (1 - lo))
-    assert np.isclose(r["borne_inf"][0], lo)
+    assert np.isclose(r["lower_bound"][0], lo)
     with pytest.raises(ValueError):
         Lv.level_params_report(np.array([0.4]), "cor")            # q obligatoire
     for kind in ("exp", "gau", "iexp", "igau", "ieuc"):
         r = Lv.level_params_report(np.array([-0.7]), kind)
         assert r["phi"][0] == pytest.approx(abs(np.tanh(-0.7)))
-        assert r["signe_non_identifie"] == [1.0]
+        assert r["sign_not_identified"] == [1.0]
     r = Lv.level_params_report(np.array([np.log(4.0)]), "sph")
-    assert r["portee"][0] == pytest.approx(4.0)
+    assert r["range"][0] == pytest.approx(4.0)
     r = Lv.level_params_report(np.array([0.5, -0.3]), "ar2")
     assert np.allclose(r["phi"], od.levinson_np(np.tanh([0.5, -0.3])))
     assert np.allclose(r["pacf"], np.tanh([0.5, -0.3]))

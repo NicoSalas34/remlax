@@ -136,7 +136,8 @@ class NumpyBlasOneThread:
     and removes the contention (dev/notes.md).
 
     No effect if both packages share the same library, or if the symbol cannot
-    be found. REMLAX_BLAS_NUMPY=garder turns it off.
+    be found. REMLAX_BLAS_NUMPY=keep turns it off (the former value garder is
+    still accepted).
     """
 
     _lib = None
@@ -148,7 +149,7 @@ class NumpyBlasOneThread:
             return cls._lib
         cls._searched = True
         import os
-        if os.environ.get("REMLAX_BLAS_NUMPY", "").strip().lower() == "garder":
+        if os.environ.get("REMLAX_BLAS_NUMPY", "").strip().lower() in ("keep", "garder"):
             return None
         try:
             import ctypes

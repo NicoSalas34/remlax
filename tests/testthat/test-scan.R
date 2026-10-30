@@ -54,11 +54,11 @@ test_that("rx_scan sur un jeu simule : colonnes, causal en tete, seuil", {
   expect_equal(nrow(sc), j$p)
   expect_equal(sc$snp[1:2], c("snp1", "snp2"))
   for (t in tests) {
-    expect_true(all(c(paste0("chi2_", t), paste0("p_", t), paste0("ddl_", t)) %in% names(sc)),
+    expect_true(all(c(paste0("chi2_", t), paste0("p_", t), paste0("df_", t)) %in% names(sc)),
                 info = t)
   }
   expect_true(all(c("beta_dir", "se_dir", "r_dir_ind") %in% names(sc)))
-  expect_equal(unique(sc[["ddl_dir+ind"]]), 2)
+  expect_equal(unique(sc[["df_dir+ind"]]), 2)
   expect_equal(which.min(sc$p_dir), 1L)
   expect_true(sc$p_dir[1] < rx_scan_threshold(sc, "dir"))
   expect_equal(sc$chi2_dir, (sc$beta_dir / sc$se_dir)^2, tolerance = 1e-8)

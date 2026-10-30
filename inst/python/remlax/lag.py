@@ -39,7 +39,7 @@ log|det A| paths, chosen once from the structure and never from theta
                and fixed entries with a nonzero value) is an acyclic graph.
                Then M^q = 0, so det A = 1 exactly and A^-1 = sum_{m<q} M^m.
                There is no feedback loop and no equilibrium question.
-    rapide     A single symmetric W, and each (trait, unit) pair observed
+    fast       A single symmetric W, and each (trait, unit) pair observed
                exactly once. W = U diag(lambda) U' is computed once, and
                log|det A| = sum_k log det(I_q - lambda_k Psi). Each eigenvalue
                costs one q x q determinant.
@@ -47,8 +47,7 @@ log|det A| paths, chosen once from the structure and never from theta
                design). A dense LU factorisation of A (n x n) is used. Its
                cost is of the same order as the Cholesky factorisation of V
                already paid at each evaluation.
-    The path names are returned to R as strings and keep their French
-    spelling (rapide means fast).
+    The path names are returned to R as strings.
 
 Admissible region. The region kept is the set of points reachable from
 Psi = 0 without crossing a singularity along the ray t Psi:
@@ -191,18 +190,18 @@ def prepare_lag(lag, y, X):
     if _nilpotent(pattern):
         path = "nilpotent"
     elif single_W and sym and complete:
-        path = "rapide"
+        path = "fast"
     else:
         path = "general"
     # Forcing the path is meant for tests only, to compare the fast and general
     # paths on the same model. The nilpotent path requires a nilpotent pattern.
-    force = lag.get("force_chemin")
+    force = lag.get("force_path")
     if force:
-        if force not in ("rapide", "general", "nilpotent"):
-            raise ValueError("lag : force_chemin = %r inconnu." % force)
+        if force not in ("fast", "general", "nilpotent"):
+            raise ValueError("lag : force_path = %r inconnu." % force)
         if force == "nilpotent" and path != "nilpotent":
             raise ValueError("lag : chemin nilpotent force sur un motif de Psi avec boucle.")
-        if force == "rapide" and not (single_W and sym and complete):
+        if force == "fast" and not (single_W and sym and complete):
             raise ValueError("lag : chemin rapide force sans W unique symetrique et plan complet.")
         path = force
 
@@ -213,12 +212,12 @@ def prepare_lag(lag, y, X):
     # from the numpy log|X'X| in the last digit, and any other floating-point
     # detour.
     empty = not pattern.any()
-    out = dict(lag, _prepare=True, vide=empty, q=q, N=N, n=n, p=p, trait=tr, unit=unit, mask=mask,
-               value=value, criterion=crit, scale=s, chemin=path, Q=jnp.asarray(Q),
+    out = dict(lag, _prepare=True, empty=empty, q=q, N=N, n=n, p=p, trait=tr, unit=unit, mask=mask,
+               value=value, criterion=crit, scale=s, path=path, Q=jnp.asarray(Q),
                tr_j=jnp.asarray(tr), mi=mi, mj=mj, value_j=jnp.asarray(value),
                traits=list(lag.get("traits") or ["T%d" % (k + 1) for k in range(q)]),
                logXX=(float(np.linalg.slogdet(X.T @ X)[1]) if p else 0.0))
-    if path == "rapide":
+    if path == "fast":
         lam, U = np.linalg.eigh(W0.toarray())
         pos = np.empty((q, N), dtype=np.int64)
         pos[tr, unit] = np.arange(n)
@@ -253,7 +252,7 @@ def theta_from_psi(Psi, L):
 
 def ystar(th_lag, L, y):
     """y* = (I - M) y = y - sum_u Psi[t(r), u] Q[r, u]."""
-    if L.get("vide"):
+    if L.get("empty"):
         return jnp.asarray(y)
     Psi = psi_from_theta(th_lag, L)
     return jnp.asarray(y) - jnp.sum(Psi[L["tr_j"], :] * L["Q"], axis=1)
@@ -271,7 +270,7 @@ def _real_eigenvalues_admissible(Psi, lam_min, lam_max):
     return np.bool_(np.all(re * lam_max < 1.0) and np.all(re * lam_min < 1.0))
 
 
-def _ok_rapide(Psi, L):
+def _ok_fast(Psi, L):
     """Exact region condition of the fast path (module docstring), under jit.
 
     It is a numpy callback on the q x q matrix Psi. Psi goes through
@@ -297,13 +296,13 @@ def lag_terms(th_lag, L, X):
     1/2 log|X_y'X_y| - 1/2 log|X'X|, and 0 when the criterion does not use it.
     ok tells whether the point lies in the admissible region (JAX boolean).
     """
-    if L.get("vide"):
+    if L.get("empty"):
         return jnp.asarray(0.0), jnp.asarray(0.0), jnp.asarray(True)
     Psi = psi_from_theta(th_lag, L)
     q = L["q"]
     need_mean = L["criterion"] == "reml_y" and L["p"] > 0
     Xj = jnp.asarray(X)
-    if L["chemin"] == "nilpotent":
+    if L["path"] == "nilpotent":
         ldA, ok = jnp.asarray(0.0), jnp.asarray(True)
         if need_mean:
             M = _M_dense(Psi, L)
@@ -312,11 +311,11 @@ def lag_terms(th_lag, L, X):
                 Xy = Xj + M @ Xy
         else:
             Xy = None
-    elif L["chemin"] == "rapide":
+    elif L["path"] == "fast":
         lam = L["lam"]
         B = jnp.eye(q)[None] - lam[:, None, None] * Psi[None]
         d = jnp.linalg.det(B)
-        ok = jnp.all(d > 0) & _ok_rapide(Psi, L)
+        ok = jnp.all(d > 0) & _ok_fast(Psi, L)
         # Double guard: compute on a safe matrix, then select (module docstring).
         Bs = jnp.where(ok, B, jnp.eye(q)[None])
         ldA = jnp.sum(jnp.linalg.slogdet(Bs)[1])
@@ -350,9 +349,9 @@ def lag_report(th_lag, L, X, neg2):
     L2 = dict(L, criterion="reml_y")
     ldA, ldm, ok = lag_terms(jnp.asarray(th_lag), L2, X)
     ldA, ldm, ok = float(ldA), float(ldm), bool(ok)
-    if L["chemin"] == "nilpotent":
+    if L["path"] == "nilpotent":
         rho = 0.0
-    elif L["chemin"] == "rapide":
+    elif L["path"] == "fast":
         rho = float(np.max(np.abs(L["lam_np"])) * np.max(np.abs(np.linalg.eigvals(Psi))))
     else:
         # General path: the spectrum of M, computed once, gives the spectral
@@ -373,7 +372,7 @@ def lag_report(th_lag, L, X, neg2):
         ll_jac = float("nan")
         ll_ys = ll - ldA
     return dict(Psi=Psi, logdet_A=ldA, logdet_mean=ldm, admissible=ok, criterion=crit,
-                chemin=L["chemin"], rayon_spectral=rho, logLik_jacobian=ll_jac,
+                path=L["path"], spectral_radius=rho, logLik_jacobian=ll_jac,
                 logLik_ystar=ll_ys, scale=float(L["scale"]), n_free=int(len(L["mi"])),
                 traits=list(L["traits"]), mask=np.asarray(L["mask"]))
 

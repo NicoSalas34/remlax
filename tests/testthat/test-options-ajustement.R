@@ -67,30 +67,30 @@ test_that("wald, kenward_roger et vpredict : formules exactes du plan equilibre"
   expect_equal(f[["sigma_res"]][1, 1], a$mse, tolerance = 1e-6)
   expect_equal(f[["sigmas"]][["bloc"]][1, 1], a$sb2, tolerance = 1e-5)
   w <- f[["wald"]][["tests"]]
-  expect_equal(w$terme, c("(Intercept)", "trt"))
-  expect_equal(w$ddl[2], 3)
+  expect_equal(w$term, c("(Intercept)", "trt"))
+  expect_equal(w$df[2], 3)
   expect_equal(w$F[2], a$F, tolerance = 1e-6)
   expect_equal(w$p[2], pchisq(3 * a$F, 3, lower.tail = FALSE), tolerance = 1e-6)
   kr <- f[["kenward_roger"]]
-  expect_true(isTRUE(kr[["disponible"]] == 1))
+  expect_true(isTRUE(kr[["available"]] == 1))
   expect_equal(kr[["tests"]]$denDF[2], 15, tolerance = 1e-8)
   expect_equal(kr[["tests"]]$F[2], a$F, tolerance = 1e-6)
   expect_equal(kr[["tests"]]$p[2], pf(a$F, 3, 15, lower.tail = FALSE), tolerance = 1e-6)
   expect_equal(kr[["se_beta"]][2], sqrt(2 * a$mse / 6), tolerance = 1e-6)
   expect_equal(dim(f[["vbeta_kr"]]), c(4L, 4L))
   vp <- f[["vpredict"]]
-  expect_equal(vp[["composantes"]]$nom, c("bloc", "residuelle"))
-  expect_equal(f[["composantes_noms"]], c("bloc", "residuelle"))
+  expect_equal(vp[["components"]]$name, c("bloc", "residual"))
+  expect_equal(f[["component_names"]], c("bloc", "residual"))
   icc <- vp[["predictions"]]
-  v1 <- vp[["composantes"]]$valeur[1]; v2 <- vp[["composantes"]]$valeur[2]
-  expect_equal(icc$valeur[icc$nom == "icc"], v1 / (v1 + v2), tolerance = 1e-8)
-  expect_equal(icc$valeur[icc$nom == "sd_e"], sqrt(v2), tolerance = 1e-8)
+  v1 <- vp[["components"]]$value[1]; v2 <- vp[["components"]]$value[2]
+  expect_equal(icc$value[icc$name == "icc"], v1 / (v1 + v2), tolerance = 1e-8)
+  expect_equal(icc$value[icc$name == "sd_e"], sqrt(v2), tolerance = 1e-8)
   # delta method a la main : var(theta) = 2 H^-1, J par differences finies
   H <- f[["hessian"]]; th <- f[["theta"]]
   g <- function(t_) exp(2 * t_[1]) / (exp(2 * t_[1]) + exp(2 * t_[2]))
   J <- vapply(1:2, function(j) { e <- c(0, 0); e[j] <- 1e-6
     (g(th + e) - g(th - e)) / 2e-6 }, 1)
-  expect_equal(icc$se[icc$nom == "icc"], sqrt(drop(t(J) %*% (2 * solve(H)) %*% J)),
+  expect_equal(icc$se[icc$name == "icc"], sqrt(drop(t(J) %*% (2 * solve(H)) %*% J)),
                tolerance = 1e-4)
   expect_output(print(f), "vpredict")
   expect_output(print(f), "Wald")
@@ -114,7 +114,7 @@ test_that("rx_predict : classify, at, levels, average, sed, part aleatoire, vcov
   expect_equal(dim(S), c(4L, 4L)); expect_true(all(is.na(diag(S))))
   Cv <- L %*% Vb %*% t(L)
   expect_equal(S[1, 2], sqrt(Cv[1, 1] + Cv[2, 2] - 2 * Cv[1, 2]), tolerance = 1e-8)
-  expect_equal(attr(p, "sed.moyen"), sqrt(mean(S[upper.tri(S)]^2)), tolerance = 1e-10)
+  expect_equal(attr(p, "sed.mean"), sqrt(mean(S[upper.tri(S)]^2)), tolerance = 1e-10)
   expect_output(print(p), "erreur-type moyenne des differences")
   # at : covariable forcee a 0 ; levels : sous-ensemble
   p0 <- rx_predict(f, classify = "trt", at = list(x = 0))
@@ -168,7 +168,7 @@ test_that("dsum, produit separable, spline 2D, pev, multi-caractere", {
   expect_equal(f[["n_par"]], 3L)
   expect_equal(names(f[["sigmas_res"]]), c("S1", "S2"))
   expect_true(f[["sigmas_res"]][["S1"]][1, 1] < f[["sigmas_res"]][["S2"]][1, 1])
-  expect_equal(f[["composantes_noms"]], c("gid", "S1", "S2"))
+  expect_equal(f[["component_names"]], c("gid", "S1", "S2"))
   expect_equal(dim(f[["pev"]][["gid"]]), c(15L, 1L))
   expect_true(all(f[["pev"]][["gid"]] > 0 & f[["pev"]][["gid"]] < f[["sigmas"]][["gid"]][1, 1]))
   fn <- rx_reml(y ~ site, random = ~ gid, residual = ~ dsum(~ units | site), data = d,
@@ -204,7 +204,7 @@ test_that("dsum, produit separable, spline 2D, pev, multi-caractere", {
                 trait = "trait", unit = "unite", backend = "cpu", verbose = FALSE,
                 hessian = FALSE, blups = FALSE)
   expect_equal(ff[["n_par"]], 6L)
-  expect_equal(ff[["composantes_noms"]][1:3], c("gid[1,1]", "gid[2,1]", "gid[2,2]"))
+  expect_equal(ff[["component_names"]][1:3], c("gid[1,1]", "gid[2,1]", "gid[2,2]"))
   Zl <- lapply(levels(dl$trait), function(tt) { ix <- which(dl$trait == tt)
     Matrix::sparseMatrix(i = ix, j = as.integer(dl$gid)[ix], x = 1, dims = c(80, 20)) })
   me <- rx_model(dl$y, model.matrix(y ~ trait, dl), list(rx_term("gid", Zl, struct = "us")),
@@ -230,8 +230,8 @@ test_that("engine = 'auto' choisit le MME et l'AI, meme vraisemblance que le den
   m <- rx_model(y, matrix(1, 400, 1), list(rx_term("g", Z, t = 1L)), rx_residual("iid"))
   a <- rx_fit(m, engine = "auto", optimizer = "auto", backend = "cpu", verbose = FALSE)
   d <- rx_fit(m, backend = "cpu", verbose = FALSE)
-  expect_identical(a$moteur, "mme")
-  expect_identical(a$optimiseur, "ai")
+  expect_identical(a$engine, "mme")
+  expect_identical(a$optimizer, "ai")
   expect_equal(a$logLik, d$logLik, tolerance = 1e-7)
-  expect_true(all(c("preparation", "optimisation", "solveur_total") %in% names(a$chrono)))
+  expect_true(all(c("preparation", "optimisation", "solver_total") %in% names(a$chrono)))
 })

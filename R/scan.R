@@ -57,7 +57,7 @@ rx_scan <- function(fit, model, markers, map = NULL,
   args <- c(shQuote(sol$args), shQuote(dir),
             "--tests", shQuote(paste(tests, collapse = ",")),
             "--backend", backend, "--theta-in", "--maxiter", "0",
-            "--bloc", as.character(as.integer(block)))
+            "--block", as.character(as.integer(block)))
   if (!verbose) args <- c(args, "--quiet")
   code <- .rx_system2(rx_python_cmd(), args, stdout = "", stderr = "", env = sol$env)
   if (!identical(as.integer(code), 0L)) {
@@ -69,7 +69,7 @@ rx_scan <- function(fit, model, markers, map = NULL,
   }
   # check.names = FALSE keeps the test names (`p_dir+ind+sim`, `p_sim|dir+ind`)
   # that make.names() would turn into dots.
-  out <- utils::read.csv(file.path(dir, "scan_resultats.csv"),
+  out <- utils::read.csv(file.path(dir, "scan_results.csv"),
                          stringsAsFactors = FALSE, check.names = FALSE)
   attr(out, "meta") <- jsonlite::fromJSON(file.path(dir, "scan_meta.json"))
   out
@@ -188,7 +188,7 @@ rx_scan <- function(fit, model, markers, map = NULL,
     if (!shared) .rx_put(w, paste0("scan_M", fam), markers[[fam]])
   }
   if (shared) .rx_put(w, "scan_M", markers[[fams[1]]])
-  .rx_put(w, "scan_garder", as.integer(keep_snp), "i4")
+  .rx_put(w, "scan_keep", as.integer(keep_snp), "i4")
   if (!is.null(map)) {
     if (!is.null(map$snp)) .rx_put(w, "scan_snp", map$snp, "str")
     if (!is.null(map$chr)) .rx_put(w, "scan_chr", map$chr, "str")

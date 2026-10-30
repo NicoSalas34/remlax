@@ -28,7 +28,7 @@ model frame).}
 \code{kenward_roger = TRUE}; applies to the fixed part only).}
 
 \item{sed}{attach the matrix of standard errors of differences
-(\code{attr(out, "sed")}) and their quadratic mean (\code{attr(out, "sed.moyen")}).}
+(\code{attr(out, "sed")}) and their quadratic mean (\code{attr(out, "sed.mean")}).}
 
 \item{include_random}{\code{FALSE} gives the fixed-effect prediction only.}
 

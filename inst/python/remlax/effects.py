@@ -74,14 +74,14 @@ def dense_effects(theta, terms, Zs, res, y_fit, X, blups=True, pev=False,
 
 def _inverse_V(V, n, out):
     """V^-1, or its pseudo-inverse when V is numerically singular (a variance
-    at zero is enough); out["V_singuliere"] says which, since beta and the
+    at zero is enough); out["V_singular"] says which, since beta and the
     BLUPs are then conditional."""
     try:
         Vi = np.linalg.solve(V, np.eye(n))
-        out["V_singuliere"] = False
+        out["V_singular"] = False
     except np.linalg.LinAlgError:
         Vi = np.linalg.pinv(V, rcond=1e-12)
-        out["V_singuliere"] = True
+        out["V_singular"] = True
     return Vi
 
 

@@ -14,7 +14,8 @@ Only a reserved node (--exclusive) then gives reliable times (dev/notes.md).
 bound_threads() restricts the affinity of the process to the requested number
 of cores, before NumPy and JAX are imported. The number comes from
 REMLAX_THREADS, then SLURM_CPUS_PER_TASK, then OMP_NUM_THREADS. Without any of
-these variables, nothing changes. REMLAX_THREADS=tous turns the bounding off.
+these variables, nothing changes. REMLAX_THREADS=all turns the bounding off
+(the former value tous is still accepted).
 
 The cores kept are the most idle ones of the mask, measured over 0.1 s in
 /proc/stat. They are taken from a single NUMA node when one has enough.
@@ -33,7 +34,7 @@ _ETAT = {"fait": False, "message": None}
 def _requested_count():
     """(number of cores, name of the variable that gave it), or (None, None)."""
     v = os.environ.get("REMLAX_THREADS", "").strip().lower()
-    if v in ("tous", "all", "0"):
+    if v in ("all", "0", "tous"):
         return None, None
     for var in ("REMLAX_THREADS", "SLURM_CPUS_PER_TASK", "OMP_NUM_THREADS"):
         v = os.environ.get(var, "").strip()

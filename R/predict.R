@@ -186,7 +186,7 @@ rx_predict <- function(fit, classify, levels = NULL, at = NULL,
          if (!verbose) "--quiet" else NULL)
   .rx_run_solver(py, a, verbose, "rx_predict : le solveur a echoue")
   rr <- rx_read_result(dir)
-  list(val = as.numeric(rr$predictions$valeur), Cv = rr$predictions$cov)
+  list(val = as.numeric(rr$predictions$value), Cv = rr$predictions$cov)
 }
 
 # Standard errors of the differences between predictions, and their mean.
@@ -194,15 +194,15 @@ rx_predict <- function(fit, classify, levels = NULL, at = NULL,
   d <- outer(diag(Cv), diag(Cv), "+") - 2 * Cv
   S <- sqrt(pmax(d, 0)); diag(S) <- NA_real_
   attr(out, "sed") <- S
-  attr(out, "sed.moyen") <- sqrt(mean(S[upper.tri(S)]^2, na.rm = TRUE))
+  attr(out, "sed.mean") <- sqrt(mean(S[upper.tri(S)]^2, na.rm = TRUE))
   out
 }
 
 print.rx_predict <- function(x, ...) {
   cat("Predictions\n")
   print(as.data.frame(x), row.names = FALSE, digits = 6)
-  if (!is.null(attr(x, "sed.moyen")))
-    cat(sprintf("\n  erreur-type moyenne des differences : %.6f\n", attr(x, "sed.moyen")))
+  if (!is.null(attr(x, "sed.mean")))
+    cat(sprintf("\n  erreur-type moyenne des differences : %.6f\n", attr(x, "sed.mean")))
   if (any(!x$estimable))
     cat(sprintf("  %d prediction(s) NON estimable(s)\n", sum(!x$estimable)))
   invisible(x)

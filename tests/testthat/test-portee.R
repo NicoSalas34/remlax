@@ -33,10 +33,10 @@ test_that("sph et cir atteignent le maximum global du profil REML en la portee",
     prof <- vapply(portees, function(r) profil_reml(d$y, noyau_portee(kind, De, r)), numeric(1))
     # jamais au-dessus du meilleur point de la grille, et dans la bonne colline
     expect_lte(-2 * fit[["logLik"]], min(prof) + 1e-6)
-    expect_lt(abs(fit[["rho"]][["residuelle!portee"]] - portees[which.min(prof)]), 0.06)
+    expect_lt(abs(fit[["rho"]][["residual!range"]] - portees[which.min(prof)]), 0.06)
   }
   # le champ cir a trois maxima locaux ; l'optimum global est a la portee 7.41
   # (logLik convention asreml 13.876 ; asreml, parti pres de 5, rend 10.848)
-  expect_equal(fit[["rho"]][["residuelle!portee"]], 7.408, tolerance = 2e-3)
+  expect_equal(fit[["rho"]][["residual!range"]], 7.408, tolerance = 2e-3)
   expect_equal(fit[["logLik_asreml"]], 13.8759, tolerance = 1e-5)
 })

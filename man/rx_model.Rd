@@ -4,7 +4,7 @@
 \alias{rx_model}
 \title{Assemble and check a model from explicit components}
 \usage{
-rx_model(y, X, terms, residual = rx_residual(), name = "modele", lag = NULL,
+rx_model(y, X, terms, residual = rx_residual(), name = "model", lag = NULL,
          weights = NULL)
 }
 \arguments{

@@ -70,7 +70,7 @@ test_that("Wald et Kenward-Roger tiennent compte des poids a priori", {
   b <- vb %*% t(X) %*% Vi %*% y
   expect_equal(unname(f$wald$beta), unname(drop(b)), tolerance = 1e-6)
   expect_equal(f$wald$tests$F[2], drop(b[2]^2 / vb[2, 2]), tolerance = 1e-6)
-  expect_equal(unname(f$kenward_roger$se_beta_brut), unname(sqrt(diag(vb))), tolerance = 1e-6)
+  expect_equal(unname(f$kenward_roger$se_beta_raw), unname(sqrt(diag(vb))), tolerance = 1e-6)
 })
 
 test_that("le produit separable est refuse pour la residuelle", {
@@ -93,13 +93,13 @@ test_that("un ajustement REML non converge est signale", {
 })
 
 test_that("un echantillon a posteriori immobile est declare inexploitable", {
-  res <- list(depart_bayes = "map", mode_posterieur = list(succes = FALSE),
-              bayes = list(diagnostics = list(pas = 2.5e-11, rhat_emboite_max = 41.6,
+  res <- list(bayes_start = "map", posterior_mode = list(success = FALSE),
+              bayes = list(diagnostics = list(step_size = 2.5e-11, nested_rhat_max = 41.6,
                                               ess_min = 2.01, divergences = 0)))
   expect_warning(remlax:::.rx_warn_fit(res, maxiter = 0), "inexploitable")
   pb <- remlax:::.rx_bayes_problems(res)
   expect_length(pb, 4L)
-  bon <- list(bayes = list(diagnostics = list(pas = 0.3, rhat_emboite_max = 1.003,
+  bon <- list(bayes = list(diagnostics = list(step_size = 0.3, nested_rhat_max = 1.003,
                                               ess_min = 420, divergences = 0)))
   expect_length(remlax:::.rx_bayes_problems(bon), 0L)
 })

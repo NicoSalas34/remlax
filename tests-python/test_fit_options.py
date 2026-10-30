@@ -106,7 +106,7 @@ def test_composante_au_plancher_signalee_degeneree():
     # aucun effet de bloc simule : sa variance part au plancher
     terms, res, y, X = plan(q=30, rep=3, sb=0.0, seed=3)
     f = fit_reml(terms, res, y, X, verbose=False)
-    assert "bloc" in f["composantes_degenerees"]
+    assert "bloc" in f["degenerate_components"]
     # le seuil de degenerescence est floor + 0.5 : un parametre peut etre
     # declare degenere sans etre EXACTEMENT a la borne (n_at_bound, tol 1e-7)
     assert f["theta"][1] <= -12.0 + 0.5
@@ -205,10 +205,10 @@ def test_constante_asreml_et_sigmas():
     assert set(f["sigmas"]) == {"g", "bloc"}
     assert f["sigmas"]["g"].shape == (1, 1)
     assert f["sigmas"]["g"][0, 0] == pytest.approx(np.exp(2 * f["theta"][0]))
-    assert list(f["sigmas_res"]) == ["residuelle"]
+    assert list(f["sigmas_res"]) == ["residual"]
     assert f["sigma_res"][0, 0] == pytest.approx(np.exp(2 * f["theta"][2]))
     assert f["n_par"] == 3 and f["n_obs"] == n
-    assert f["V_singuliere"] is False
+    assert f["V_singular"] is False
     assert f["blups"]["g"].shape == (20, 1)
     assert f["hessian"].shape == (3, 3)
     assert f["scipy_success"] and f["newton_decrement"] < 1e-4
@@ -231,14 +231,14 @@ def test_rho_cles_nues_prefixees_et_pacf():
     f = fit_reml([od.terme_facteur("g", g, q, lvl="ar1")], res, y, X, theta_init=th_c, **kw)
     assert set(f["rho"]) == {"g"} and f["rho"]["g"][0] == pytest.approx(np.tanh(0.3))
     f = fit_reml([od.terme_facteur("g", g, q, lvl="cor")], res, y, X, theta_init=th_c, **kw)
-    assert set(f["rho"]) == {"g", "g!borne_inf"}
+    assert set(f["rho"]) == {"g", "g!lower_bound"}
     f = fit_reml([od.terme_facteur("g", g, q, lvl="ar2")], res, y, X,
                  theta_init=np.array([0.0, 0.3, -0.2, 0.0]), **kw)
     assert set(f["rho"]) == {"g"} and len(f["rho"]["g"]) == 2
     assert np.allclose(f["pacf"]["g"], np.tanh([0.3, -0.2]))
     f = fit_reml([od.terme_facteur("g", g, q, lvl="ieuc", coord=coord)], res, y, X,
                  theta_init=np.array([0.0, -0.4, 0.0]), **kw)
-    assert set(f["rho"]) == {"g", "g!signe_non_identifie"}
+    assert set(f["rho"]) == {"g", "g!sign_not_identified"}
     assert f["rho"]["g"][0] == pytest.approx(abs(np.tanh(-0.4)))
     opts = {"est_phi": 1.0, "est_nu": 1.0}
     f = fit_reml([od.terme_facteur("g", g, q, lvl="mtrn", coord=coord, lvl_opts=opts)],
@@ -259,7 +259,7 @@ def test_loadings_et_sections_nommees():
                  blups=False, verbose=False)
     assert f["loadings"]["g"]["Lambda"].shape == (t, 1)
     assert f["loadings"]["g"]["psi"].shape == (t,)
-    assert f["sigmas_res"]["residuelle"].shape == (t, t)
+    assert f["sigmas_res"]["residual"].shape == (t, t)
     # dsum : les sections portent leur nom
     n2 = 60
     rows = np.arange(n2)

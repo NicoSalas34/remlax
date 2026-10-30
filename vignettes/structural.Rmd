@@ -113,7 +113,7 @@ when it is not (for instance with a genetic term only).
 With a symmetric `W`, `Cov(res_t, IEE_u)` and `Cov(res_u, IEE_t)` have the
 same pattern in `V` and enter only through their sum: for `q >= 2` the plant
 term has `q(q-1)/2` flat directions. The fit detects them from the incidences
-(`fit$alias`), counts `q(q-1)/2` fewer parameters (`fit$n_par_identifies`,
+(`fit$alias`), counts `q(q-1)/2` fewer parameters (`fit$n_par_identified`,
 used by AIC, BIC and for the degrees of freedom of a likelihood ratio test),
 keeps them out of the convergence verdict, and reports the identified sum:
 
@@ -175,17 +175,17 @@ summary(tb)$varcomp
 ```
 
 ```
-                   component   std.error     z.ratio bound
-gen[1,1]         0.741585235 0.224221704   3.3073749     P
-gen[2,1]         0.199883061 0.147539928   1.3547727     U
-gen[2,2]         0.575156162 0.183988331   3.1260469     P
-residuelle[1,1]  0.956039130 0.124430002   7.6833490     P
-residuelle[2,1]  0.050629466 0.084596151   0.5984843     U
-residuelle[2,2]  0.885845251 0.114650526   7.7264822     P
-Psi[T1<-T1]      0.046704934 0.005399027   8.6506210     U
-Psi[T1<-T2]      0.005389221 0.009093886   0.5926203     U
-Psi[T2<-T1]     -0.078349354 0.005291298 -14.8072084     U
-Psi[T2<-T2]     -0.011776933 0.008692267  -1.3548747     U
+                 component   std.error     z.ratio bound
+gen[1,1]       0.741585235 0.224221704   3.3073749     P
+gen[2,1]       0.199883061 0.147539928   1.3547727     U
+gen[2,2]       0.575156162 0.183988331   3.1260469     P
+residual[1,1]  0.956039130 0.124430002   7.6833490     P
+residual[2,1]  0.050629466 0.084596151   0.5984843     U
+residual[2,2]  0.885845251 0.114650526   7.7264822     P
+Psi[T1<-T1]    0.046704934 0.005399027   8.6506210     U
+Psi[T1<-T2]    0.005389221 0.009093886   0.5926203     U
+Psi[T2<-T1]   -0.078349354 0.005291298 -14.8072084     U
+Psi[T2<-T2]   -0.011776933 0.008692267  -1.3548747     U
 ```
 
 Restricting `Psi` is done in `rx_lag()`: `struct = "diag"` (loops only),
@@ -356,12 +356,12 @@ columns are collinear with the intercepts and must not be added.
 ## How `log|det A|` is computed
 
 Three exact paths, chosen once from the structure of the lag
-(`fit$lag$chemin`):
+(`fit$lag$path`):
 
 * **no feedback** (`"nilpotent"`): the possible non-zero entries of `Psi` form
   a graph without a cycle (for instance only `T2 <- T1`). Then `M^q = 0`,
   `det A = 1` and `A^-1 = sum_{m<q} M^m`;
-* **one symmetric W, complete data** (`"rapide"`): `W = U diag(lambda) U'`
+* **one symmetric W, complete data** (`"fast"`): `W = U diag(lambda) U'`
   once, and `log|det A| = sum_k log det(I_q - lambda_k Psi)`, `q x q` per
   eigenvalue;
 * **otherwise** (`"general"`): one `W` per receiver trait (a list named by the

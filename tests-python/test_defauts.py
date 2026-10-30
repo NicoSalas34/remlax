@@ -18,16 +18,16 @@ def _terme_kinv(graine=2, q=15, rep=4):
     return [tm], od.residuelle_iid(n), y, np.ones((n, 1))
 
 
-@pytest.mark.parametrize("moteur", ["dense", "blocs"])
-def test_terme_kinv_seul_refuse_hors_mme(moteur):
+@pytest.mark.parametrize("engine", ["dense", "blocks"])
+def test_terme_kinv_seul_refuse_hors_mme(engine):
     terms, res, y, X = _terme_kinv()
     with pytest.raises(ValueError, match="precision Kinv"):
-        fit_reml(terms, res, y, X, moteur=moteur, verbose=False, hessian=False, blups=False)
+        fit_reml(terms, res, y, X, engine=engine, verbose=False, hessian=False, blups=False)
 
 
 def test_terme_kinv_seul_accepte_par_le_mme():
     terms, res, y, X = _terme_kinv()
-    r = fit_reml(terms, res, y, X, moteur="mme", verbose=False, hessian=False, blups=False)
+    r = fit_reml(terms, res, y, X, engine="mme", verbose=False, hessian=False, blups=False)
     assert np.isfinite(r["logLik"])
 
 
@@ -49,12 +49,12 @@ def _dispositif_simple(graine=4, q=12, rep=5, struct="iid", t=1):
 def test_plancher_mme_seulement_si_le_moteur_reste_mme():
     kw = dict(verbose=False, hessian=False, blups=False)
     terms, res, y, X = _dispositif_simple()
-    r = fit_reml(terms, res, y, X, moteur="mme", **kw)
-    assert r["moteur"] == "mme" and r["par_floor"] > -12.0
+    r = fit_reml(terms, res, y, X, engine="mme", **kw)
+    assert r["engine"] == "mme" and r["par_floor"] > -12.0
     # Hors perimetre du MME (structure rr) : bascule vers le dense, plancher d'origine.
     terms, res, y, X = _dispositif_simple(struct="rr", t=2)
-    r = fit_reml(terms, res, y, X, moteur="mme", **kw)
-    assert r["moteur"] == "dense" and r["par_floor"] == -12.0
+    r = fit_reml(terms, res, y, X, engine="mme", **kw)
+    assert r["engine"] == "dense" and r["par_floor"] == -12.0
 
 
 def test_grad_rel_identique_avec_et_sans_hessien():

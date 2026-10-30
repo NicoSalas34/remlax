@@ -236,8 +236,8 @@ Environment variables:
 | `RX_OPTIMIZER` | default `optimizer` of `rx_reml()` and `rx_fit()` (`lbfgsb`, `ai`, `auto`) | `lbfgsb` |
 | `RX_MEMORY` | default `memory` of `rx_reml()` and `rx_fit()` (`standard`, `low`) | `standard` |
 | `REMLAX_JAX_CACHE` | folder of the persistent XLA compilation cache; `0` disables it | `<user cache>/remlax/jax` |
-| `REMLAX_BLAS_NUMPY` | `garder` keeps NumPy's OpenBLAS threads during mixed model equations fits | one thread |
-| `REMLAX_THREADS` | number of CPU cores the solver may use; `tous` disables the limit. Without it, `SLURM_CPUS_PER_TASK`, then `OMP_NUM_THREADS` | no limit |
+| `REMLAX_BLAS_NUMPY` | `keep` keeps NumPy's OpenBLAS threads during mixed model equations fits | one thread |
+| `REMLAX_THREADS` | number of CPU cores the solver may use; `all` disables the limit. Without it, `SLURM_CPUS_PER_TASK`, then `OMP_NUM_THREADS` | no limit |
 | `IGE_JAX_CMD` | alternative to `RX_PY` | none |
 | `IGE_JAX_SIF` | Apptainer image; expands to `apptainer exec --nv <sif> python3` | none |
 
@@ -358,7 +358,7 @@ Full definitions, positivity constraints and internal parametrisations:
 - Kenward-Roger omits the second-order term. It vanishes when `V` is
   linear in the variance parameters, which is true of every structure here
   except the between-level correlation parameters (an AR1 `phi`, a range).
-  pbkrtest and SAS make the same choice. The `second_ordre_omis` field says
+  pbkrtest and SAS make the same choice. The `second_order_omitted` field says
   whether the model contains parameters for which the omission is not exact.
 - `rx_predict()` covers fixed effects and single-trait random terms. A
   `classify` on a multi-trait term is warned about and dropped from the random
@@ -371,7 +371,7 @@ Full definitions, positivity constraints and internal parametrisations:
 - The sign of a metric correlation is not identified. `exp`, `gau`,
   `iexp`, `igau`, `ieuc`, `aexp` and `agau` raise `abs(tanh(theta))` to a
   distance, so `theta` and `-theta` give the same model. The reported `phi` is
-  always positive and the report carries `signe_non_identifie`; there is no
+  always positive and the report carries `sign_not_identified`; there is no
   sign to interpret.
 - Neighbourhood kernel ranges are not estimated by REML. Chaining a kernel
   parameter through `Z` into `V` would require rebuilding the incidence at

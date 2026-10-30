@@ -29,10 +29,10 @@ from .effects import dense_effects
 from .diagnostics import hessian_fd, diagnostic, gradient_diagnostic
 
 
-def _chrono(nom):
+def _chrono(name):
     """Stage mark (chrono.py)."""
     from . import chrono
-    chrono.mark(nom)
+    chrono.mark(name)
 
 
 # Relative gradient above which an MME fit not declared converged is resumed
@@ -45,14 +45,14 @@ N_MAX_DENSE_RESTART = 20000
 _BLAS_ONE_THREAD = [False]        # NumpyBlasOneThread context already entered
 
 
-def fit_reml(terms, res, y, X, *args, poids=None, **kwargs):
+def fit_reml(terms, res, y, X, *args, weights=None, **kwargs):
     """REML fit (options: see _fit_model).
 
-    moteur = "auto" or optimizer = "auto" pick the MME engine and AI-REML when
+    engine = "auto" or optimizer = "auto" pick the MME engine and AI-REML when
     the model is within the scope of the MME engine, the dense engine and
     L-BFGS-B otherwise (low-memory above n = 5000).
 
-    poids: prior weights w_i > 0 of the observations (None: none). The residual
+    weights: prior weights w_i > 0 of the observations (None: none). The residual
     becomes R = W^-1/2 R0 W^-1/2, W = diag(w), R0 the declared residual. With
     an iid residual whose variance is fixed at 1 (fixed_idx), R = diag(1/w):
     known residual variances, as in a two-stage analysis. Multiplying the rows
@@ -63,41 +63,41 @@ def fit_reml(terms, res, y, X, *args, poids=None, **kwargs):
     (P y = W^1/2 P* y*, V^-1 = W^1/2 V*^-1 W^1/2).
     """
     kwargs = _resolve_auto(terms, res, y, kwargs)
-    if kwargs.get("moteur") == "mme" and not _BLAS_ONE_THREAD[0]:
+    if kwargs.get("engine") == "mme" and not _BLAS_ONE_THREAD[0]:
         # MME engine: thin NumPy products, heavy work in LAPACK (SciPy); the two
         # OpenBLAS libraries must not compete for the cores (device.py).
         from .device import NumpyBlasOneThread
         _BLAS_ONE_THREAD[0] = True
         try:
             with NumpyBlasOneThread():
-                return fit_reml(terms, res, y, X, *args, poids=poids, **kwargs)
+                return fit_reml(terms, res, y, X, *args, weights=weights, **kwargs)
         finally:
             _BLAS_ONE_THREAD[0] = False
-    if poids is None:
+    if weights is None:
         return _fit_model(terms, res, y, X, *args, **kwargs)
-    return _fit_weighted(terms, res, y, X, poids, args, kwargs)
+    return _fit_weighted(terms, res, y, X, weights, args, kwargs)
 
 
 def _resolve_auto(terms, res, y, kwargs):
-    """kwargs with moteur = "auto" and optimizer = "auto" replaced by the
+    """kwargs with engine = "auto" and optimizer = "auto" replaced by the
     engine and optimiser chosen for the model."""
-    if kwargs.get("moteur") == "auto" or kwargs.get("optimizer") == "auto":
+    if kwargs.get("engine") == "auto" or kwargs.get("optimizer") == "auto":
         kwargs = dict(kwargs)
         from .mme import out_of_scope as _hp
         in_mme = _hp(terms, res, kwargs.get("lag")) is None
-        if kwargs.get("moteur") == "auto":
-            kwargs["moteur"] = "mme" if in_mme else "dense"
-            if kwargs["moteur"] == "dense" and len(y) > 5000 and kwargs.get("memoire", "standard") == "standard":
-                kwargs["memoire"] = "econome"
+        if kwargs.get("engine") == "auto":
+            kwargs["engine"] = "mme" if in_mme else "dense"
+            if kwargs["engine"] == "dense" and len(y) > 5000 and kwargs.get("memory", "standard") == "standard":
+                kwargs["memory"] = "low"
         if kwargs.get("optimizer") == "auto":
-            kwargs["optimizer"] = "ai" if kwargs["moteur"] == "mme" else "lbfgsb"
+            kwargs["optimizer"] = "ai" if kwargs["engine"] == "mme" else "lbfgsb"
     return kwargs
 
 
-def _fit_weighted(terms, res, y, X, poids, args, kwargs):
+def _fit_weighted(terms, res, y, X, weights, args, kwargs):
     """Fit on rows scaled by sqrt(w), then the likelihood, P y and V^-1 brought
     back to the original scale (see fit_reml)."""
-    w = np.asarray(poids, dtype=np.float64).ravel()
+    w = np.asarray(weights, dtype=np.float64).ravel()
     if w.shape[0] != len(y) or not np.all(np.isfinite(w)) or np.any(w <= 0):
         raise ValueError("poids : %d valeurs finies et > 0 attendues" % len(y))
     sw = np.sqrt(w)
@@ -117,7 +117,7 @@ def _fit_weighted(terms, res, y, X, poids, args, kwargs):
         out["Py"] = np.asarray(out["Py"]) * sw
     if "Vi" in out:
         out["Vi"] = np.asarray(out["Vi"]) * sw[:, None] * sw[None, :]
-    out["poids"] = True
+    out["weighted"] = True
     return out
 
 
@@ -125,25 +125,25 @@ def _fit_model(terms, res, y, X, theta_init=None, maxiter=3000,
                floor=-12.0, ceil=12.0, verbose=True, hessian=True,
                blups=True, pev=False, tol=1e-14, polish=25, check=True,
                n_restarts=0, restart_sd=0.5, seed=0, fixed_idx=None, lag=None,
-               optimizer="lbfgsb", moteur="dense", inversion="auto",
-               memoire="standard", finition="newton", arret_lent=(100, 0.05)):
+               optimizer="lbfgsb", engine="dense", inversion="auto",
+               memory="standard", finish="newton", slow_stop=(100, 0.05)):
     """REML fit of one model.
 
-    finition: "newton" (default: L-BFGS-B to its tolerance, then Newton
-      polishing) or "rc" (finition.py): L-BFGS-B stops as soon as its gain over
-      the last arret_lent[0] iterations falls below arret_lent[1] (units of
+    finish: "newton" (default: L-BFGS-B to its tolerance, then Newton
+      polishing) or "trust" (finition.py): L-BFGS-B stops as soon as its gain over
+      the last slow_stop[0] iterations falls below slow_stop[1] (units of
       -2logL), then a trust-region Newton finishes, handling flat directions
       and vanishing variances.
 
-    memoire: "standard" (default) or "econome" (dense engine only,
+    memory: "standard" (default) or "low" (dense engine only,
       econome.py). Same likelihood, gradient and AI matrix; the low-memory mode
       keeps fewer n x n matrices and no full-height incidence on the device.
 
     optimizer: "lbfgsb" (default) or "ai" (damped AI-REML, ai.py). Polishing,
       diagnostics and outputs are the same.
 
-    moteur: "dense" (V formed, default), "mme" (mixed model equations,
-      mme.py; inversion "auto", "dense" or "creuse") or "blocs" (blocs.py:
+    engine: "dense" (V formed, default), "mme" (mixed model equations,
+      mme.py; inversion "auto", "dense", "sparse" or "hybrid") or "blocks" (blocs.py:
       automatic split into blocks linked by global terms, V = A + U U' block by
       block). All give the same likelihood in theta. A model outside the scope
       of the MME or blocks engine falls back to the dense engine with a message.
@@ -170,18 +170,18 @@ def _fit_model(terms, res, y, X, theta_init=None, maxiter=3000,
             terms, res, y, X, n_restarts, restart_sd, seed,
             dict(theta_init=theta_init, maxiter=maxiter, floor=floor, ceil=ceil,
                  verbose=verbose, hessian=hessian, blups=blups, pev=pev, tol=tol,
-                 polish=polish, check=False, moteur=moteur, inversion=inversion,
-                 memoire=memoire, finition=finition, arret_lent=arret_lent,
+                 polish=polish, check=False, engine=engine, inversion=inversion,
+                 memory=memory, finish=finish, slow_stop=slow_stop,
                  fixed_idx=fixed_idx, lag=lag, optimizer=optimizer))
 
-    eng = _build_engine(terms, res, y, X, lag, moteur, inversion, memoire, optimizer,
+    eng = _build_engine(terms, res, y, X, lag, engine, inversion, memory, optimizer,
                         floor, verbose)
-    floor, moteur, memoire = eng.floor, eng.engine, eng.memory
+    floor, engine, memory = eng.floor, eng.engine, eng.memory
     th0, p_cov, p = _start_theta(theta_init, terms, res, y, X, lag)
     _check_start(th0, terms, res, X, n, lag, p_cov, eng)
     obj = _Objective(eng, th0, p, verbose,
-                     slow_stop=(finition == "rc" and optimizer == "lbfgsb"),
-                     arret_lent=arret_lent)
+                     slow_on=(finish == "trust" and optimizer == "lbfgsb"),
+                     slow_stop=slow_stop)
     bornes, th0 = _bounds(th0, p, floor, ceil, terms, res, y, fixed_idx)
 
     # maxiter = 0 means "do not optimise" and is short-circuited: L-BFGS-B
@@ -190,7 +190,7 @@ def _fit_model(terms, res, y, X, theta_init=None, maxiter=3000,
         theta, r = np.asarray(th0, dtype=np.float64), None
     else:
         theta, r = _optimise(obj, th0, bornes, theta_init, terms, res, y, X, n, lag,
-                             eng, optimizer, maxiter, tol, floor, fixed_idx, arret_lent,
+                             eng, optimizer, maxiter, tol, floor, fixed_idx, slow_stop,
                              verbose)
     t_optim = time.time() - obj.hist["t0"]
     _chrono("optimisation")
@@ -200,14 +200,14 @@ def _fit_model(terms, res, y, X, theta_init=None, maxiter=3000,
         theta, r, polish_eff, H_cache = _check_ai_saddle(obj, theta, r, bornes, floor, ceil,
                                                          hessian, maxiter, tol, polish,
                                                          verbose)
-    if finition == "rc" and int(maxiter) > 0 and polish_eff > 0:
+    if finish == "trust" and int(maxiter) > 0 and polish_eff > 0:
         theta = _finish_trust_region(obj, theta, bornes, verbose)
         polish_eff = 0
     theta, n_polish = _newton_polish(obj, theta, polish_eff, p, floor, ceil, fixed_idx,
                                      verbose)
 
     f_end, g_end = obj.fun_jac(theta)
-    _chrono("finition")
+    _chrono("finish")
     out = _result_core(obj, eng, theta, r, f_end, g_end, X, y, n, p, maxiter, floor, ceil,
                        optimizer, t_optim, n_polish)
     n_plat = _add_identification(out, terms, n, p, verbose)
@@ -215,17 +215,17 @@ def _fit_model(terms, res, y, X, theta_init=None, maxiter=3000,
     _add_degenerate(out, theta, terms, p_cov, floor, fixed_idx, verbose)
     _add_sigmas(out, theta, terms, res, n)
     _add_effects(out, eng, theta, terms, res, y, y_fit, X, n, blups, hessian, pev)
-    _chrono("effets")
+    _chrono("effects")
     _add_hessian_diagnostics(out, obj, theta, g_end, H_cache, hessian, floor, ceil,
                              fixed_idx, n_plat)
-    _chrono("hessien")
+    _chrono("hessian")
     return _dense_restart_if_needed(
-        out, terms, res, y, X, moteur, maxiter, verbose,
+        out, terms, res, y, X, engine, maxiter, verbose,
         dict(maxiter=maxiter, floor=floor, ceil=ceil, verbose=verbose, hessian=hessian,
              blups=blups, pev=pev, tol=tol, polish=polish, check=False, n_restarts=0,
-             fixed_idx=fixed_idx, lag=lag, optimizer=optimizer, moteur="dense",
-             inversion=inversion, memoire=memoire, finition=finition,
-             arret_lent=arret_lent))
+             fixed_idx=fixed_idx, lag=lag, optimizer=optimizer, engine="dense",
+             inversion=inversion, memory=memory, finish=finish,
+             slow_stop=slow_stop))
 
 
 # ------------------------------------------------------------------------------
@@ -265,17 +265,17 @@ def _fit_with_restarts(terms, res, y, X, n_restarts, restart_sd, seed, kw):
 # Engine and objective
 # ------------------------------------------------------------------------------
 
-def _build_engine(terms, res, y, X, lag, moteur, inversion, memoire, optimizer, floor,
+def _build_engine(terms, res, y, X, lag, engine, inversion, memory, optimizer, floor,
                   verbose):
     """The engine actually used, after fallbacks, and its objective.
 
-    Returns a namespace with moteur, memoire, floor (raised for the MME
+    Returns a namespace with engine, memory, floor (raised for the MME
     engine), fun_jac (-2logL and gradient), fun_sc (the same divided by sc,
     the scaled objective minimised by L-BFGS-B), sc, Zs (dense incidences, or
     None), and the engine objects M_mme, fga_mme, plan_eco, plan_blocs."""
     from types import SimpleNamespace
     n = len(y)
-    eng = SimpleNamespace(engine=moteur, memory=memoire, floor=floor, Zs=None,
+    eng = SimpleNamespace(engine=engine, memory=memory, floor=floor, Zs=None,
                           M_mme=None, fga_mme=None, plan_eco=None, plan_blocs=None)
     if eng.engine == "mme":
         _mme_fallback(eng, terms, res, lag, verbose)
@@ -287,7 +287,7 @@ def _build_engine(terms, res, y, X, lag, moteur, inversion, memoire, optimizer, 
         _res = y - X @ np.linalg.lstsq(X, y, rcond=None)[0]
         _vy = float(_res @ _res) / max(n - X.shape[1], 1)
         eng.floor = max(floor, 0.5 * float(np.log(1e-8 * _vy)))
-    if eng.engine == "blocs":
+    if eng.engine == "blocks":
         _blocs_fallback(eng, terms, res, y, X, lag, optimizer, verbose)
     if eng.engine == "mme":
         from .mme import make_fga_mme
@@ -300,7 +300,7 @@ def _build_engine(terms, res, y, X, lag, moteur, inversion, memoire, optimizer, 
             v_, g_ = _fj(theta)
             return v_ / _sc, g_ / _sc
         eng.fun_sc = fun_sc
-    elif eng.engine == "blocs":
+    elif eng.engine == "blocks":
         require_K(terms, "moteur par blocs")
         from .blocs import make_objective_blocks
         eng.fun_sc, eng.fun_jac, eng.sc = make_objective_blocks(eng.plan_blocs)
@@ -340,18 +340,18 @@ def _blocs_fallback(eng, terms, res, y, X, lag, optimizer, verbose):
     if reason:
         if verbose:
             print("  [moteur] blocs : %s -> moteur dense econome" % reason, flush=True)
-        eng.engine, eng.memory = "dense", "econome"
+        eng.engine, eng.memory = "dense", "low"
 
 
 def _dense_objective(eng, terms, res, y, X, lag, verbose):
     """Objective of the dense engine, standard or low-memory (econome.py, not
     available with a spatial lag)."""
-    if eng.memory == "econome" and lag is not None:
+    if eng.memory == "low" and lag is not None:
         if verbose:
             print("  [memoire] mode econome sans decalage spatial -> mode standard",
                   flush=True)
         eng.memory = "standard"
-    if eng.memory == "econome":
+    if eng.memory == "low":
         from .econome import LowMemoryPlan, make_objective_low_memory
         eng.plan_eco = LowMemoryPlan(terms, res, y, X)
         eng.fun_sc, eng.fun_jac, eng.sc = make_objective_low_memory(eng.plan_eco)
@@ -360,7 +360,7 @@ def _dense_objective(eng, terms, res, y, X, lag, verbose):
     elif eng.memory == "standard":
         eng.fun_sc, eng.fun_jac, eng.sc, eng.Zs = make_objective(terms, res, y, X, lag=lag)
     else:
-        raise ValueError("memoire : 'standard' ou 'econome', pas %r" % (eng.memory,))
+        raise ValueError("memory : 'standard' ou 'low', pas %r" % (eng.memory,))
 
 
 # ------------------------------------------------------------------------------
@@ -406,7 +406,7 @@ def _check_start(th0, terms, res, X, n, lag, p_cov, eng):
                 "determinant negatif (pas d'equilibre). Partir de Psi = 0 ou d'une valeur "
                 "plus petite.")
     if res.get("struct") == "none" and eng.engine == "dense":
-        if eng.memory == "econome":
+        if eng.memory == "low":
             from .econome import V_on_host
             V0 = V_on_host(eng.plan_eco, th0)
         else:
@@ -459,10 +459,10 @@ class _Objective:
     The order and number of evaluations are part of the result (n_eval): keep
     them when changing a caller."""
 
-    def __init__(self, eng, th0, p, verbose, slow_stop, arret_lent):
+    def __init__(self, eng, th0, p, verbose, slow_on, slow_stop):
         _chrono("preparation")
         self._raw_fj, self._raw_sc, self.sc = eng.fun_jac, eng.fun_sc, eng.sc
-        self.verbose, self.arret_lent = verbose, arret_lent
+        self.verbose, self.slow_stop = verbose, slow_stop
         _t = time.time()
         _v0 = self._raw_fj(th0)
         try:
@@ -483,7 +483,7 @@ class _Objective:
         self.hist = {"n": 0, "t0": time.time(), "n_eval": 0,
                      "v": float("nan"), "gmax": float("nan")}
         self.hist["t_eval"] = []
-        self._slow = dict(actif=slow_stop, f=[])
+        self._slow = dict(active=slow_on, f=[])
 
     def _evaluate(self, slot, th, raw, factor):
         key = np.asarray(th, dtype=np.float64).tobytes()
@@ -517,15 +517,15 @@ class _Objective:
         return v, g
 
     def callback(self, _):
-        """L-BFGS-B callback: slow-progress stop (finition "rc"), and a
+        """L-BFGS-B callback: slow-progress stop (finish "trust"), and a
         progress line whose period adapts to the measured evaluation time."""
         hist = self.hist
         hist["n"] += 1
-        if self._slow["actif"]:
+        if self._slow["active"]:
             self._slow["f"].append(hist["v"])
-            k_, seuil_ = self.arret_lent
+            k_, seuil_ = self.slow_stop
             if len(self._slow["f"]) > k_ and self._slow["f"][-k_ - 1] - self._slow["f"][-1] < seuil_:
-                hist["arret_lent"] = True
+                hist["slow_stop"] = True
                 raise StopIteration
         if not self.verbose:
             return
@@ -549,7 +549,7 @@ class _Objective:
 # ------------------------------------------------------------------------------
 
 def _optimise(obj, th0, bornes, theta_init, terms, res, y, X, n, lag, eng, optimizer,
-              maxiter, tol, floor, fixed_idx, arret_lent, verbose):
+              maxiter, tol, floor, fixed_idx, slow_stop, verbose):
     """Optimisation from th0: range sweep (automatic start only), check of a
     finite start, then AI-REML or L-BFGS-B, each followed by escapes from the
     variance floor. Returns theta and the optimiser result."""
@@ -570,7 +570,7 @@ def _optimise(obj, th0, bornes, theta_init, terms, res, y, X, n, lag, eng, optim
                          verbose)
     elif optimizer == "lbfgsb":
         r = _optimise_lbfgsb(obj, th0, bornes, terms, res, y, X, maxiter, tol, floor,
-                             arret_lent, verbose)
+                             slow_stop, verbose)
     else:
         raise ValueError("optimizer inconnu : %r (lbfgsb, ai)" % (optimizer,))
     return np.asarray(r.x, dtype=np.float64), r
@@ -585,15 +585,15 @@ def _floor_reference(th0, terms, res, y, X):
     return th_ref
 
 
-def _optimise_lbfgsb(obj, th0, bornes, terms, res, y, X, maxiter, tol, floor, arret_lent,
+def _optimise_lbfgsb(obj, th0, bornes, terms, res, y, X, maxiter, tol, floor, slow_stop,
                      verbose):
     """L-BFGS-B, then up to three escapes from the floor: a variance pushed
     near the floor in log scale does not come back, its gradient vanishes
     there (_floor_escape)."""
     r = obj.lbfgsb(th0, bornes, maxiter, tol)
-    if obj.hist.get("arret_lent") and verbose:
+    if obj.hist.get("slow_stop") and verbose:
         print("  [finition] L-BFGS-B arrete a l'iteration %d : gain < %g sur %d iterations"
-              % (obj.hist["n"], arret_lent[1], arret_lent[0]), flush=True)
+              % (obj.hist["n"], slow_stop[1], slow_stop[0]), flush=True)
     th_ref = _floor_reference(th0, terms, res, y, X)
     for _tour in range(3):
         th_ev = _floor_escape(obj.fun_jac, np.asarray(r.x, dtype=np.float64), th_ref,
@@ -651,7 +651,7 @@ def _ai_functions(obj, eng, terms, res, y, X):
     from .ai import make_fga
     if eng.engine == "mme":
         fga = eng.fga_mme
-    elif eng.memory == "econome":
+    elif eng.memory == "low":
         from .econome import make_fga_low_memory
         fga = make_fga_low_memory(eng.plan_eco)
     else:
@@ -706,7 +706,7 @@ def _finish_trust_region(obj, theta, bornes, verbose):
     theta, info_fin = finish(obj.fun_jac, theta, lo_, hi_,
                              hessian=lambda th: hessian_fd(obj.fun_jac, th, floor=lo_, ceil=hi_),
                              verbose=verbose, counter=obj.hist)
-    obj.hist["finition"] = info_fin
+    obj.hist["finish"] = info_fin
     return theta
 
 
@@ -800,11 +800,11 @@ def _result_core(obj, eng, theta, r, f_end, g_end, X, y, n, p, maxiter, floor, c
                 scipy_message=("evaluation seule (maxiter = 0), aucune optimisation"
                                if no_optim else str(r.message)),
                 n_iter=(0 if no_optim else int(r.nit)),
-                secondes=time.time() - hist["t0"],
+                seconds=time.time() - hist["t0"],
                 par_floor=float(floor), par_ceil=float(ceil),
                 compile_s=_t_compil, eval_s=_t_eval, first_call_s=obj.t_first,
                 n_eval=int(hist["n_eval"]),
-                optimiseur=str(optimizer), secondes_optim=float(t_optim))
+                optimizer=str(optimizer), seconds_optim=float(t_optim))
 
 
 def _add_identification(out, terms, n, p, verbose):
@@ -813,16 +813,16 @@ def _add_identification(out, terms, n, p, verbose):
     of identified parameters (df of a LRT, AIC) accounts for them. Returns the
     number of expected flat directions."""
     alias = aliased_entries(terms, n)
-    n_plat = int(sum(len(g["entrees"]) - 1 for g in alias))
+    n_plat = int(sum(len(g["entries"]) - 1 for g in alias))
     _chrono("alias")
-    out["alias"] = [dict(terme=g["terme"], entrees=[[int(i), int(j)] for i, j in g["entrees"]])
+    out["alias"] = [dict(term=g["term"], entries=[[int(i), int(j)] for i, j in g["entries"]])
                     for g in alias]
-    out["n_plat_attendu"] = n_plat
-    out["n_par_identifies"] = int(p - n_plat)
+    out["n_flat_expected"] = n_plat
+    out["n_par_identified"] = int(p - n_plat)
     if n_plat and verbose:
         print("  [identification] %d direction(s) plate(s) par construction : %s"
-              % (n_plat, "; ".join("%s %s" % (g["terme"], " = ".join(
-                  "[%d,%d]" % (i + 1, j + 1) for i, j in g["entrees"])) for g in alias)),
+              % (n_plat, "; ".join("%s %s" % (g["term"], " = ".join(
+                  "[%d,%d]" % (i + 1, j + 1) for i, j in g["entries"])) for g in alias)),
               flush=True)
     return n_plat
 
@@ -839,7 +839,7 @@ def _add_lag_report(out, theta, lag, p_cov, X, y, f_end, verbose):
         if verbose:
             Lr = out["lag"]
             print("  [decalage] critere %s | chemin %s | log|det A| %.6f | rayon spectral de M %.4f"
-                  % (Lr["criterion"], Lr["chemin"], Lr["logdet_A"], Lr["rayon_spectral"]),
+                  % (Lr["criterion"], Lr["path"], Lr["logdet_A"], Lr["spectral_radius"]),
                   flush=True)
     return y_fit
 
@@ -857,8 +857,8 @@ def _add_degenerate(out, theta, terms, p_cov, floor, fixed_idx, verbose):
             degen.append(tm["name"])
         o += p_k
     if np.any(theta[o:p_cov] <= seuil):
-        degen.append("residuelle")
-    out["composantes_degenerees"] = degen
+        degen.append("residual")
+    out["degenerate_components"] = degen
     out["n_fixed"] = 0 if not fixed_idx else len(fixed_idx)
     if degen and verbose:
         print("  [attention] composante(s) au plancher (non identifiee(s)) : %s"
@@ -893,7 +893,7 @@ def _add_sigmas(out, theta, terms, res, n):
         p_s = sec_n_params(sec)
         th_s = th_res[o_s:o_s + p_s]
         ns_r = n_params(sec["struct"], sec["t"], sec["rank"])
-        nom = sec.get("name", "residuelle") if len(secs) > 1 else "residuelle"
+        nom = sec.get("name", "residual") if len(secs) > 1 else "residual"
         S = (np.asarray(build_sigma(jnp.asarray(th_s[:ns_r]), sec["struct"],
                                     sec["t"], sec["rank"]))
              if sec["struct"] in ("us", "fa", "diag")
@@ -918,27 +918,27 @@ def _add_effects(out, eng, theta, terms, res, y, y_fit, X, n, blups, hessian, pe
     mixed model equations without forming V; the blocks engine and the
     low-memory mode form V once on the device and bring it to the host (a
     block-wise output remains to be written)."""
-    moteur, memoire = eng.engine, eng.memory
-    out["moteur"] = moteur
-    out["memoire"] = memoire if moteur == "dense" else "standard"
-    if moteur == "blocs":
-        out["blocs"] = eng.plan_blocs.summary()
-    if moteur == "mme":
+    engine, memory = eng.engine, eng.memory
+    out["engine"] = engine
+    out["memory"] = memory if engine == "dense" else "standard"
+    if engine == "blocks":
+        out["blocks"] = eng.plan_blocs.summary()
+    if engine == "mme":
         so = eng.M_mme.outputs(theta, pev=(pev if blups else ()))
-        out["beta"], out["vbeta"], out["V_singuliere"] = so["beta"], so["vbeta"], False
+        out["beta"], out["vbeta"], out["V_singular"] = so["beta"], so["vbeta"], False
         if blups:
             out["blups"] = so["blups"]
             if "pev" in so:
                 out["pev"] = so["pev"]
         out["inversion"] = eng.M_mme.inversion
-    if moteur in ("dense", "blocs") and (blups or hessian) and (memoire == "econome"
-                                                                 or moteur == "blocs"):
+    if engine in ("dense", "blocks") and (blups or hessian) and (memory == "low"
+                                                                  or engine == "blocks"):
         from .econome import V_on_host, z_on_host, LowMemoryPlan
-        plan_eco = LowMemoryPlan(terms, res, y, X) if moteur == "blocs" else eng.plan_eco
+        plan_eco = LowMemoryPlan(terms, res, y, X) if engine == "blocks" else eng.plan_eco
         out.update(dense_effects(theta, terms, None, res, y_fit, X, blups=blups, pev=pev,
                                  V=V_on_host(plan_eco, theta),
                                  z_de=lambda k: z_on_host(terms[k], n)))
-    elif moteur == "dense" and (blups or hessian):
+    elif engine == "dense" and (blups or hessian):
         out.update(dense_effects(theta, terms, eng.Zs, res, y_fit, X, blups=blups, pev=pev))
 
 
@@ -954,16 +954,16 @@ def _add_hessian_diagnostics(out, obj, theta, g_end, H_cache, hessian, floor, ce
             H = hessian_fd(obj.fun_jac, theta, floor=floor, ceil=ceil)
         out["hessian"] = H
         out.update(diagnostic(H, g_end, theta, floor, ceil, fixed_idx=fixed_idx,
-                               f_obj=out.get("neg2_reml"), n_plat_attendu=n_plat))
+                               f_obj=out.get("neg2_reml"), n_flat_expected=n_plat))
     else:
         out.update(gradient_diagnostic(g_end, theta, floor, ceil,
                                         fixed_idx=fixed_idx,
                                         f_obj=out.get("neg2_reml")))
         out.update(dict(newton_decrement=np.nan, conv_decrement=None,
-                        conv_hessien_ok=None, n_neg_eig=None, cond=np.nan))
+                        conv_hessian_ok=None, n_neg_eig=None, cond=np.nan))
 
 
-def _dense_restart_if_needed(out, terms, res, y, X, moteur, maxiter, verbose, kw):
+def _dense_restart_if_needed(out, terms, res, y, X, engine, maxiter, verbose, kw):
     """Finish by the dense engine. An MME fit that the optimiser did not
     declare converged, with a relative gradient above GRAD_REL_DENSE_RESTART, is
     resumed by the dense engine from the point reached: the MME engine inverts
@@ -975,28 +975,28 @@ def _dense_restart_if_needed(out, terms, res, y, X, moteur, maxiter, verbose, kw
     kinv_only = any(tm.get("Kinv") is not None and tm.get("LK") is None for tm in terms)
     failed = not bool(out.get("scipy_success", False))
     grad_ok = gr_ is not None and gr_ <= GRAD_REL_DENSE_RESTART
-    if (moteur == "mme" and int(maxiter) > 0 and kinv_only and verbose and failed
+    if (engine == "mme" and int(maxiter) > 0 and kinv_only and verbose and failed
             and not grad_ok):
         print("  [moteur] MME non converge (gradient relatif %s), sans reprise dense : un terme "
               "n'a que sa precision K^-1" % ("%.2e" % gr_ if gr_ is not None else "n.d."), flush=True)
-    if (moteur == "mme" and int(maxiter) > 0 and not kinv_only and failed
+    if (engine == "mme" and int(maxiter) > 0 and not kinv_only and failed
             and len(y) <= N_MAX_DENSE_RESTART and not grad_ok):
         if verbose:
             print("  [moteur] MME non converge (gradient relatif %s) : fin par le moteur dense "
                   "depuis ce point" % ("%.2e" % gr_ if gr_ is not None else "n.d."), flush=True)
         out_d = fit_reml(terms, res, y, X, theta_init=out["theta"], **kw)
-        out_d["moteur"] = "mme+dense"
+        out_d["engine"] = "mme+dense"
         out_d["inversion"] = out.get("inversion")
-        out_d["secondes"] = float(out_d.get("secondes", 0.0)) + float(out.get("secondes", 0.0))
+        out_d["seconds"] = float(out_d.get("seconds", 0.0)) + float(out.get("seconds", 0.0))
         return out_d
     return out
 
 
 def _store_level_params(out, nom, kind, rapport):
     """Stores the level parameters in out["rho"] under unambiguous keys. A
-    structure with one parameter keeps the bare key (rho["residuelle"]); with
-    several (mtrn: phi, nu, delta, alpha) each key is prefixed: residuelle!phi,
-    residuelle!nu, ..."""
+    structure with one parameter keeps the bare key (rho["residual"]); with
+    several (mtrn: phi, nu, delta, alpha) each key is prefixed: residual!phi,
+    residual!nu, ..."""
     multi = kind == "mtrn"
     for cle, v in rapport.items():
         if cle == "pacf":

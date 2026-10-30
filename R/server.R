@@ -9,7 +9,7 @@
 #
 # It is turned off by options(remlax.server = FALSE), and always during
 # R CMD check, so that no process outlives an example. The JSON keys of the
-# protocol (jeton, argv, ordre, t_lancement) are those read by serveur.py.
+# protocol (token, argv, order, t_launch) are those read by serveur.py.
 # ==============================================================================
 
 .rx_server <- new.env(parent = emptyenv())
@@ -84,7 +84,7 @@ rx_server_stop <- function() {
   if (is.null(.rx_server$port)) return(invisible(FALSE))
   con <- .rx_server_connect(5)
   if (!is.null(con)) {
-    writeLines(jsonlite::toJSON(list(jeton = .rx_server$token, ordre = "stop"), auto_unbox = TRUE), con)
+    writeLines(jsonlite::toJSON(list(token = .rx_server$token, order = "stop"), auto_unbox = TRUE), con)
     close(con)
   } else if (!is.null(.rx_server$pid)) {
     tools::pskill(.rx_server$pid)
@@ -94,7 +94,7 @@ rx_server_stop <- function() {
 }
 
 # Runs the solver command line (without its entry point) on the server.
-# Returns list(code, sortie), or NULL when the server is not usable. A forked
+# Returns list(code, output), or NULL when the server is not usable. A forked
 # child inherits the state of its parent's server, which would serve requests
 # one at a time: it forgets it without stopping it and starts its own. Another
 # interpreter or another thread count also needs a new server.
@@ -110,8 +110,8 @@ rx_server_stop <- function() {
   con <- .rx_server_connect(1e7)
   if (is.null(con)) return(NULL)
   on.exit(close(con))
-  writeLines(jsonlite::toJSON(list(jeton = .rx_server$token, argv = as.character(argv),
-                                   t_lancement = as.numeric(Sys.time())),
+  writeLines(jsonlite::toJSON(list(token = .rx_server$token, argv = as.character(argv),
+                                   t_launch = as.numeric(Sys.time())),
                               auto_unbox = TRUE), con)
   # The server sends the solver's output line by line, then "\036RXFIN <code>"
   # (0x1E, an ASCII separator that R can read).
@@ -130,5 +130,5 @@ rx_server_stop <- function() {
     code <- 1L
     output <- c(output, "[remlax] le processus solveur persistant s'est arrete en cours d'ajustement")
   }
-  list(code = code, sortie = output)
+  list(code = code, output = output)
 }

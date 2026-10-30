@@ -31,6 +31,44 @@
   warning.
 * The Bayesian route, the spatial lag, the blocks engine, the hybrid
   inversion, `rx_scan_loco()` and `rx_scan_exact()` are marked experimental.
+* Every identifier of the interface is in English; messages are not yet.
+  Fit fields: `engine`, `memory`, `optimizer`, `seconds`, `seconds_optim`,
+  `degenerate_components`, `component_names`, `conv_hessian_ok`, `cores`,
+  `threads_bound`, `n_par_identified`, `n_flat_expected`, `n_flat_excluded`,
+  `decrement_threshold`, `grad_rel_threshold`, `V_singular`, `bayes_start`,
+  `posterior_mode` (`success`, `log_posterior`, `seconds`), `weighted`,
+  `blocks`, and `term`, `entries` in `alias`. Engine values `"blocks"` and
+  `"mme+dense"`, memory `"low"`, inversion `"sparse"` and `"hybrid"`, as in
+  the R options. Tables: `varcomp` (`name`, `value`, `constraint`),
+  `vpredict` (`components`; `name`, `value`), `predictions` (`value`),
+  `wald` and `kenward_roger` (`term`, `df`, `F_raw`, `scale`, `available`,
+  `reason`, `se_beta_raw`, `second_order_omitted`), the attribute
+  `"sed.mean"` of `rx_predict()`. Spatial lag: `path` (`"fast"`,
+  `"general"`, `"nilpotent"`), `spectral_radius`. Level parameters in `rho`:
+  `range`, `sign_not_identified`, `lower_bound`. The residual is named
+  `"residual"` in component names, `sigmas_res`, `rho` and `rx_prior(terms
+  = )`. Bayesian route: `summary` (`name`, `mean`, `median`, `nested_rhat`),
+  `component_names`, `expression_names`, `effects`, `dims` (`chains`,
+  `draws`) and the diagnostics `algorithm`, `acceptance`, `step_size`,
+  `mean_leapfrog_steps`, `chains`, `superchains`, `warmup`, `draws`,
+  `nested_rhat_max`, `seconds`, `seconds_warmup`, `seconds_draws`, `n_free`.
+  Stages of `chrono`: `origin`, `startup`, `device`, `read`, `finish`,
+  `effects`, `hessian`, `write`, `transfer`, and on the R side
+  `server_startup`, `solver_total`, `read_R`. Scans: `df_<test>` columns,
+  `scan_results.csv`, `seconds_fit`, `seconds_projection` and
+  `seconds_scan` in the metadata, and `p_fixed_V`, `converged`, `seconds` in
+  `rx_scan_exact()` and `rx_scan_loco()`. `rx_model()` names its model
+  `"model"` by default and stores `X_terms`, from the attribute
+  `"term_labels"` of `X`. Solver flags: `--optimizer`, `--engine`,
+  `--memory`, `--finish`, `--slow-stop`, `--pev-terms`, `--start`,
+  `--chains`, `--superchains`, `--warmup`, `--draws`, `--seed`,
+  `--target-accept`, `--max-leapfrog`, `--bayes-effects`, and `--block`,
+  `--output` for the scan; they take the values of the R options, which
+  R now passes unchanged. Python `fit_reml()` takes `engine`, `memory`,
+  `finish`, `slow_stop` and `weights`. The server protocol uses `token`,
+  `order` and `t_launch`, and the timing variables are `RX_T_LAUNCH` and
+  `RX_T_START`. `REMLAX_THREADS=all` and `REMLAX_BLAS_NUMPY=keep` replace
+  `tous` and `garder`, which are still accepted.
 
 * CRAN policy. The solver writes its compilation cache in
   `tools::R_user_dir("remlax", "cache")`, pruned of files unused for 30 days,

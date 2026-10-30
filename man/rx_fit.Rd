@@ -47,13 +47,13 @@ the terms you need, never for all.}
 
 \item{vpredict}{named character vector of functions of the variance
 components, e.g. \code{c(h2 = "V1/(V1+V2)")}, with standard errors by the delta
-method. \code{fit$composantes_noms} gives the \code{Vi} numbering.}
+method. \code{fit$component_names} gives the \code{Vi} numbering.}
 
 \item{wald}{compute Wald tests of the fixed effects (conditional, type III).}
 
 \item{kenward_roger}{compute Kenward-Roger denominator degrees of freedom and
 the adjusted covariance of the fixed effects. The second-order term is
-omitted; the field \code{second_ordre_omis} says whether the model contains
+omitted; the field \code{second_order_omitted} says whether the model contains
 parameters for which the omission is not exact.}
 
 \item{predict}{\code{list(L = , M = )}, prediction matrices written for the
@@ -132,10 +132,10 @@ The draws, their summary and the sampler diagnostics come back in
 }
 \value{
 An object of class \code{rx_fit}, a list with \code{theta}, \code{logLik},
-\code{logLik_asreml}, \code{n_par}, \code{n_obs}, \code{secondes}, \code{chrono} (seconds spent in
+\code{logLik_asreml}, \code{n_par}, \code{n_obs}, \code{seconds}, \code{chrono} (seconds spent in
 each stage, from the export by R to the reading back of the result),
 \code{compile_s} and \code{eval_s} (compilation, median time of one evaluation),
-\code{backend}, \code{moteur} (the
+\code{backend}, \code{engine} (the
 engine actually used), \code{inversion} (with the \code{"mme"} engine), \code{sigmas} (named
 list of \code{Sigma} matrices), \code{sigmas_res} and \code{sigma_res}, \code{rho}
 (between-level parameters on the scale actually used), \code{blups} (named list
@@ -144,7 +144,7 @@ of \verb{q x t} matrices), \code{beta}, \code{vbeta}, \code{hessian}, \code{max_
 \code{n_fixed_out}, \code{n_par_free}, \code{par_floor}, \code{par_ceil}, \code{fixed_theta},
 \code{se_theta} (standard errors of \code{theta}, \verb{sqrt(2 diag(H^-1))} on the free
 subspace, \code{NA} elsewhere; see \code{\link[=rx_se_theta]{rx_se_theta()}}),
-\code{composantes_degenerees}, \code{composantes_noms}, \code{optim_msg} (read it first:
+\code{degenerate_components}, \code{component_names}, \code{optim_msg} (read it first:
 \code{ABNORMAL} is a failed line search, not a maximum), and, when requested, \code{vpredict}, \code{wald}, \code{kenward_roger},
 \code{pev}, \code{predictions}. With a spatial lag (\code{\link[=rx_lag]{rx_lag()}}): \code{lag}, a list with
 \code{Psi} and \code{Psi_se} (\verb{q x q}, receiver in rows, emitter in columns, units
@@ -152,16 +152,16 @@ of \code{W}; \code{NA} standard errors for entries that are not free), \code{cri
 \code{logdet_A} (\verb{log|det(I - M)|}), \code{logdet_mean} (the mean-space term
 \verb{1/2 log|X_y'X_y| - 1/2 log|X'X|}, reported whatever the criterion),
 \code{logLik_ystar} (restricted likelihood of \verb{y*} alone), \code{logLik_jacobian},
-\code{rayon_spectral} (spectral radius of \code{M}), \code{admissible}, \code{chemin} (how
-\verb{log|det A|} was computed: \code{"nilpotent"}, \code{"rapide"}, \code{"general"}) and
+\code{spectral_radius} (spectral radius of \code{M}), \code{admissible}, \code{path} (how
+\verb{log|det A|} was computed: \code{"nilpotent"}, \code{"fast"}, \code{"general"}) and
 \code{scale}; and \code{ystar}, the transformed response \verb{(I - M) y} on which
 \code{beta}, the BLUPs and the Wald tests are computed. The free entries of
 \code{Psi} are also rows \code{Psi[receiver<-emitter]} of the component table, with
 standard errors by the delta method, and the last elements of \code{theta}.
 Always: \code{alias} (groups of entries of a \code{us} term with the same pattern in
-\code{V}, identified only through their sum), \code{n_plat_attendu} (the number of
+\code{V}, identified only through their sum), \code{n_flat_expected} (the number of
 flat directions they create, excluded from \code{n_neg_eig}, \code{n_null_dir} and
-the convergence verdict) and \code{n_par_identifies} (\code{n_par} minus those, the
+the convergence verdict) and \code{n_par_identified} (\code{n_par} minus those, the
 count for a likelihood ratio test). For VP+ (plant term \verb{[I, W]}, \code{us}
 over \verb{2q} columns, symmetric \code{W}) that is \code{q(q-1)/2} directions. Read fields with \code{[[} rather than \code{$}: \code{$} does
 partial matching and \code{fit$sigmas} once matched \code{sigmas_res}.

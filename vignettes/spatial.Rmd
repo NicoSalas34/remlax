@@ -74,7 +74,7 @@ LRT champ : chi2 = 49.813 pour 2 ddl, p = 1.52e-11
 ```
 
 `~ ar1(row):ar1(col)` builds `R = s2 * (C_row (x) C_col)`. The correlations
-are read from `f1$rho$residuelle`, a vector of two.
+are read from `f1$rho$residual`, a vector of two.
 
 The row correlation comes out at 0.46 against a simulated 0.6, the column one
 at 0.31 against 0.3. The row parameter is the harder of the two: 16 rows of 12
@@ -110,7 +110,7 @@ f2 <- rx_reml(y ~ 1, random = ~ gid + ar1(row, col), residual = ~ units,
               data = d, backend = "cpu", verbose = FALSE)
 print(f2)
 f2$rho
-f2$composantes_noms
+f2$component_names
 ```
 
 ```
@@ -124,7 +124,7 @@ $row_col
 [1] 0.4628062 0.3122591
 
 [1] "gid"             "row_col"         "row_col!ar1ar11" "row_col!ar1ar12"
-[5] "residuelle"
+[5] "residual"
 ```
 
 Note `ar1(row, col)` with **two positional arguments**: that is the separable
@@ -138,13 +138,13 @@ identifiable**: the field can reproduce any nugget by lowering its
 correlations. The solver says so:
 
 ```r
-f2$composantes_degenerees
+f2$degenerate_components
 f2$n_at_bound
 ```
 
 ```
-composantes_degenerees : residuelle
-n_at_bound             : 1
+degenerate_components : residual
+n_at_bound            : 1
 ```
 
 A variance at the floor is not "estimated at zero", it is **unidentified**.
@@ -171,11 +171,11 @@ essai <- function(fx)
 
 ```
 ~units                             logLik  -345.6646  2 par.
-~ar1(row):ar1(col)                 logLik  -320.7582  4 par.  residuelle=0.4628/0.3123
-~iexp(coln, rown)                  logLik  -345.6646  3 par.  residuelle=1e-12 residuelle!signe_non_identifie=1
-~ieuc(coln, rown)                  logLik  -345.6646  3 par.  residuelle=1e-12 residuelle!signe_non_identifie=1
-~sph(coln, rown)                   logLik  -327.8789  3 par.  residuelle!portee=4.64
-~aexp(coln, rown)                  logLik  -345.6646  4 par.  residuelle=1e-12/1e-12 residuelle!signe_non_identifie=1
+~ar1(row):ar1(col)                 logLik  -320.7582  4 par.  residual=0.4628/0.3123
+~iexp(coln, rown)                  logLik  -345.6646  3 par.  residual=1e-12 residual!sign_not_identified=1
+~ieuc(coln, rown)                  logLik  -345.6646  3 par.  residual=1e-12 residual!sign_not_identified=1
+~sph(coln, rown)                   logLik  -327.8789  3 par.  residual!range=4.64
+~aexp(coln, rown)                  logLik  -345.6646  4 par.  residual=1e-12/1e-12 residual!sign_not_identified=1
 ```
 
 Two things are visible here.
@@ -199,17 +199,17 @@ correlation; read it as "turned off".
 The reported keys tell you what scale you are reading, and remlax always
 reports the value that is actually in `C`.
 
-- `portee` instead of `phi` for `sph`, `cir` and `lvr`: those are parametrised
+- `range` instead of `phi` for `sph`, `cir` and `lvr`: those are parametrised
   by a **range** in `exp(theta)`, not by a
   correlation in `tanh`. A range is positive and unbounded.
-- `signe_non_identifie` on the metric families: they raise `abs(tanh(theta))`
+- `sign_not_identified` on the metric families: they raise `abs(tanh(theta))`
   to a distance, so `theta` and `-theta` give the **same** correlation matrix
   (verified to `max|C(+) - C(-)| = 0`). The reported `phi` is therefore always
   positive; there is no sign to interpret. `ar1` carries no such flag and its
   sign is meaningful: a negative `phi` there is a legitimate alternating
   correlation.
-- `borne_inf` on a `cor` structure: the reported correlation has already been
-  rescaled onto `(-1/(q-1), 1)`, and `borne_inf` is that bound.
+- `lower_bound` on a `cor` structure: the reported correlation has already been
+  rescaled onto `(-1/(q-1), 1)`, and `lower_bound` is that bound.
 
 ---
 
@@ -226,9 +226,9 @@ m3 <- rx_reml(y ~ 1, random = ~ gid, residual = ~ mtrn(coln, rown, nu = "1.0 F")
 ```
 
 ```
-m1 : logLik  -321.8478  3 par.  residuelle!phi=1.1893
-m2 : logLik  -321.7610  4 par.  residuelle!phi=1.8281 residuelle!nu=0.34253
-m3 : logLik  -339.2455  3 par.  residuelle!phi=0.26242
+m1 : logLik  -321.8478  3 par.  residual!phi=1.1893
+m2 : logLik  -321.7610  4 par.  residual!phi=1.8281 residual!nu=0.34253
+m3 : logLik  -339.2455  3 par.  residual!phi=0.26242
 ```
 
 The three differ only in what is said about `nu`, and that changes the model.
@@ -317,8 +317,8 @@ Ajustement REML (cpu) : logLik -78.941857 | 6 parametres | 60 obs | 0.4 s
   Sigma[gid] 1x1, diagonale : 3.775e-11
   residuelle : 0.6717 1.0029
    rho : 0.122630 0.036921
-   noms : gid, residuelle[1,1], residuelle[2,1], residuelle[2,2],
-          residuelle!ar1ar11, residuelle!ar1ar12
+   noms : gid, residual[1,1], residual[2,1], residual[2,2],
+          residual!ar1ar11, residual!ar1ar12
 ```
 
 `R = Sigma_trait (x) C_cell`: the `2 x 2` residual covariance couples the two
@@ -502,7 +502,7 @@ spl_B2_fy    5.064e-09     B          0.000       5 0.000
 spl_B2_fx_y  1.674e+02     P          4.266       7 0.609
 spl_B2_x_fy  1.956e-10     B          0.000       5 0.000
 spl_B2_fx_fy 2.455e+00     P          2.292      35 0.065
-residuelle   8.923e-01     P        135.166     184 0.735
+residual     8.923e-01     P        135.166     184 0.735
 ```
 
 (An extract of the two tables, rounded and placed side by side; `summary()`
@@ -577,7 +577,7 @@ print(fs)
 ```
 
 ```
-Modele REML 'modele' : 192 observations, 4 effets fixes
+Modele REML 'model' : 192 observations, 4 effets fixes
   terme gid            iid   t=1   q=48    K=I        (1 parametre)
   terme spl_fx         iid   t=1   q=7     K=I        (1 parametre)
   terme spl_fy         iid   t=1   q=7     K=I        (1 parametre)

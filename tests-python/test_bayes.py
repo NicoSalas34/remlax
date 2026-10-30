@@ -35,7 +35,7 @@ def _prior_seul(terms, res, prior, n_par, chaines=8, tirages=500, seed=0):
     """Tire la loi a priori seule avec l'echantillonneur de production (ChEES)."""
     y = np.random.default_rng(1).standard_normal(50)
     X = np.ones((50, 1))
-    p = B._resoudre_prior(prior, terms, res, y, X)
+    p = B._resolve_prior(prior, terms, res, y, X)
     lp, _, _ = B.make_log_prior(terms, res, p)
     z0 = 0.5 * np.random.default_rng(seed).standard_normal((chaines, n_par))
     z, diag = B.run_sampler(lp, z0, warmup=300, draws=tirages, seed=seed, verbose=False)
@@ -46,7 +46,7 @@ def _prior_seul(terms, res, prior, n_par, chaines=8, tirages=500, seed=0):
 def test_jacobien_ecart_type_demi_normal():
     terms = [dict(name="g", struct="iid", t=1, rank=0, q=5, LK=None)]
     res = dict(struct="iid", t=1, rank=0)
-    th = _prior_seul(terms, res, {"sd": {"famille": "half_normal", "echelle": 1.0}}, 2)
+    th = _prior_seul(terms, res, {"sd": {"family": "half_normal", "scale": 1.0}}, 2)
     sd = np.exp(th[:, 0])
     # mediane d'une demi-normale d'echelle 1 : 0,6745
     assert abs(np.median(sd) - 0.6745) < 0.05
@@ -56,7 +56,7 @@ def test_jacobien_ecart_type_demi_normal():
 def test_jacobien_lkj_uniforme_en_dimension_2():
     terms = [dict(name="g", struct="us", t=2, rank=0, q=5, LK=None)]
     res = dict(struct="iid", t=1, rank=0)
-    th = _prior_seul(terms, res, {"sd": {"famille": "half_normal", "echelle": 1.0}, "lkj": 1.0}, 4)
+    th = _prior_seul(terms, res, {"sd": {"family": "half_normal", "scale": 1.0}, "lkj": 1.0}, 4)
     S = np.array([np.asarray(B.build_sigma(jnp.asarray(t[:3]), "us", 2, 0)) for t in th])
     r = S[:, 1, 0] / np.sqrt(S[:, 0, 0] * S[:, 1, 1])
     sd1 = np.sqrt(S[:, 0, 0])
@@ -69,7 +69,7 @@ def test_jacobien_lkj_uniforme_en_dimension_2():
 def test_jacobien_tanh_uniforme():
     terms = [dict(name="g", struct="iid", t=1, rank=0, q=5, LK=None, lvl="ar1")]
     res = dict(struct="iid", t=1, rank=0)
-    th = _prior_seul(terms, res, {"sd": {"famille": "half_normal", "echelle": 1.0}}, 3)
+    th = _prior_seul(terms, res, {"sd": {"family": "half_normal", "scale": 1.0}}, 3)
     rho = np.tanh(th[:, 1])
     assert abs(np.mean(np.abs(rho)) - 0.5) < 0.05
     assert abs(np.quantile(rho, 0.9) - 0.8) < 0.06
@@ -79,7 +79,7 @@ def test_prior_terme_inconnu_refuse():
     terms = [dict(name="g", struct="iid", t=1, rank=0, q=5, LK=None)]
     res = dict(struct="iid", t=1, rank=0)
     with pytest.raises(ValueError, match="inconnu"):
-        B._resoudre_prior({"termes": {"autre": {}}}, terms, res, np.zeros(5), np.ones((5, 1)))
+        B._resolve_prior({"terms": {"autre": {}}}, terms, res, np.zeros(5), np.ones((5, 1)))
 
 
 def test_rhat_emboite():

@@ -134,8 +134,8 @@ def aliased_entries(terms, n, n_vec=3, seed=12345, tol=1e-9):
     `us` structures with level kind id or fixed are examined: their entries
     are free, so a common pattern is exactly a flat direction.
 
-    Returns a list of groups dict(terme, entrees = [(i, j), ...] 0-based,
-    i >= j), each group losing len(entrees) - 1 dimensions."""
+    Returns a list of groups dict(term, entries = [(i, j), ...] 0-based,
+    i >= j), each group losing len(entries) - 1 dimensions."""
     import scipy.sparse as sp_
     rng = np.random.default_rng(seed)
     R = rng.normal(size=(n, n_vec))
@@ -176,7 +176,7 @@ def aliased_entries(terms, n, n_vec=3, seed=12345, tol=1e-9):
                     grp.append(d)
                     seen.add(d)
             if len(grp) > 1:
-                out.append(dict(terme=tm["name"], entrees=grp))
+                out.append(dict(term=tm["name"], entries=grp))
     return out
 
 

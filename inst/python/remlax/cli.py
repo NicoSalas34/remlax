@@ -29,7 +29,7 @@ import os  # noqa: E402
 import sys  # noqa: E402
 
 # End of interpreter start-up, recorded by remlax_run.py before any heavy import.
-_T_DEBUT = float(os.environ.get("RX_T_DEBUT", time.time()))
+_T_START = float(os.environ.get("RX_T_START", time.time()))
 
 # Threads bounded to the allocated cores, before NumPy and JAX size their
 # thread pools on the affinity of the process (fils.py).
@@ -43,8 +43,8 @@ import numpy as np  # noqa: E402
 # slice (dev/notes.md). The variable is read when the backend initialises,
 # which happens on the imports below, so it is set here. A value set by the
 # caller is kept.
-if "--memoire=econome" in sys.argv or "--moteur=blocs" in sys.argv or "--inversion=hybride" in sys.argv or any(
-        (a, b) in (("--memoire", "econome"), ("--moteur", "blocs"), ("--inversion", "hybride"))
+if "--memory=low" in sys.argv or "--engine=blocks" in sys.argv or "--inversion=hybrid" in sys.argv or any(
+        (a, b) in (("--memory", "low"), ("--engine", "blocks"), ("--inversion", "hybrid"))
         for a, b in zip(sys.argv, sys.argv[1:])):
     os.environ.setdefault("XLA_PYTHON_CLIENT_MEM_FRACTION", "0.95")
 
@@ -54,12 +54,12 @@ from remlax.bundle import Bundle  # noqa: E402
 from remlax.device import pick_device, device_report, enable_compilation_cache, without_gpu_plugins  # noqa: E402
 from remlax.fit import fit_reml  # noqa: E402
 
-# Timing by stages (chrono.py). "demarrage" runs from the launch by R
-# (RX_T_LANCEMENT) to the first line of this file; "imports" covers numpy, JAX
+# Timing by stages (chrono.py). "startup" runs from the launch by R
+# (RX_T_LAUNCH) to the first line of this file; "imports" covers numpy, JAX
 # and the solver. In server mode, serveur.py resets the timer at each request
 # and both stages disappear.
 chrono.reset()
-chrono.set_at("demarrage", _T_DEBUT)
+chrono.set_at("startup", _T_START)
 chrono.mark("imports")
 
 
@@ -94,7 +94,7 @@ def _run(a, plat):
     _write_outputs(a, r, bayes, plat)
     if not a.quiet and not a.only_predict:
         print("[remlax] logLik = %.9f | %d parametres | %.1f s"
-              % (r["logLik"], r["n_par"], r["secondes"]), flush=True)
+              % (r["logLik"], r["n_par"], r["seconds"]), flush=True)
     return 0
 
 
@@ -108,16 +108,16 @@ def _parser():
     ap.add_argument("--backend", default="auto", choices=["auto", "gpu", "cpu"])
     ap.add_argument("--maxiter", type=int, default=3000)
     ap.add_argument("--polish", type=int, default=25)
-    ap.add_argument("--optimiseur", default="lbfgsb", choices=["lbfgsb", "ai", "auto"])
-    ap.add_argument("--moteur", default="dense", choices=["dense", "mme", "blocs", "auto"])
-    ap.add_argument("--inversion", default="auto", choices=["auto", "dense", "creuse", "hybride"])
-    ap.add_argument("--finition", default="newton", choices=["newton", "rc"],
+    ap.add_argument("--optimizer", default="lbfgsb", choices=["lbfgsb", "ai", "auto"])
+    ap.add_argument("--engine", default="dense", choices=["dense", "mme", "blocks", "auto"])
+    ap.add_argument("--inversion", default="auto", choices=["auto", "dense", "sparse", "hybrid"])
+    ap.add_argument("--finish", default="newton", choices=["newton", "trust"],
                     help="fin d'ajustement : polissage de Newton apres L-BFGS-B (defaut), ou "
                          "arret sur progres lent et Newton a region de confiance (finition.py)")
-    ap.add_argument("--arret-lent", default="100,0.05",
-                    help="finition rc : fenetre (iterations) et gain minimal de -2logL")
-    ap.add_argument("--memoire", default="standard", choices=["standard", "econome"],
-                    help="moteur dense : 'econome' garde moins de matrices n x n sur le "
+    ap.add_argument("--slow-stop", default="100,0.05",
+                    help="finish trust : fenetre (iterations) et gain minimal de -2logL")
+    ap.add_argument("--memory", default="standard", choices=["standard", "low"],
+                    help="moteur dense : 'low' garde moins de matrices n x n sur le "
                          "peripherique (econome.py) ; meme vraisemblance")
     ap.add_argument("--restarts", type=int, default=0,
                     help="redemarrages perturbes : seul moyen de detecter un optimum local")
@@ -126,7 +126,7 @@ def _parser():
     ap.add_argument("--ceil", type=float, default=12.0)
     ap.add_argument("--no-hessian", action="store_true")
     ap.add_argument("--no-blups", action="store_true")
-    ap.add_argument("--pev-termes", dest="pev_termes", default=None,
+    ap.add_argument("--pev-terms", dest="pev_terms", default=None,
                     help="liste de termes, separes par des virgules, pour "
                          "lesquels calculer la PEV. Preferable a --pev sur un "
                          "modele a nombreuses nuisances.")
@@ -154,32 +154,32 @@ def _parser():
     ap.add_argument("--bayes", action="store_true",
                     help="loi a posteriori des parametres de variance par HMC (blackjax, "
                          "ChEES), depuis l'optimum REML")
-    ap.add_argument("--depart", default="map", choices=["map", "reml"],
+    ap.add_argument("--start", default="map", choices=["map", "reml"],
                     help="voie bayesienne : 'map' (defaut) part du mode a posteriori, SANS "
                          "ajustement REML ; 'reml' ajuste d'abord par REML")
-    ap.add_argument("--chaines", type=int, default=0,
+    ap.add_argument("--chains", type=int, default=0,
                     help="nombre de chaines ; 0 : 8 sur CPU, 32 sur GPU")
-    ap.add_argument("--superchaines", type=int, default=4)
-    ap.add_argument("--chauffe", type=int, default=150)
-    ap.add_argument("--tirages", type=int, default=150)
-    ap.add_argument("--graine", type=int, default=0)
-    ap.add_argument("--acceptation", type=float, default=0.651)
-    ap.add_argument("--sauts-max", dest="sauts_max", type=int, default=1000)
+    ap.add_argument("--superchains", type=int, default=4)
+    ap.add_argument("--warmup", type=int, default=150)
+    ap.add_argument("--draws", type=int, default=150)
+    ap.add_argument("--seed", type=int, default=0)
+    ap.add_argument("--target-accept", type=float, default=0.651)
+    ap.add_argument("--max-leapfrog", dest="max_leapfrog", type=int, default=1000)
     ap.add_argument("--prior", default=None,
                     help="fichier JSON de loi a priori, relatif au paquet (prior.json)")
-    ap.add_argument("--bayes-effets", dest="bayes_effets", type=int, default=100,
+    ap.add_argument("--bayes-effects", dest="bayes_effects", type=int, default=100,
                     help="tirages servant aux moments a posteriori de beta et des BLUP")
     return ap
 
 
 def _pev_arg(a):
-    """The --pev-termes list, or the --pev flag."""
-    return a.pev_termes.split(",") if a.pev_termes else a.pev
+    """The --pev-terms list, or the --pev flag."""
+    return a.pev_terms.split(",") if a.pev_terms else a.pev
 
 
 def _slow_stop_arg(a):
-    """--arret-lent as (window, minimal gain)."""
-    w, g = a.arret_lent.split(",")
+    """--slow-stop as (window, minimal gain)."""
+    w, g = a.slow_stop.split(",")
     return (int(w), float(g))
 
 
@@ -202,7 +202,7 @@ def _select_device(a):
         if _FILS["message"]:
             print(_FILS["message"], flush=True)
         print("[remlax] backend retenu : %s (%s)" % (plat, dev), flush=True)
-    chrono.mark("peripherique")
+    chrono.mark("device")
     return dev, plat
 
 
@@ -222,9 +222,9 @@ class _Inputs:
 def _read_inputs(a):
     b = Bundle(a.bundle)
     terms, res, y, X = b.terms(), b.residual(), b.y, b.X
-    chrono.mark("lecture")
+    chrono.mark("read")
     # Prior weights of the observations (rx_model(weights = )): fit.fit_reml.
-    weights = np.asarray(b.get("poids"), dtype=np.float64) if b.has("poids") else None
+    weights = np.asarray(b.get("weights"), dtype=np.float64) if b.has("weights") else None
     if weights is not None and a.bayes:
         raise _Refusal("la voie bayesienne ne prend pas encore les poids")
     lag = b.lag()
@@ -243,7 +243,7 @@ def _prepare_lag(a, lag, y, X):
     if not a.quiet:
         print("[remlax] decalage spatial : q=%d, %d entree(s) libre(s) de Psi, critere %s, "
               "chemin %s" % (lag["q"], int(lag["mask"].sum()), lag["criterion"],
-                             lag["chemin"]), flush=True)
+                             lag["path"]), flush=True)
     if a.kenward_roger or a.predict or a.only_predict:
         raise _Refusal("Kenward-Roger et predict ne sont pas disponibles avec un "
                        "decalage spatial (rx_lag) : ils supposent y lineaire en beta et u a V "
@@ -297,7 +297,7 @@ def _fit(a, inp, fixed):
     th0 = None
     if a.only_predict:
         r = dict(theta=_read_theta(a), n_par=0, n_obs=len(inp.y), logLik=float("nan"),
-                 secondes=0.0, only_predict=True)
+                 seconds=0.0, only_predict=True)
         a.predict = True
     elif a.theta_in:
         th0 = _read_theta(a)
@@ -305,7 +305,7 @@ def _fit(a, inp, fixed):
     if a.bayes and a.prior:
         with open(os.path.join(a.bundle, a.prior)) as fp:
             prior = json.load(fp)
-    if a.bayes and a.depart == "map" and not a.only_predict:
+    if a.bayes and a.start == "map" and not a.only_predict:
         r, Hu_map = _fit_posterior_mode(a, inp, fixed, th0, prior)
     elif not a.only_predict:
         r = fit_reml(inp.terms, inp.res, inp.y, inp.X, theta_init=th0,
@@ -314,9 +314,9 @@ def _fit(a, inp, fixed):
                      hessian=not a.no_hessian, blups=not a.no_blups,
                      pev=_pev_arg(a),
                      n_restarts=a.restarts, restart_sd=a.restart_sd, fixed_idx=fixed,
-                     lag=inp.lag, optimizer=a.optimiseur, moteur=a.moteur,
-                     inversion=a.inversion, memoire=a.memoire, finition=a.finition,
-                     poids=inp.weights, arret_lent=_slow_stop_arg(a))
+                     lag=inp.lag, optimizer=a.optimizer, engine=a.engine,
+                     inversion=a.inversion, memory=a.memory, finish=a.finish,
+                     weights=inp.weights, slow_stop=_slow_stop_arg(a))
     return r, Hu_map, prior
 
 
@@ -338,11 +338,11 @@ def _fit_posterior_mode(a, inp, fixed, th0, prior):
     r = fit_reml(inp.terms, inp.res, inp.y, inp.X, theta_init=th_map, maxiter=0, polish=0,
                  floor=a.floor, ceil=a.ceil, verbose=False, hessian=False,
                  blups=not a.no_blups, pev=_pev_arg(a),
-                 fixed_idx=fixed, optimizer=a.optimiseur, moteur=a.moteur,
-                 inversion=a.inversion, memoire=a.memoire, finition=a.finition,
-                 poids=inp.weights, arret_lent=_slow_stop_arg(a))
-    r["depart_bayes"] = "map"
-    r["mode_posterieur"] = info_map
+                 fixed_idx=fixed, optimizer=a.optimizer, engine=a.engine,
+                 inversion=a.inversion, memory=a.memory, finish=a.finish,
+                 weights=inp.weights, slow_stop=_slow_stop_arg(a))
+    r["bayes_start"] = "map"
+    r["posterior_mode"] = info_map
     return r, Hu_map
 
 
@@ -356,8 +356,8 @@ def _inference(a, r, inp, exprs, fixed):
     from remlax.vpredict import vpredict
     from remlax.components import component_names
     terms, res, lag = inp.terms, inp.res, inp.lag
-    r["composantes_noms"] = component_names(terms, res, lag=lag)
-    if a.only_predict and len(r["theta"]) != len(r["composantes_noms"]) and not a.quiet:
+    r["component_names"] = component_names(terms, res, lag=lag)
+    if a.only_predict and len(r["theta"]) != len(r["component_names"]) and not a.quiet:
         print("[remlax] mode predict seul : %d parametre(s) relus"
               % len(r["theta"]), flush=True)
     if not a.only_predict:
@@ -372,7 +372,7 @@ def _inference(a, r, inp, exprs, fixed):
         from remlax.fixed_tests import kenward_roger
         t_w, y_w, X_w = _inference_model(inp)
         rk = kenward_roger(r["theta"], t_w, res, y_w, X_w,
-                           termes_fixes=inp.bundle.fixed_groups())
+                           fixed_terms=inp.bundle.fixed_groups())
         if rk.get("vbeta_kr") is not None:
             r["vbeta_kr"] = rk.pop("vbeta_kr")
         r["kenward_roger"] = rk
@@ -439,7 +439,7 @@ def _add_wald(r, inp):
     # With a spatial lag, the model linear in beta is that of y*.
     # y* is computed by the solver on the model it fitted (rows scaled when
     # there are weights).
-    r["wald"] = wald(r.get("ystar", y_w), X_w, V, termes_fixes=inp.bundle.fixed_groups())
+    r["wald"] = wald(r.get("ystar", y_w), X_w, V, fixed_terms=inp.bundle.fixed_groups())
 
 
 def _sample_bayes(a, r, inp, exprs, fixed, plat, Hu_map, prior):
@@ -447,18 +447,18 @@ def _sample_bayes(a, r, inp, exprs, fixed, plat, Hu_map, prior):
     if not a.bayes or a.only_predict:
         return None
     from remlax.bayes import sample_posterior
-    n_chains = a.chaines or (32 if plat == "gpu" else 8)
-    if a.moteur == "mme" and not a.quiet:
+    n_chains = a.chains or (32 if plat == "gpu" else 8)
+    if a.engine == "mme" and not a.quiet:
         print("  [bayes] la loi a posteriori est evaluee par le moteur dense", flush=True)
-    pev = (a.pev_termes.split(",") if a.pev_termes else
+    pev = (a.pev_terms.split(",") if a.pev_terms else
            ([t["name"] for t in inp.terms] if a.pev else ()))
     try:
         return sample_posterior(
             inp.terms, inp.res, inp.y, inp.X, r["theta"], H=r.get("hessian"), Hu=Hu_map,
-            prior=prior, chains=n_chains, superchains=a.superchaines, warmup=a.chauffe,
-            draws=a.tirages, seed=a.graine, target_accept=a.acceptation,
-            max_leapfrog=a.sauts_max, fixed_idx=fixed, expressions=exprs,
-            n_effets=a.bayes_effets, pev=pev, lag=inp.lag, verbose=not a.quiet)
+            prior=prior, chains=n_chains, superchains=a.superchains, warmup=a.warmup,
+            draws=a.draws, seed=a.seed, target_accept=a.target_accept,
+            max_leapfrog=a.max_leapfrog, fixed_idx=fixed, expressions=exprs,
+            n_effects=a.bayes_effects, pev=pev, lag=inp.lag, verbose=not a.quiet)
     except (RuntimeError, ValueError) as e:
         raise _Refusal(str(e))
 
@@ -505,11 +505,11 @@ def _write_outputs(a, r, bayes, plat):
         out["lag"] = _write_lag(wr, r)
     if bayes is not None:
         out["bayes"] = _write_bayes(wr, bayes)
-    chrono.mark("ecriture")
+    chrono.mark("write")
     out["chrono"] = chrono.stages_dict()
     # Cores actually used: the size of the affinity mask, after bounding.
-    out["coeurs"] = len(os.sched_getaffinity(0)) if hasattr(os, "sched_getaffinity") else os.cpu_count()
-    out["fils_bornes"] = _FILS["message"]
+    out["cores"] = len(os.sched_getaffinity(0)) if hasattr(os, "sched_getaffinity") else os.cpu_count()
+    out["threads_bound"] = _FILS["message"]
     with open(os.path.join(a.bundle, "result.json"), "w") as f:
         json.dump(_json_safe(out), f, indent=2, default=float)
 
@@ -544,7 +544,7 @@ def _write_lag(wr, r):
     Lr = r["lag"]
     q_ = Lr["Psi"].shape[0]
     se = np.full((q_, q_), np.nan)
-    vc_se = {d["nom"]: d.get("se") for d in (r.get("varcomp") or [])}
+    vc_se = {d["name"]: d.get("se") for d in (r.get("varcomp") or [])}
     mi, mj = np.nonzero(Lr["mask"])
     for i_, j_ in zip(mi, mj):
         v_ = vc_se.get("Psi[%s<-%s]" % (Lr["traits"][i_], Lr["traits"][j_]))
@@ -563,24 +563,24 @@ def _write_bayes(wr, bayes):
     th = bayes["theta"]
     C_, D_, p_ = th.shape
     wr("out_bayes_theta", th.reshape(C_ * D_, p_))
-    wr("out_bayes_comp", bayes["composantes"])
+    wr("out_bayes_comp", bayes["components"])
     if bayes["expressions"].shape[1]:
         wr("out_bayes_vp", bayes["expressions"])
-    jb = dict(resume=bayes["resume"], diagnostics=bayes["diagnostics"],
-              prior=bayes["prior"], composantes_noms=bayes["composantes_noms"],
-              expressions_noms=bayes["expressions_noms"],
-              dims=dict(chaines=C_, tirages=D_, p=p_,
-                        k=int(bayes["composantes"].shape[1]),
+    jb = dict(summary=bayes["summary"], diagnostics=bayes["diagnostics"],
+              prior=bayes["prior"], component_names=bayes["component_names"],
+              expression_names=bayes["expression_names"],
+              dims=dict(chains=C_, draws=D_, p=p_,
+                        k=int(bayes["components"].shape[1]),
                         e=int(bayes["expressions"].shape[1])))
-    ef = bayes["effets"]
+    ef = bayes["effects"]
     if ef is not None:
-        wr("out_bayes_beta_moy", ef["beta_moyenne"])
+        wr("out_bayes_beta_mean", ef["beta_mean"])
         wr("out_bayes_beta_cov", ef["beta_cov"])
-        jb["effets"] = dict(n=ef["n"], secondes=ef["secondes"], blup_dims={},
+        jb["effects"] = dict(n=ef["n"], seconds=ef["seconds"], blup_dims={},
                             blup_sd=sorted(ef["blup_sd"]))
-        for nm, U in ef["blup_moyenne"].items():
-            wr("out_bayes_blup_moy_%s" % nm, U)
-            jb["effets"]["blup_dims"][nm] = list(np.shape(U))
+        for nm, U in ef["blup_mean"].items():
+            wr("out_bayes_blup_mean_%s" % nm, U)
+            jb["effects"]["blup_dims"][nm] = list(np.shape(U))
         for nm, U in ef["blup_sd"].items():
             wr("out_bayes_blup_sd_%s" % nm, U)
     return jb

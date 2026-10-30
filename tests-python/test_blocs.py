@@ -132,13 +132,13 @@ def test_ajustement_identique():
     terms, res, y, X = cas_essais()
     kw = dict(verbose=False, hessian=False, blups=False)
     r1 = fit_reml(terms, res, y, X, **kw)
-    r2 = fit_reml(terms, res, y, X, moteur="blocs", theta_init=r1["theta"], **kw)
-    assert r2["moteur"] == "blocs"
+    r2 = fit_reml(terms, res, y, X, engine="blocks", theta_init=r1["theta"], **kw)
+    assert r2["engine"] == "blocks"
     assert r2["neg2_reml"] <= r1["neg2_reml"] + 1e-8 * abs(r1["neg2_reml"])
     kw0 = dict(theta_init=r1["theta"], maxiter=0, polish=0, verbose=False, hessian=False,
                blups=True, pev=True)
     s1 = fit_reml(terms, res, y, X, **kw0)
-    s2 = fit_reml(terms, res, y, X, moteur="blocs", **kw0)
+    s2 = fit_reml(terms, res, y, X, engine="blocks", **kw0)
     assert _rel(s2["beta"], s1["beta"]) <= 1e-8
     for k in s1["blups"]:
         assert _rel(s2["blups"][k], s1["blups"][k]) <= 1e-8, k
@@ -147,8 +147,8 @@ def test_ajustement_identique():
 
 def test_bascule_sans_decoupage():
     terms, res, y, X = cas_ar1()                # residuelle ar1 x ar1 : hors perimetre
-    r = fit_reml(terms, res, y, X, moteur="blocs", verbose=False, hessian=False, blups=False)
-    assert r["moteur"] == "dense" and r["memoire"] == "econome"
+    r = fit_reml(terms, res, y, X, engine="blocks", verbose=False, hessian=False, blups=False)
+    assert r["engine"] == "dense" and r["memory"] == "low"
 
 
 def test_reproductible():

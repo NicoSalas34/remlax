@@ -51,7 +51,7 @@ def _paquet_scan(path, p_snp=30):
     sm.put("scan_M", M)
     sm.put("scan_snp", ["s%d" % i for i in range(p_snp)], "str")
     garder = np.ones(p_snp, dtype=int); garder[-1] = 0
-    sm.put("scan_garder", garder, "i4")
+    sm.put("scan_keep", garder, "i4")
     with open(os.path.join(path, "scan_manifest.json"), "w") as f:
         json.dump({"arrays": sm.man, "meta": {"q_dir": q, "q_ind": q, "p": p_snp}}, f)
     return dict(g=g, voisin=voisin, M=M, y=y, X=X, n=n, q=q, p=p_snp)
@@ -67,10 +67,10 @@ def test_scan_cli_egale_scan_direct(tmp_path):
     env = dict(os.environ, PYTHONPATH=od._SRC)
     tests = "dir,ind,sim,dir+ind+sim,ind|dir"
     r = subprocess.run([od.PY, "-m", "remlax.scan_cli", p, "--tests", tests, "--backend", "cpu",
-                        "--theta-in", "--maxiter", "0", "--bloc", "7", "--quiet"],
+                        "--theta-in", "--maxiter", "0", "--block", "7", "--quiet"],
                        capture_output=True, text=True, env=env, cwd=od.RACINE)
     assert r.returncode == 0, r.stderr + r.stdout
-    csv = os.path.join(p, "scan_resultats.csv")
+    csv = os.path.join(p, "scan_results.csv")
     assert os.path.exists(csv)
     with open(csv) as fh:
         entete = fh.readline().strip().split(",")
@@ -85,7 +85,7 @@ def test_scan_cli_egale_scan_direct(tmp_path):
     Zd = od.dense_Z_np(terms[0], d["n"]); Zi = od.dense_Z_np(terms[1], d["n"])
     proj = project(f, bd.X, {"dir": Zd, "ind": Zi})
     garder = np.ones(d["p"], bool); garder[-1] = False
-    ref = scan(proj, d["M"], tests=tests.split(","), garder=garder, bloc=7)
+    ref = scan(proj, d["M"], tests=tests.split(","), keep=garder, block=7)
     col = entete.index("chi2_dir")
     chi_cli = np.array([float(l[col]) if l[col] else np.nan for l in lignes])
     assert np.allclose(chi_cli[:-1], ref["chi2_dir"][:-1], rtol=1e-8)

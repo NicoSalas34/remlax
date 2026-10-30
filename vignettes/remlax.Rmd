@@ -90,11 +90,11 @@ whole information about that component is four numbers.
 ### Component names, and their order
 
 ```r
-fit$composantes_noms
+fit$component_names
 ```
 
 ```
-[1] "gid"        "bloc"       "residuelle"
+[1] "gid"      "bloc"     "residual"
 ```
 
 This order is fixed and documented. It is the order in which terms were
@@ -149,23 +149,23 @@ disagreement between models rather than a convention. Compare
 ```r
 str(fit[c("max_grad", "newton_decrement", "n_neg_eig", "n_null_dir",
           "n_at_bound", "n_fixed", "n_fixed_out", "n_par_free",
-          "cond", "n_polish", "scipy_message", "composantes_degenerees")])
+          "cond", "n_polish", "scipy_message", "degenerate_components")])
 ```
 
 ```
 List of 12
- $ max_grad              : num 3.42e-14
- $ newton_decrement      : num 1.43e-28
- $ n_neg_eig             : num 0
- $ n_null_dir            : num 0
- $ n_at_bound            : num 0
- $ n_fixed               : num 0
- $ n_fixed_out           : num 0
- $ n_par_free            : num 3
- $ cond                  : num 571
- $ n_polish              : num 2
- $ scipy_message         : chr "CONVERGENCE: RELATIVE REDUCTION OF F <= FACTR*EPSMCH"
- $ composantes_degenerees: list()
+ $ max_grad             : num 3.42e-14
+ $ newton_decrement     : num 1.43e-28
+ $ n_neg_eig            : num 0
+ $ n_null_dir           : num 0
+ $ n_at_bound           : num 0
+ $ n_fixed              : num 0
+ $ n_fixed_out          : num 0
+ $ n_par_free           : num 3
+ $ cond                 : num 571
+ $ n_polish             : num 2
+ $ scipy_message        : chr "CONVERGENCE: RELATIVE REDUCTION OF F <= FACTR*EPSMCH"
+ $ degenerate_components: list()
 ```
 
 The diagnostic answers three separate questions and never merges them into a
@@ -194,7 +194,7 @@ remains. All three categories are excluded from the diagnostic, by the KKT
 condition for the first and by construction for the second. The Newton
 decrement is computed only along directions the step can actually take.
 
-`composantes_degenerees` names terms with a parameter at the floor. A variance
+`degenerate_components` names terms with a parameter at the floor. A variance
 at the floor is not "estimated at zero", it is **unidentified**: its standard
 error, its share of variance and any test touching it are void. See
 [guide 3](spatial.html#the-nugget-that-vanishes) for a fit where this fires.
@@ -214,23 +214,23 @@ fit2 <- rx_reml(y ~ 1, random = ~ gid + iid(bloc), data = d,
                              vg  = "V1",
                              pct = "100*V1/(V1+V2+V3)"),
                 backend = "cpu", verbose = FALSE)
-fit2$vpredict$composantes
+fit2$vpredict$components
 fit2$vpredict$predictions
 ```
 
 ```
-  i        nom      valeur
-1 1        gid 1.401362464
-2 2       bloc 0.007220142
-3 3 residuelle 0.898773260
+  i     name       value
+1 1      gid 1.401362464
+2 2     bloc 0.007220142
+3 3 residual 0.898773260
 
-  nom        expression     valeur         se
-1  h2     V1/(V1+V2+V3)  0.6073456 0.05871483
-2  vg                V1  1.4013625 0.30033238
-3 pct 100*V1/(V1+V2+V3) 60.7345614 5.87148261
+  name        expression      value         se
+1   h2     V1/(V1+V2+V3)  0.6073456 0.05871483
+2   vg                V1  1.4013625 0.30033238
+3  pct 100*V1/(V1+V2+V3) 60.7345614 5.87148261
 ```
 
-`composantes` gives you the numbering to write against; `predictions` gives
+`components` gives you the numbering to write against; `predictions` gives
 the values and their standard errors.
 
 The standard errors come from the delta method on the Hessian of `-2 logL`:
@@ -316,9 +316,9 @@ data.frame(coef = f$wald$beta, se = f$wald$se_beta)
 ```
 
 ```
-        terme ddl          F      chi2            p
-1 (Intercept)   1 139.794105 139.79411 2.952830e-32
-2         trt   2   5.091395  10.18279 6.149437e-03
+         term df          F      chi2            p
+1 (Intercept)  1 139.794105 139.79411 2.952830e-32
+2         trt  2   5.091395  10.18279 6.149437e-03
 
       coef        se
 1 5.126985 0.4336283
@@ -338,22 +338,22 @@ is optimistic, which is what the next table fixes.
 
 ```r
 f$kenward_roger$tests
-data.frame(se_brut = f$kenward_roger$se_beta_brut,
-           se_KR   = f$kenward_roger$se_beta)
-f$kenward_roger$second_ordre_omis
+data.frame(se_raw = f$kenward_roger$se_beta_raw,
+           se_KR  = f$kenward_roger$se_beta)
+f$kenward_roger$second_order_omitted
 ```
 
 ```
-        terme ddl     denDF          F     F_brut   echelle            p
-1 (Intercept)   1  9.508858 139.012320 139.012320 1.0000000 5.471722e-07
-2         trt   2 20.188279   5.076542   5.076565 0.9999954 1.636762e-02
+         term df     denDF          F      F_raw     scale            p
+1 (Intercept)  1  9.508858 139.012320 139.012320 1.0000000 5.471722e-07
+2         trt  2 20.188279   5.076542   5.076565 0.9999954 1.636762e-02
 
-    se_brut     se_KR
+     se_raw     se_KR
 1 0.4336283 0.4348459
 2 0.4635461 0.4635461
 3 0.4666903 0.4684138
 
-second_ordre_omis : FALSE
+second_order_omitted : FALSE
 ```
 
 The Kenward-Roger adjustment does two separate things: it inflates the
@@ -363,7 +363,7 @@ factor. Here `trt` gets 20.19 denominator degrees of freedom instead of the
 asymptotic infinity, and `p` moves from 0.0061 to 0.0164. That is a factor of nearly
 three on the p-value, from 27 observations.
 
-`second_ordre_omis` is `FALSE`: the model carries no between-level correlation
+`second_order_omitted` is `FALSE`: the model carries no between-level correlation
 parameter, so the omitted second-order term is exactly zero here. It would be
 `TRUE` with an AR1 or a range in the model.
 
@@ -441,7 +441,7 @@ vp = vpredict(fit["theta"], fit["hessian"], terms, res,
 ```
 
 ```
-['gid', 'bloc', 'residuelle']
+['gid', 'bloc', 'residual']
 logLik             -411.00531386466247
 logLik_asreml      -191.3790044287457
 n_par              3

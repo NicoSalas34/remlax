@@ -35,11 +35,11 @@ large, the route falls back to \code{"auto"} with a message.}
 \code{hessian}, \code{blups}, \code{vpredict}, \code{verbose}, and the others.}
 }
 \value{
-An object of class \code{rx_fit}, with \code{moteur = "mme"} and the
+An object of class \code{rx_fit}, with \code{engine = "mme"} and the
 inversion actually used in \code{inversion}. Prediction error variances
 (\code{pev}) are the diagonal of the random-effect block of \code{C^-1}, read from
 the same inversion. A fit that ends with a large relative gradient is
-finished by the dense engine from the point reached, and \code{moteur} then
+finished by the dense engine from the point reached, and \code{engine} then
 reads \code{"mme+dense"}.
 }
 \description{

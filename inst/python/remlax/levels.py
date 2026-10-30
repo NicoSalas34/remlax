@@ -487,7 +487,7 @@ def level_params_report(theta_lv, kind, order=0, opts=None, q=None, parts=None):
       cor        reported on (-1/(q-1), 1), as in _acf; q is required.
       metric     exp, gau, iexp, igau, ieuc, aexp, agau raise |tanh(theta)| to
       families   a distance: the sign of theta is not identified, so the
-                 absolute value is reported and signe_non_identifie says so.
+                 absolute value is reported and sign_not_identified says so.
       sep        each factor, named <family>_<position>_<parameter>, since two
                  factors of the same family are the norm.
     """
@@ -514,11 +514,11 @@ def level_params_report(theta_lv, kind, order=0, opts=None, q=None, parts=None):
                 "pas la valeur du modele.")
         lo = -1.0 / max(int(q) - 1, 1)
         return {"phi": [float(lo + (np.tanh(th[0]) + 1.0) * 0.5 * (1.0 - lo))],
-                "borne_inf": [float(lo)]}
+                "lower_bound": [float(lo)]}
     if kind in ("ar1", "sar", "ma1"):
         return {"phi": [float(np.tanh(th[0]))]}
     if kind in ("exp", "gau"):
-        return {"phi": [absta(0)], "signe_non_identifie": [1.0]}
+        return {"phi": [absta(0)], "sign_not_identified": [1.0]}
     if kind in ("ar2", "ar3"):
         p = 2 if kind == "ar2" else 3
         return {"phi": [float(v) for v in np.asarray(_levinson_phi(jnp.tanh(jnp.asarray(th[:p]))))],
@@ -526,11 +526,11 @@ def level_params_report(theta_lv, kind, order=0, opts=None, q=None, parts=None):
     if kind in ("ma2", "arma"):
         return {"phi": [float(np.tanh(v)) for v in th[:2]]}
     if kind in ("aexp", "agau"):
-        return {"phi": [absta(0), absta(1)], "signe_non_identifie": [1.0]}
+        return {"phi": [absta(0), absta(1)], "sign_not_identified": [1.0]}
     if kind in ("iexp", "igau", "ieuc"):
-        return {"phi": [absta(0)], "signe_non_identifie": [1.0]}
+        return {"phi": [absta(0)], "sign_not_identified": [1.0]}
     if kind in ("sph", "cir", "lvr"):
-        return {"portee": [float(np.exp(th[0]))]}
+        return {"range": [float(np.exp(th[0]))]}
     if kind == "mtrn":
         o = opts or {}
         out, k = {}, 0

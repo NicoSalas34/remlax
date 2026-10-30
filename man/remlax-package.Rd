@@ -70,7 +70,7 @@ Read \code{newton_decrement} (the log-likelihood still available under the local
 quadratic model, comparable to 3.84 for a one-degree-of-freedom LRT) rather
 than \code{max_grad}, which is several units at verified optima. \code{logLik}
 includes \verb{(n - p)/2 log(2 pi)} like lme4; asreml omits it, use
-\code{logLik_asreml} to compare. \code{composantes_degenerees} names the terms with a
+\code{logLik_asreml} to compare. \code{degenerate_components} names the terms with a
 parameter at the floor: those are unidentified, not estimated at zero.
 }
 

@@ -67,7 +67,7 @@
 #' quadratic model, comparable to 3.84 for a one-degree-of-freedom LRT) rather
 #' than `max_grad`, which is several units at verified optima. `logLik`
 #' includes `(n - p)/2 log(2 pi)` like lme4; asreml omits it, use
-#' `logLik_asreml` to compare. `composantes_degenerees` names the terms with a
+#' `logLik_asreml` to compare. `degenerate_components` names the terms with a
 #' parameter at the floor: those are unidentified, not estimated at zero.
 #'
 #' @references Salas, N. (2026). remlax: a generic, differentiable REML solver
@@ -186,11 +186,11 @@ NULL
 #'   the terms you need, never for all.
 #' @param vpredict named character vector of functions of the variance
 #'   components, e.g. `c(h2 = "V1/(V1+V2)")`, with standard errors by the delta
-#'   method. `fit$composantes_noms` gives the `Vi` numbering.
+#'   method. `fit$component_names` gives the `Vi` numbering.
 #' @param wald compute Wald tests of the fixed effects (conditional, type III).
 #' @param kenward_roger compute Kenward-Roger denominator degrees of freedom and
 #'   the adjusted covariance of the fixed effects. The second-order term is
-#'   omitted; the field `second_ordre_omis` says whether the model contains
+#'   omitted; the field `second_order_omitted` says whether the model contains
 #'   parameters for which the omission is not exact.
 #' @param predict `list(L = , M = )`, prediction matrices written for the
 #'   solver. Users normally call [rx_predict()] instead.
@@ -255,10 +255,10 @@ NULL
 #'   The draws, their summary and the sampler diagnostics come back in
 #'   `fit$bayes`.
 #' @return An object of class `rx_fit`, a list with `theta`, `logLik`,
-#'   `logLik_asreml`, `n_par`, `n_obs`, `secondes`, `chrono` (seconds spent in
+#'   `logLik_asreml`, `n_par`, `n_obs`, `seconds`, `chrono` (seconds spent in
 #'   each stage, from the export by R to the reading back of the result),
 #'   `compile_s` and `eval_s` (compilation, median time of one evaluation),
-#'   `backend`, `moteur` (the
+#'   `backend`, `engine` (the
 #'   engine actually used), `inversion` (with the `"mme"` engine), `sigmas` (named
 #'   list of `Sigma` matrices), `sigmas_res` and `sigma_res`, `rho`
 #'   (between-level parameters on the scale actually used), `blups` (named list
@@ -267,7 +267,7 @@ NULL
 #'   `n_fixed_out`, `n_par_free`, `par_floor`, `par_ceil`, `fixed_theta`,
 #'   `se_theta` (standard errors of `theta`, `sqrt(2 diag(H^-1))` on the free
 #'   subspace, `NA` elsewhere; see [rx_se_theta()]),
-#'   `composantes_degenerees`, `composantes_noms`, `optim_msg` (read it first:
+#'   `degenerate_components`, `component_names`, `optim_msg` (read it first:
 #'   `ABNORMAL` is a failed line search, not a maximum), and, when requested, `vpredict`, `wald`, `kenward_roger`,
 #'   `pev`, `predictions`. With a spatial lag ([rx_lag()]): `lag`, a list with
 #'   `Psi` and `Psi_se` (`q x q`, receiver in rows, emitter in columns, units
@@ -275,16 +275,16 @@ NULL
 #'   `logdet_A` (`log|det(I - M)|`), `logdet_mean` (the mean-space term
 #'   `1/2 log|X_y'X_y| - 1/2 log|X'X|`, reported whatever the criterion),
 #'   `logLik_ystar` (restricted likelihood of `y*` alone), `logLik_jacobian`,
-#'   `rayon_spectral` (spectral radius of `M`), `admissible`, `chemin` (how
-#'   `log|det A|` was computed: `"nilpotent"`, `"rapide"`, `"general"`) and
+#'   `spectral_radius` (spectral radius of `M`), `admissible`, `path` (how
+#'   `log|det A|` was computed: `"nilpotent"`, `"fast"`, `"general"`) and
 #'   `scale`; and `ystar`, the transformed response `(I - M) y` on which
 #'   `beta`, the BLUPs and the Wald tests are computed. The free entries of
 #'   `Psi` are also rows `Psi[receiver<-emitter]` of the component table, with
 #'   standard errors by the delta method, and the last elements of `theta`.
 #'   Always: `alias` (groups of entries of a `us` term with the same pattern in
-#'   `V`, identified only through their sum), `n_plat_attendu` (the number of
+#'   `V`, identified only through their sum), `n_flat_expected` (the number of
 #'   flat directions they create, excluded from `n_neg_eig`, `n_null_dir` and
-#'   the convergence verdict) and `n_par_identifies` (`n_par` minus those, the
+#'   the convergence verdict) and `n_par_identified` (`n_par` minus those, the
 #'   count for a likelihood ratio test). For VP+ (plant term `[I, W]`, `us`
 #'   over `2q` columns, symmetric `W`) that is `q(q-1)/2` directions. Read fields with `[[` rather than `$`: `$` does
 #'   partial matching and `fit$sigmas` once matched `sigmas_res`.
@@ -361,7 +361,7 @@ NULL
 #' m
 #' rx_n_theta(m)
 #' @usage
-#' rx_model(y, X, terms, residual = rx_residual(), name = "modele", lag = NULL,
+#' rx_model(y, X, terms, residual = rx_residual(), name = "model", lag = NULL,
 #'          weights = NULL)
 #' @name rx_model
 NULL
@@ -1020,7 +1020,7 @@ NULL
 #' @param vcov `"simple"` or `"kenward-roger"` (needs a fit made with
 #'   `kenward_roger = TRUE`; applies to the fixed part only).
 #' @param sed attach the matrix of standard errors of differences
-#'   (`attr(out, "sed")`) and their quadratic mean (`attr(out, "sed.moyen")`).
+#'   (`attr(out, "sed")`) and their quadratic mean (`attr(out, "sed.mean")`).
 #' @param include_random `FALSE` gives the fixed-effect prediction only.
 #' @param backend,verbose passed to the solver.
 #' @return A data frame of class `rx_predict` with columns `predicted.value`,
@@ -1295,7 +1295,7 @@ NULL
 #'   attribute `"lambda"` (genomic control per test, over all SNPs).
 #'
 #'   `rx_scan_exact()` returns one row per refitted SNP: p-value at fixed V
-#'   (`p_fige`), Wald statistic and p-value of the refit (`chi2_exact`,
+#'   (`p_fixed_V`), Wald statistic and p-value of the refit (`chi2_exact`,
 #'   `p_exact`), estimates and standard errors of the added columns
 #'   (`beta_dir`, `se_dir`, `beta_ind`, `se_ind`), log-likelihood, convergence
 #'   and time of the refit.

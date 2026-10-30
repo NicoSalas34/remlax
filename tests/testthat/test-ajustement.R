@@ -19,8 +19,8 @@ test_that("rx_reml ajuste un facteur aleatoire et retrouve la variance simulee",
   expect_equal(fit[["sigma_res"]][1, 1], 0.8988, tolerance = 1e-3)
   expect_true(fit[["newton_decrement"]] < 1e-4)
   pr <- fit[["vpredict"]][["predictions"]]
-  expect_equal(pr$valeur[pr$nom == "h2"], 0.60735, tolerance = 1e-4)
-  expect_equal(pr$se[pr$nom == "h2"], 0.05871, tolerance = 1e-3)
+  expect_equal(pr$value[pr$name == "h2"], 0.60735, tolerance = 1e-4)
+  expect_equal(pr$se[pr$name == "h2"], 0.05871, tolerance = 1e-3)
 })
 
 test_that("rx_fit refuse un terme Kinv sans facteur de K", {

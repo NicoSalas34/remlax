@@ -56,7 +56,7 @@ def component_names(terms, res, lag=None):
         names += _level_names(tm["name"], level_kind(tm), n_level(tm))
     secs = res_sections(res, 0)
     for sec in secs:
-        pre = sec.get("name", "residuelle") if len(secs) > 1 else "residuelle"
+        pre = sec.get("name", "residual") if len(secs) > 1 else "residual"
         names += _matrix_names(pre, sec["t"])
         names += _level_names(pre, sec.get("lvl", "id"), n_level(sec))
     if lag is not None:
@@ -181,7 +181,7 @@ def varcomp_table(theta, H, terms, res, floor=-12.0, ceil=12.0, fixed_idx=None, 
         se = float("nan")
         if Vth is not None and code not in ("F", "B"):
             se = float(np.sqrt(max(J[k] @ Vth @ J[k], 0.0)))
-        out.append(dict(i=k + 1, nom=names[k], valeur=float(vals[k]), se=se, contrainte=code))
+        out.append(dict(i=k + 1, name=names[k], value=float(vals[k]), se=se, constraint=code))
     _add_alias_sums(out, J, vals, names, fixed, bound, Vth, alias)
     return out
 
@@ -200,7 +200,7 @@ def _theta_cov_positive(H, free, p, alias):
         try:
             w, U = np.linalg.eigh(0.5 * (Hf + Hf.T))
             keep = w > 1e-8 * max(abs(w).max(), 1.0)
-            n_flat = int(sum(len(g["entrees"]) - 1 for g in (alias or [])))
+            n_flat = int(sum(len(g["entries"]) - 1 for g in (alias or [])))
             if n_flat:
                 keep[np.argsort(np.abs(w))[:min(n_flat, len(w))]] = False
             if keep.any():
@@ -235,13 +235,13 @@ def _constraint_code(Jk, name, fixed, bound, Uz, idx_free):
 def _add_alias_sums(out, J, vals, names, fixed, bound, Vth, alias):
     """Aliased entries: code N and no standard error, then the identified sum
     of each group appended to the table."""
-    pos = {d["nom"]: k for k, d in enumerate(out)}
+    pos = {d["name"]: k for k, d in enumerate(out)}
     for g in (alias or []):
-        idx = [pos.get("%s[%d,%d]" % (g["terme"], i + 1, j + 1)) for i, j in g["entrees"]]
+        idx = [pos.get("%s[%d,%d]" % (g["term"], i + 1, j + 1)) for i, j in g["entries"]]
         if any(k is None for k in idx):
             continue
         for k in idx:
-            out[k]["contrainte"] = "N"
+            out[k]["constraint"] = "N"
             out[k]["se"] = float("nan")
         Js = np.sum(J[idx], axis=0)
         dep = np.abs(Js) > 1e-12 * max(1.0, np.abs(Js).max())
@@ -249,5 +249,5 @@ def _add_alias_sums(out, J, vals, names, fixed, bound, Vth, alias):
                 "B" if np.any(bound[dep]) else "U")
         se = (float(np.sqrt(max(Js @ Vth @ Js, 0.0)))
               if Vth is not None and code == "U" else float("nan"))
-        out.append(dict(i=len(out) + 1, nom="+".join(names[k] for k in idx),
-                        valeur=float(np.sum(vals[idx])), se=se, contrainte=code))
+        out.append(dict(i=len(out) + 1, name="+".join(names[k] for k in idx),
+                        value=float(np.sum(vals[idx])), se=se, constraint=code))

@@ -58,8 +58,8 @@ def test_meme_optimum(fab):
     import test_blocs as tb
     terms, res, y, X = (tb.cas_essais if fab == "essais" else te.cas_ige)()
     kw = dict(verbose=False, hessian=False, blups=False)
-    r1 = fit_reml(terms, res, y, X, finition="newton", **kw)
-    r2 = fit_reml(terms, res, y, X, finition="rc", **kw)
+    r1 = fit_reml(terms, res, y, X, finish="newton", **kw)
+    r2 = fit_reml(terms, res, y, X, finish="trust", **kw)
     if fab == "essais":
         # y de bruit pur, vraisemblance plate et multimodale : les optimums
         # locaux connus vont de 1494,3194 a 1494,3599, et le chemin suivi

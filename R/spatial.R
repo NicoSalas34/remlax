@@ -113,7 +113,7 @@ rx_dimensions <- function(fit) {
   rX <- qr(X, tol = 1e-7)$rank
   rows <- list()
   # Fixed effects: a term counts its independent columns.
-  asg <- attr(m$X, "assign"); lab <- attr(m$X, "termes")
+  asg <- attr(m$X, "assign"); lab <- attr(m$X, "term_labels")
   if (!is.null(asg) && !is.null(lab)) {
     ua <- sort(unique(asg))
     for (k in seq_along(ua)) {

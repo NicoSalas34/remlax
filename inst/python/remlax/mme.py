@@ -555,7 +555,7 @@ class MME:
         if inversion == "auto" and m > 1000 and n_U <= 0.3 * m * (m + 1) / 2 \
                 and getattr(self, "_blocks_deferred", False):
             self._components(defer=False)
-        if inversion in ("creuse", "hybride") and getattr(self, "_blocks_deferred", False):
+        if inversion in ("sparse", "hybrid") and getattr(self, "_blocks_deferred", False):
             self._components(defer=False)
         if inversion == "auto":
             if m <= 1000 or n_U > 0.3 * m * (m + 1) / 2:
@@ -567,12 +567,12 @@ class MME:
                 except MemoryError:
                     # SuperLU refuses a factor that fills too much: C is nearly full.
                     F, fill = None, 1.0
-                inversion = "dense" if fill > 0.5 else "creuse"
-                if inversion == "creuse":
+                inversion = "dense" if fill > 0.5 else "sparse"
+                if inversion == "sparse":
                     self.factor = F
-        elif inversion == "creuse":
+        elif inversion == "sparse":
             self.factor = SparseFactor(self._pattern(), self.ci, self.cj)
-        elif inversion == "hybride":
+        elif inversion == "hybrid":
             # Dense separator (fixed effects and the global terms found by
             # decoupage.py) and dense blocks in batches (mme_hybride.py); out of
             # scope, back to the automatic choice.
@@ -1014,7 +1014,7 @@ class MME:
                     raise _Inadmissible()
                 sol = np.asarray(jax.scipy.linalg.cho_solve((L, True), jnp.asarray(r)))
                 et["L"] = L
-            elif self.inversion == "hybride":
+            elif self.inversion == "hybrid":
                 ldC = self.factor.factorise_values(x)
                 sol = self.factor.solve(r)
             elif getattr(self.factor, "backend", "") == "cholmod":

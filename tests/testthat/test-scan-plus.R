@@ -54,7 +54,7 @@ test_that("rx_scan_loco : un nul par chromosome, chaque SNP sous le nul de son c
   nuls <- attr(lo, "loco")
   expect_equal(nrow(nuls), 3L)
   expect_equal(nuls$n_snp, c(20L, 20L, 20L))
-  expect_true(all(nuls$converge))
+  expect_true(all(nuls$converged))
   expect_true(all(is.finite(nuls$logLik)))
   expect_named(attr(lo, "lambda"), "dir")
   expect_identical(lo$snp[which.min(lo$p_dir)], j$causal)
@@ -76,11 +76,11 @@ test_that("rx_scan_exact : effet et erreur-type egaux a un ajustement direct", {
     ex <- rx_scan_exact(sc, "dir", j$build, j$K_of, j$M, j$map, c(dir = "gen"),
                         top = 3, loco = loco, fit_args = fa, verbose = FALSE)
     expect_equal(nrow(ex), 3L, info = loco)
-    expect_true(all(c("p_fige", "chi2_exact", "p_exact", "beta_dir", "se_dir", "converge") %in%
+    expect_true(all(c("p_fixed_V", "chi2_exact", "p_exact", "beta_dir", "se_dir", "converged") %in%
                       names(ex)), info = loco)
-    expect_true(all(ex$converge), info = loco)
+    expect_true(all(ex$converged), info = loco)
     expect_identical(ex$snp[1], j$causal, info = loco)
-    expect_lt(ex$p_exact[1], ex$p_fige[1])
+    expect_lt(ex$p_exact[1], ex$p_fixed_V[1])
     # colonne du SNP construite ici, a partir des doses et du facteur genotype
     s <- ex$snp[1]
     Ks <- if (loco) j$K_of(j$M[, j$map$chr != j$map$chr[j$map$snp == s]]) else K

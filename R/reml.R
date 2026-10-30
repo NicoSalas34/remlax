@@ -49,7 +49,7 @@ rx_reml <- function(fixed, random = NULL, residual = "units", data,
   fit
 }
 
-# Response and fixed design. X carries "assign" and "termes" (the term of each
+# Response and fixed design. X carries "assign" and "term_labels" (the term of each
 # column), which the Wald tests use to test whole terms.
 .rx_fixed_design <- function(fixed, data) {
   mf <- model.frame(fixed, data, na.action = na.pass)
@@ -59,7 +59,7 @@ rx_reml <- function(fixed, random = NULL, residual = "units", data,
   X  <- model.matrix(attr(mf, "terms"), mf)
   assign <- attr(X, "assign")
   labels <- c("(Intercept)", attr(terms(fixed), "term.labels"))
-  attr(X, "termes") <- labels[sort(unique(assign)) + 1L]
+  attr(X, "term_labels") <- labels[sort(unique(assign)) + 1L]
   list(y = y, X = X, assign = assign, labels = labels)
 }
 
@@ -78,7 +78,7 @@ rx_reml <- function(fixed, random = NULL, residual = "units", data,
     data <- data[ok, , drop = FALSE]
     y <- y[ok]; X <- X[ok, , drop = FALSE]
     attr(X, "assign") <- fx$assign
-    attr(X, "termes") <- fx$labels[sort(unique(fx$assign)) + 1L]
+    attr(X, "term_labels") <- fx$labels[sort(unique(fx$assign)) + 1L]
     # A column name stays a name; only a vector given row by row is subset.
     if (length(trait) == length(ok)) trait <- trait[ok]
     if (length(unit) == length(ok))  unit  <- unit[ok]
@@ -100,10 +100,10 @@ rx_reml <- function(fixed, random = NULL, residual = "units", data,
 # Wald test for its columns).
 .rx_add_spl2d_columns <- function(X, spl) {
   if (is.null(spl$X)) return(X)
-  asg <- attr(X, "assign"); lab <- attr(X, "termes"); ctr <- attr(X, "contrasts")
+  asg <- attr(X, "assign"); lab <- attr(X, "term_labels"); ctr <- attr(X, "contrasts")
   X <- cbind(X, spl$X)
   attr(X, "assign") <- c(asg, max(asg) + as.integer(factor(spl$groups, levels = unique(spl$groups))))
-  attr(X, "termes") <- c(lab, unique(spl$groups))
+  attr(X, "term_labels") <- c(lab, unique(spl$groups))
   attr(X, "contrasts") <- ctr
   X
 }

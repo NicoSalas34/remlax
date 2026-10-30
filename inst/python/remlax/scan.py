@@ -257,7 +257,7 @@ def _same_snps(Mf, families):
     return True
 
 
-def scan(proj, M, tests=("dir", "ind", "sim"), garder=None, bloc=1024,
+def scan(proj, M, tests=("dir", "ind", "sim"), keep=None, block=1024,
          xp=None, verbose=False):
     """Per-SNP statistics for the requested tests, at fixed V.
 
@@ -277,9 +277,9 @@ def scan(proj, M, tests=("dir", "ind", "sim"), garder=None, bloc=1024,
                 "sim|dir+ind"    similarity given both additive effects
               Conditional tests are those of asreml and of
               `fixed_tests.wald`: each term given the others.
-    garder  : boolean mask (p,) of the SNPs to process. The others come out
+    keep    : boolean mask (p,) of the SNPs to process. The others come out
               as NaN. The allele frequency filter belongs to the caller.
-    bloc    : width of the SNP blocks for the `sim` family (the only step in
+    block   : width of the SNP blocks for the `sim` family (the only step in
               dimension n). It sets the peak memory and leaves the result
               unchanged.
     xp      : array module for the heavy product of `sim` (numpy by default).
@@ -289,11 +289,11 @@ def scan(proj, M, tests=("dir", "ind", "sim"), garder=None, bloc=1024,
     -------
     dict of vectors (p,):
       num_<f>, den_<f>_<g>          raw score quantities
-      chi2_<test>, ddl_<test>, p_<test>
+      chi2_<test>, df_<test>, p_<test>
       beta_<test>, se_<test>        for 1-df tests only
       r_dir_ind                     correlation between the direct and
                                     indirect covariates, conditional on V and X
-      ddl (degrees of freedom) and p are vectors so that they can be written
+      df (degrees of freedom) and p are vectors so that they can be written
       to CSV as they are.
     """
     from scipy.stats import chi2 as _chi2
@@ -330,12 +330,12 @@ def scan(proj, M, tests=("dir", "ind", "sim"), garder=None, bloc=1024,
                     "n'est une similarite allelique qu'en codage centre (+/-1). "
                     "Centrer les doses, ou ne pas demander 'sim'." % (f, mu, sd))
 
-    if garder is None:
-        garder = np.ones(p, dtype=bool)
-    garder = np.asarray(garder, dtype=bool)
-    if garder.shape != (p,):
-        raise ValueError("garder a %s elements, attendu (%d,)" % (garder.shape, p))
-    idx = np.flatnonzero(garder)
+    if keep is None:
+        keep = np.ones(p, dtype=bool)
+    keep = np.asarray(keep, dtype=bool)
+    if keep.shape != (p,):
+        raise ValueError("keep a %s elements, attendu (%d,)" % (keep.shape, p))
+    idx = np.flatnonzero(keep)
 
     nan = lambda: np.full(p, np.nan)
     num = {f: nan() for f in needed}
@@ -364,8 +364,8 @@ def scan(proj, M, tests=("dir", "ind", "sim"), garder=None, bloc=1024,
         #   P s3 = Vi s3 - ViX vbeta (X' Vi s3)
         # by blocks of SNPs. It is the only O(n^2) step of the file.
         Vi = proj._Vi
-        for d0 in range(0, len(idx), int(bloc)):
-            j = idx[d0:d0 + int(bloc)]
+        for d0 in range(0, len(idx), int(block)):
+            j = idx[d0:d0 + int(block)]
             u = Zdir @ Mdir[:, j]                       # (n, b)
             v = Zind @ Mind[:, j]                       # (n, b)
             S3 = u * v
@@ -385,7 +385,7 @@ def scan(proj, M, tests=("dir", "ind", "sim"), garder=None, bloc=1024,
             den[("sim", "sim")][j] = np.asarray(
                 xp.einsum("ij,ij->j", S3x, PS3))
             if verbose:
-                print("  [scan sim] %d / %d SNP" % (min(d0 + int(bloc), len(idx)),
+                print("  [scan sim] %d / %d SNP" % (min(d0 + int(block), len(idx)),
                                                     len(idx)), flush=True)
 
     # ---- tests ------------------------------------------------------------
@@ -448,7 +448,7 @@ def scan(proj, M, tests=("dir", "ind", "sim"), garder=None, bloc=1024,
                 d = sub[good, 0, 0]
                 sev[idx[good]] = np.sqrt(np.maximum(d, 0.0))
         out["chi2_" + spec] = chi2v
-        out["ddl_" + spec] = np.full(p, float(kt))
+        out["df_" + spec] = np.full(p, float(kt))
         with np.errstate(invalid="ignore"):
             out["p_" + spec] = _chi2.sf(chi2v, kt)
         if kt == 1:
@@ -462,11 +462,11 @@ def scan(proj, M, tests=("dir", "ind", "sim"), garder=None, bloc=1024,
     return out
 
 
-def lambda_gc(chi2, ddl=1):
+def lambda_gc(chi2, df=1):
     """Genomic control factor: median(chi2) / theoretical median."""
     from scipy.stats import chi2 as _chi2
     v = np.asarray(chi2, dtype=np.float64)
     v = v[np.isfinite(v)]
     if v.size == 0:
         return float("nan")
-    return float(np.median(v) / _chi2.ppf(0.5, ddl))
+    return float(np.median(v) / _chi2.ppf(0.5, df))

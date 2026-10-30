@@ -54,8 +54,8 @@ the classical R-hat does not.
 Organisation. The first part builds the prior: densities of a standard
 deviation, resolution of the user specification, cutting of theta into prior
 blocks, and the log prior as a JAX function (make_log_prior). The second part
-holds the sampler and its diagnostics (rhat_emboite, run_sampler). The
-entry points come last: preparer, mode_posterieur and sample_posterior.
+holds the sampler and its diagnostics (nested_rhat, run_sampler). The
+entry points come last: prepare, posterior_mode and sample_posterior.
 """
 import time
 
@@ -72,18 +72,18 @@ from .components import components_from_theta, component_names
 # Between-level parameters whose value is tanh(theta), or an affine image of
 # tanh such as the uniform correlation `cor`. Their prior is uniform on the
 # correlation.
-NIVEAUX_TANH = {"ar1", "sar", "ma1", "ar1ar1", "ma2", "arma", "ar2", "ar3", "cor",
+LEVELS_TANH = {"ar1", "sar", "ma1", "ar1ar1", "ma2", "arma", "ar2", "ar3", "cor",
                 "exp", "gau", "aexp", "agau", "iexp", "igau", "ieuc"}
 
-PRIOR_DEFAUT = {
-    "sd": {"famille": "half_t", "df": 3.0, "echelle": None},
+PRIOR_DEFAULT = {
+    "sd": {"family": "half_t", "df": 3.0, "scale": None},
     "lkj": 2.0,
-    "loading": {"echelle": None},
-    "niveau": "uniforme",
-    "generique": 2.0,
-    "termes": {},
+    "loading": {"scale": None},
+    "level": "uniform",
+    "generic": 2.0,
+    "terms": {},
 }
-FAMILLES_SD = ("half_t", "half_normal", "half_cauchy", "inv_gamma", "uniforme")
+SD_FAMILIES = ("half_t", "half_normal", "half_cauchy", "inv_gamma", "uniform")
 
 
 def available():
@@ -104,16 +104,16 @@ def available():
 # ==============================================================================
 def _log_sd(x, spec):
     """Log density, up to a constant, of a standard deviation x > 0."""
-    family = spec["famille"]
-    if family == "uniforme":
+    family = spec["family"]
+    if family == "uniform":
         return jnp.zeros_like(x)
     if family == "inv_gamma":
         # The prior is on the variance v = x^2. Carried to x it becomes
         # log p(v) + log(dv/dx) = log p(v) + log(2x).
-        a, b = float(spec.get("forme", 0.001)), float(spec.get("taux", 0.001))
+        a, b = float(spec.get("shape", 0.001)), float(spec.get("rate", 0.001))
         v = x * x
         return -(a + 1.0) * jnp.log(v) - b / v + jnp.log(x)
-    s = float(spec["echelle"])
+    s = float(spec["scale"])
     if family == "half_normal":
         return -0.5 * (x / s) ** 2
     df = 1.0 if family == "half_cauchy" else float(spec.get("df", 3.0))
@@ -126,9 +126,9 @@ def _log_sech2(th):
     return 2.0 * (jnp.log(2.0) - a - jnp.log1p(jnp.exp(-2.0 * a)))
 
 
-def _resoudre_prior(prior, terms, res, y, X):
+def _resolve_prior(prior, terms, res, y, X):
     """Complete the prior specification (defaults, numeric scales), term by term."""
-    p = {k: (dict(v) if isinstance(v, dict) else v) for k, v in PRIOR_DEFAUT.items()}
+    p = {k: (dict(v) if isinstance(v, dict) else v) for k, v in PRIOR_DEFAULT.items()}
     for k, v in (prior or {}).items():
         if k in ("sd", "loading") and isinstance(v, dict):
             p[k].update(v)
@@ -139,16 +139,16 @@ def _resoudre_prior(prior, terms, res, y, X):
     b, *_ = np.linalg.lstsq(Xn, np.asarray(y, dtype=float), rcond=None)
     e = np.asarray(y, dtype=float) - Xn @ b
     s_ref = float(np.sqrt(np.sum(e * e) / max(len(e) - Xn.shape[1], 1)))
-    p["echelle_reference"] = s_ref
-    if p["sd"].get("echelle") is None:
-        p["sd"]["echelle"] = s_ref
-    if p["loading"].get("echelle") is None:
-        p["loading"]["echelle"] = s_ref
-    if p["sd"]["famille"] not in FAMILLES_SD:
+    p["reference_scale"] = s_ref
+    if p["sd"].get("scale") is None:
+        p["sd"]["scale"] = s_ref
+    if p["loading"].get("scale") is None:
+        p["loading"]["scale"] = s_ref
+    if p["sd"]["family"] not in SD_FAMILIES:
         raise ValueError("prior : famille d'ecart-type inconnue %r (attendu %s)"
-                         % (p["sd"]["famille"], ", ".join(FAMILLES_SD)))
-    names = [tm["name"] for tm in terms] + ["residuelle"]
-    unknown = set(p.get("termes") or {}) - set(names)
+                         % (p["sd"]["family"], ", ".join(SD_FAMILIES)))
+    names = [tm["name"] for tm in terms] + ["residual"]
+    unknown = set(p.get("terms") or {}) - set(names)
     if unknown:
         raise ValueError("prior : terme(s) inconnu(s) %s ; termes du modele : %s"
                          % (sorted(unknown), names))
@@ -158,11 +158,11 @@ def _resoudre_prior(prior, terms, res, y, X):
 def _term_spec(p, name):
     """Effective specification of one term: the defaults, then the term's overrides."""
     sd, lkj, load = dict(p["sd"]), p["lkj"], dict(p["loading"])
-    override = (p.get("termes") or {}).get(name) or {}
+    override = (p.get("terms") or {}).get(name) or {}
     if "sd" in override:
         sd.update(override["sd"])
-        if sd.get("echelle") is None:
-            sd["echelle"] = p["echelle_reference"]
+        if sd.get("scale") is None:
+            sd["scale"] = p["reference_scale"]
     if "lkj" in override:
         lkj = float(override["lkj"])
     if "loading" in override:
@@ -174,7 +174,7 @@ def _prior_blocks(terms, res, p):
     """Cut theta into prior blocks.
 
     Each block is (kind, start, length, t, name, specification). The kind is
-    one of "sd", "us", "loading", "tanh" and "generique". Returns the blocks,
+    one of "sd", "us", "loading", "tanh" and "generic". Returns the blocks,
     the total length of theta and the list of terms that fall back on the
     generic normal prior.
     """
@@ -195,7 +195,7 @@ def _prior_blocks(terms, res, p):
         if struct == "rr":
             return [("loading", o, ns, t, name, load)]
         rare.append("%s (%s)" % (name, struct))
-        return [("generique", o, ns, t, name, p["generique"])]
+        return [("generic", o, ns, t, name, p["generic"])]
 
     def level_blocks(o, kind, parts, name, total):
         if total <= 0:
@@ -208,9 +208,9 @@ def _prior_blocks(terms, res, p):
                     out += level_blocks(oo, k, None, name, pk)
                 oo += pk
             return out
-        if kind in NIVEAUX_TANH and p["niveau"] == "uniforme":
+        if kind in LEVELS_TANH and p["level"] == "uniform":
             return [("tanh", o, total, 0, name, None)]
-        return [("generique", o, total, 0, name, p["generique"])]
+        return [("generic", o, total, 0, name, p["generic"])]
 
     for tm in terms:
         ns = n_params(tm["struct"], tm["t"], tm["rank"])
@@ -224,8 +224,8 @@ def _prior_blocks(terms, res, p):
         if tot == 0:
             continue
         ns = n_params(sec["struct"], sec["t"], sec["rank"])
-        blocks += sigma_blocks(o, sec["struct"], sec["t"], sec["rank"], "residuelle")
-        blocks += level_blocks(o + ns, sec.get("lvl", "id"), sec.get("lvl_parts"), "residuelle",
+        blocks += sigma_blocks(o, sec["struct"], sec["t"], sec["rank"], "residual")
+        blocks += level_blocks(o + ns, sec.get("lvl", "id"), sec.get("lvl_parts"), "residual",
                                tot - ns)
         o += tot
     return blocks, o, rare
@@ -260,7 +260,7 @@ def make_log_prior(terms, res, p):
                        + (spec["lkj"] - 1.0) * jnp.linalg.slogdet(R)[1]
                        + jnp.linalg.slogdet(J)[1])
             elif kind == "loading":
-                tot = tot - 0.5 * jnp.sum((th / float(spec["echelle"])) ** 2)
+                tot = tot - 0.5 * jnp.sum((th / float(spec["scale"])) ** 2)
             elif kind == "tanh":
                 tot = tot + jnp.sum(_log_sech2(th))
             else:
@@ -303,9 +303,9 @@ def _summarise(x, K):
     ok = np.all(np.isfinite(flat)) and flat.std() > 0 and x.shape[1] >= 4
     rhat = float(potential_scale_reduction(jnp.asarray(x))) if ok else np.nan
     ess = float(effective_sample_size(jnp.asarray(x))) if ok else np.nan
-    return dict(moyenne=float(flat.mean()), sd=float(flat.std(ddof=1)), q025=float(q[0]),
-                mediane=float(q[1]), q975=float(q[2]), rhat=rhat,
-                rhat_emboite=nested_rhat(x, K) if ok else np.nan, ess=ess)
+    return dict(mean=float(flat.mean()), sd=float(flat.std(ddof=1)), q025=float(q[0]),
+                median=float(q[1]), q975=float(q[2]), rhat=rhat,
+                nested_rhat=nested_rhat(x, K) if ok else np.nan, ess=ess)
 
 
 def run_sampler(logdens, z_init, warmup, draws, seed=0, target_accept=0.651,
@@ -364,9 +364,9 @@ def run_sampler(logdens, z_init, warmup, draws, seed=0, target_accept=0.651,
     div = np.concatenate(div, axis=0)
     acc = np.concatenate(acc, axis=0)
     nst = np.concatenate(nst, axis=0)
-    diag = dict(algorithme="ChEES-HMC", divergences=int(div.sum()), acceptation=float(acc.mean()),
-                pas=step_size, pas_integration_moyens=float(nst.mean()),
-                secondes_chauffe=t_warmup, secondes_tirages=t_draws)
+    diag = dict(algorithm="ChEES-HMC", divergences=int(div.sum()), acceptance=float(acc.mean()),
+                step_size=step_size, mean_leapfrog_steps=float(nst.mean()),
+                seconds_warmup=t_warmup, seconds_draws=t_draws)
     return z, diag
 
 
@@ -377,11 +377,11 @@ def prepare(terms, res, y, X, prior=None):
     require_K(terms, "voie bayesienne")
     y = np.asarray(y, dtype=np.float64)
     X = np.asarray(X, dtype=np.float64)
-    p = _resoudre_prior(prior, terms, res, y, X)
+    p = _resolve_prior(prior, terms, res, y, X)
     log_prior, _blocks, rare = make_log_prior(terms, res, p)
     f, Zr, Zs = make_neg2(terms, res, y, X)
     Zr_j = [None if z_ is None else jnp.asarray(z_) for z_ in Zr]
-    return dict(p=p, log_prior=log_prior, rares=rare, f=f, Zr=Zr_j, Zs=Zs, y=y, X=X)
+    return dict(p=p, log_prior=log_prior, rare=rare, f=f, Zr=Zr_j, Zs=Zs, y=y, X=X)
 
 
 def posterior_mode(prep, theta0, fixed_idx=None, floor=-12.0, ceil=12.0, maxiter=2000,
@@ -434,22 +434,22 @@ def posterior_mode(prep, theta0, fixed_idx=None, floor=-12.0, ceil=12.0, maxiter
         Hu[:, j] = (np.asarray(gr(jnp.asarray(tf + e))) - np.asarray(gr(jnp.asarray(tf - e)))) / (2 * eps)
     Hu = 0.5 * (Hu + Hu.T)
     th = th0.copy(); th[idx] = tf
-    info = dict(iterations=int(r.nit), message=str(r.message), succes=bool(r.success),
-                log_posterieur=-float(r.fun) * n, secondes=time.time() - t1)
+    info = dict(iterations=int(r.nit), message=str(r.message), success=bool(r.success),
+                log_posterior=-float(r.fun) * n, seconds=time.time() - t1)
     if verbose:
         print("  [bayes] mode a posteriori : %d iteration(s), %.1f s (%s)"
-              % (info["iterations"], info["secondes"], info["message"]), flush=True)
+              % (info["iterations"], info["seconds"], info["message"]), flush=True)
     return th, Hu, info
 
 
 def sample_posterior(terms, res, y, X, theta_hat, H=None, Hu=None, prior=None, chains=16,
                      superchains=4, warmup=300, draws=100, seed=0, target_accept=0.651,
-                     max_leapfrog=1000, fixed_idx=None, expressions=(), n_effets=100,
+                     max_leapfrog=1000, fixed_idx=None, expressions=(), n_effects=100,
                      pev=(), lag=None, verbose=True):
     """Sample the posterior distribution of theta around theta_hat.
 
     theta_hat : centre of the whitening and of the starting points. It is the
-                posterior mode (mode_posterieur) or the REML optimum.
+                posterior mode (posterior_mode) or the REML optimum.
     H         : Hessian of -2logL at theta_hat (REML optimum). 2 H^-1 whitens.
     Hu        : Hessian of -log p(theta | y) on the free parameters (posterior
                 mode). Hu^-1 whitens. It takes precedence over H. When neither
@@ -459,7 +459,7 @@ def sample_posterior(terms, res, y, X, theta_hat, H=None, Hu=None, prior=None, c
     warmup, draws : ChEES adaptation iterations, and draws kept PER CHAIN.
     fixed_idx : indices (0-based) held at their value in theta_hat.
     expressions : [(name, string)] in the style of vpredict, evaluated at each draw.
-    n_effets  : number of draws used for the posterior moments of beta and the BLUPs.
+    n_effects  : number of draws used for the posterior moments of beta and the BLUPs.
     pev       : terms whose effects get a posterior standard deviation.
     """
     if not available():
@@ -474,7 +474,7 @@ def sample_posterior(terms, res, y, X, theta_hat, H=None, Hu=None, prior=None, c
     t0 = time.time()
     prep = prepare(terms, res, y, X, prior)
     y, X, p = prep["y"], prep["X"], prep["p"]
-    log_prior, rare, f, Zs = prep["log_prior"], prep["rares"], prep["f"], prep["Zs"]
+    log_prior, rare, f, Zs = prep["log_prior"], prep["rare"], prep["f"], prep["Zs"]
     if rare and verbose:
         print("  [bayes] loi normale sur theta (echelle interne) pour : %s" % ", ".join(rare),
               flush=True)
@@ -564,9 +564,9 @@ def sample_posterior(terms, res, y, X, theta_hat, H=None, Hu=None, prior=None, c
     vp = np.stack(vp, axis=1) if vp else np.zeros((C * D, 0))
     summary = []
     for i, name in enumerate(names):
-        summary.append(dict(nom=name, **_summarise(comps[:, i].reshape(C, D), K)))
+        summary.append(dict(name=name, **_summarise(comps[:, i].reshape(C, D), K)))
     for j, (name, expr) in enumerate(expressions):
-        summary.append(dict(nom=name, expression=expr, **_summarise(vp[:, j].reshape(C, D), K)))
+        summary.append(dict(name=name, expression=expr, **_summarise(vp[:, j].reshape(C, D), K)))
     if verbose:
         print("  [bayes] composantes et expressions sur %d tirages : %.1f s"
               % (C * D, time.time() - t1), flush=True)
@@ -577,10 +577,10 @@ def sample_posterior(terms, res, y, X, theta_hat, H=None, Hu=None, prior=None, c
 
     # beta and the random effects, by Rao-Blackwellisation.
     effects = None
-    if n_effets and n_effets > 0:
+    if n_effects and n_effects > 0:
         from .effects import dense_effects
         t1 = time.time()
-        k = int(min(n_effets, C * D))
+        k = int(min(n_effects, C * D))
         picks = np.unique(np.linspace(0, C * D - 1, k).round().astype(int))
         betas, vbetas, blup_draws, pev_draws = [], [], {}, {}
         for s_ in picks:
@@ -594,23 +594,23 @@ def sample_posterior(terms, res, y, X, theta_hat, H=None, Hu=None, prior=None, c
                 pev_draws.setdefault(nm, []).append(pv)
         Bt = np.stack(betas)
         bcov = np.mean(vbetas, axis=0) + (np.cov(Bt.T) if len(picks) > 1 else 0.0)
-        effects = dict(n=len(picks), beta_moyenne=Bt.mean(axis=0), beta_cov=np.atleast_2d(bcov),
-                       blup_moyenne={nm: np.mean(v, axis=0) for nm, v in blup_draws.items()},
+        effects = dict(n=len(picks), beta_mean=Bt.mean(axis=0), beta_cov=np.atleast_2d(bcov),
+                       blup_mean={nm: np.mean(v, axis=0) for nm, v in blup_draws.items()},
                        blup_sd={nm: np.sqrt(np.mean(pev_draws[nm], axis=0)
                                             + np.var(blup_draws[nm], axis=0))
                                 for nm in pev_draws},
-                       secondes=time.time() - t1)
+                       seconds=time.time() - t1)
         if verbose:
             print("  [bayes] moments de beta et des BLUP sur %d tirages : %.1f s"
-                  % (len(picks), effects["secondes"]), flush=True)
+                  % (len(picks), effects["seconds"]), flush=True)
 
-    diag.update(chaines=C, superchaines=K, chauffe=int(warmup), tirages=D,
-                rhat_max=max_finite("rhat"), rhat_emboite_max=max_finite("rhat_emboite"),
+    diag.update(chains=C, superchains=K, warmup=int(warmup), draws=D,
+                rhat_max=max_finite("rhat"), nested_rhat_max=max_finite("nested_rhat"),
                 ess_min=float(min([r["ess"] for r in summary if np.isfinite(r["ess"])] or [np.nan])),
-                secondes=time.time() - t0, n_libres=int(d))
-    prior_out = dict(sd=p["sd"], lkj=p["lkj"], loading=p["loading"], niveau=p["niveau"],
-                     generique=p["generique"], echelle_reference=p["echelle_reference"],
-                     termes=p.get("termes") or {}, loi_normale_theta=rare)
-    return dict(theta=th_draws, composantes=comps, composantes_noms=names,
-                expressions=vp, expressions_noms=[n for n, _ in expressions],
-                resume=summary, diagnostics=diag, prior=prior_out, effets=effects)
+                seconds=time.time() - t0, n_free=int(d))
+    prior_out = dict(sd=p["sd"], lkj=p["lkj"], loading=p["loading"], level=p["level"],
+                     generic=p["generic"], reference_scale=p["reference_scale"],
+                     terms=p.get("terms") or {}, theta_normal=rare)
+    return dict(theta=th_draws, components=comps, component_names=names,
+                expressions=vp, expression_names=[n for n, _ in expressions],
+                summary=summary, diagnostics=diag, prior=prior_out, effects=effects)

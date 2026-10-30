@@ -56,8 +56,8 @@
   r <- if (identical(as.character(a[seq_len(n0)]), as.character(entry)))
     .rx_server_run(py, a[-seq_len(n0)], verbose) else NULL
   if (!is.null(r)) {
-    if (!identical(r$code, 0L)) .rx_solver_error(what, r$sortie)
-    return(invisible(r$sortie))
+    if (!identical(r$code, 0L)) .rx_solver_error(what, r$output)
+    return(invisible(r$output))
   }
   .rx_run_subprocess(py, a, verbose, what)
 }
@@ -66,13 +66,13 @@
 # live and stderr goes to a temporary file: capturing stderr in R would also
 # capture stdout. With backend = "cpu", JAX_PLATFORMS=cpu keeps JAX away from
 # the GPU, which it would otherwise initialise and try to reserve.
-# RX_T_LANCEMENT dates the launch for the solver's timing of its start-up.
+# RX_T_LAUNCH dates the launch for the solver's timing of its start-up.
 .rx_run_subprocess <- function(py, a, verbose, what) {
   err <- tempfile("rx_err_"); on.exit(unlink(err), add = TRUE)
   ib <- match("--backend", a)
   env <- if (!is.na(ib) && identical(as.character(a[ib + 1L]), "cpu"))
     c(JAX_PLATFORMS = "cpu") else character()
-  env <- c(env, RX_T_LANCEMENT = format(as.numeric(Sys.time()), digits = 17))
+  env <- c(env, RX_T_LAUNCH = format(as.numeric(Sys.time()), digits = 17))
   st <- suppressWarnings(.rx_system2(py[1], shQuote(c(py[-1], as.character(a))),
                                      stdout = if (verbose) "" else TRUE,
                                      stderr = if (verbose) err else TRUE, env = env))

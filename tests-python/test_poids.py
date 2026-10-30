@@ -23,12 +23,12 @@ def dispositif(graine=0, n=150, q=20):
     return [tm], res, y, X, w, g, q
 
 
-@pytest.mark.parametrize("moteur", ["dense", "mme"])
-def test_vraisemblance_ponderee(moteur):
+@pytest.mark.parametrize("engine", ["dense", "mme"])
+def test_vraisemblance_ponderee(engine):
     terms, res, y, X, w, g, q = dispositif()
     th = np.array([0.2, -0.1])                       # log sd du terme, log sd residuel
     r = fit_reml(terms, res, y, X, theta_init=th, maxiter=0, polish=0, verbose=False,
-                 hessian=False, blups=True, poids=w, moteur=moteur)
+                 hessian=False, blups=True, weights=w, engine=engine)
     Z = od.dense_Z_np(terms[0], len(y))
     V = np.exp(2 * th[0]) * Z @ Z.T + np.exp(2 * th[1]) * np.diag(1.0 / w)
     ref = od.neg2logL_reference(V, y, X)
@@ -40,7 +40,7 @@ def test_variance_residuelle_fixee():
     terms, res, y, X, w, g, q = dispositif(graine=1)
     th0 = np.array([0.0, 0.0])
     r = fit_reml(terms, res, y, X, theta_init=th0, fixed_idx=[1], verbose=False,
-                 hessian=False, blups=False, poids=w)
+                 hessian=False, blups=False, weights=w)
     assert r["theta"][1] == 0.0
     Z = od.dense_Z_np(terms[0], len(y))
     V = np.exp(2 * r["theta"][0]) * Z @ Z.T + np.diag(1.0 / w)

@@ -41,7 +41,7 @@ def test_slurm_borne_le_masque():
 def test_remlax_threads_prime_et_tous_desactive():
     assert lancer({"SLURM_CPUS_PER_TASK": "1", "REMLAX_THREADS": "2"})[0] == 2
     n0 = len(os.sched_getaffinity(0))
-    assert lancer({"SLURM_CPUS_PER_TASK": "1", "REMLAX_THREADS": "tous"})[0] == n0
+    assert lancer({"SLURM_CPUS_PER_TASK": "1", "REMLAX_THREADS": "all"})[0] == n0
 
 
 def test_masque_deja_assez_petit():

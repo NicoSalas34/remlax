@@ -55,9 +55,9 @@ SALVOS_MAX = 5
 # gain) stays optional. A variance clamped on N_CLAMP_TO_FLOOR accepted steps
 # in a row may reach the floor (Heywood case of an fa).
 REDUCTION_MAX = float(os.environ.get("REMLAX_AI_REDUCTION", "0.1"))
-LEVEL_STEP_MAX = float(os.environ.get("REMLAX_AI_PAS_NIV", "0.5"))
-RATIO_MIN = float(os.environ.get("REMLAX_AI_RAPPORT", "0"))
-N_CLAMP_TO_FLOOR = int(os.environ.get("REMLAX_AI_N_BRIDE", "3"))
+LEVEL_STEP_MAX = float(os.environ.get("REMLAX_AI_LEVEL_STEP", "0.5"))
+RATIO_MIN = float(os.environ.get("REMLAX_AI_RATIO", "0"))
+N_CLAMP_TO_FLOOR = int(os.environ.get("REMLAX_AI_N_CLAMP", "3"))
 
 
 def _sigma_and_K(theta_k, term):
@@ -631,7 +631,7 @@ class _AIRemlVar:
         if pr is None:
             return None
         phi_c, th_c = pr
-        # Ratio test (option, REMLAX_AI_RAPPORT > 0): the actual gain must be at
+        # Ratio test (option, REMLAX_AI_RATIO > 0): the actual gain must be at
         # least RATIO_MIN of the gain predicted by the quadratic model of the
         # AI; near the optimum (predicted gain under 1e-6) any decrease passes.
         d_ = phi_c - phi

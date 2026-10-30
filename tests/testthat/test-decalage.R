@@ -129,7 +129,7 @@ test_that("Psi tenue a 0 reproduit EXACTEMENT l'ajustement sans decalage", {
   expect_equal(f$theta[1:6], f0$theta, tolerance = 1e-6)
 })
 
-test_that("l'objectif egale un calcul dense independant (3 criteres, chemins rapide et general)", {
+test_that("l'objectif egale un calcul dense independant (3 criteres, chemins fast et general)", {
   skip_si_pas_de_jax()
   d <- .jeu_lag(Psi = matrix(c(0.08, -0.1, 0.03, 0), 2), seed = 3)
   W2 <- d$W * 0.5; W2[1, 2] <- 2
@@ -138,7 +138,7 @@ test_that("l'objectif egale un calcul dense independant (3 criteres, chemins rap
     L <- rx_lag(if (length(Wl) == 1L) Wl[[1]] else Wl, d$trait, d$unit, criterion = crit)
     f <- rx_fit(.modele_tb(d, lag = L), backend = "cpu", verbose = FALSE, theta_init = th,
                 maxiter = 0, polish = 0, hessian = FALSE, blups = FALSE)
-    expect_identical(f$lag$chemin, if (length(Wl) == 1L) "rapide" else "general")
+    expect_identical(f$lag$path, if (length(Wl) == 1L) "fast" else "general")
     expect_equal(-2 * f$logLik, .neg2_dense(f, d, Wl, crit), tolerance = 1e-10)
   }
 })
@@ -151,7 +151,7 @@ test_that("Psi est retrouvee sur un jeu simule avec retroaction (boucle a l'equi
   d <- .jeu_lag(nr = 20, nc = 20, ng = 100, Psi = Psi, seed = 11, W = W)
   f <- rx_fit(.modele_tb(d, lag = rx_lag(W, d$trait, d$unit)), backend = "cpu", verbose = FALSE)
   expect_true(f$newton_decrement < 1e-4)
-  expect_true(f$lag$rayon_spectral > 0.3 && isTRUE(f$lag$admissible))
+  expect_true(f$lag$spectral_radius > 0.3 && isTRUE(f$lag$admissible))
   z <- (f$lag$Psi - Psi) / f$lag$Psi_se
   expect_true(all(is.finite(z)))
   expect_true(all(abs(z) < 3.5))
@@ -169,7 +169,7 @@ test_that("decalage + residuelle spatiale us(trait):ar1(row):ar1(col) par rx_rem
   expect_true(isTRUE(f$lag$admissible))
   expect_true(f$newton_decrement < 1e-4)
   expect_equal(dim(f$lag$Psi), c(2L, 2L))
-  expect_true(any(grepl("residuelle", names(f[["rho"]]))))
+  expect_true(any(grepl("residual", names(f[["rho"]]))))
   # Psi tenue a 0 : meme ajustement que sans decalage, residuelle spatiale comprise
   f0 <- rx_reml(y ~ trait - 1, random = ~ us(gen), residual = ~ us(trait):ar1(row):ar1(col),
                 data = dat, trait = "trait", backend = "cpu", verbose = FALSE)
@@ -198,8 +198,8 @@ test_that("residuelle none : V non definie positive refusee en clair, VP+ ajuste
   # que par leur somme (theorie_v2.md T1b) : ici 3 (DGE us) + 10 (plante us 4)
   # = 13 parametres, dont 12 identifies.
   expect_equal(f$n_par, 13L)
-  expect_equal(f$n_plat_attendu, 1L)
-  expect_equal(f$n_par_identifies, 12L)
+  expect_equal(f$n_flat_expected, 1L)
+  expect_equal(f$n_par_identified, 12L)
   s <- summary(f)
   expect_equal(s$n_estimated, 12L)
   expect_equal(s$aic, -2 * f$logLik + 2 * 12)

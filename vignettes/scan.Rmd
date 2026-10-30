@@ -263,8 +263,8 @@ The estimated theta is read back and only evaluated.
 ```r
 library(remlax)
 
-fit  <- rx_fit(modele)                       # the usual fit
-gwas <- rx_scan(fit, modele,
+fit  <- rx_fit(model)                        # the usual fit
+gwas <- rx_scan(fit, model,
                 markers    = M,              # q x p, GENOTYPE-level doses in +/-1
                 map        = map,            # snp, chr, pos
                 incidences = c(dir = "gen", ind = "voisin"),
@@ -388,8 +388,8 @@ refer to the same SNP.
 Inside the fitting process, the functions are called directly:
 
 ```python
-from remlax.scan import projeter, scan, lambda_gc
-proj = projeter(fit, X, {"dir": Zdir, "ind": Zind})
+from remlax.scan import project, scan, lambda_gc
+proj = project(fit, X, {"dir": Zdir, "ind": Zind})
 r = scan(proj, M, tests=["dir", "ind", "ind|dir+sim"])
 lambda_gc(r["chi2_ind|dir+sim"])
 ```
@@ -399,7 +399,7 @@ lambda_gc(r["chi2_ind|dir+sim"])
 ## 8. Outputs
 
 The output holds one vector per SNP. Each requested test produces
-`chi2_<test>`, `ddl_<test>` and `p_<test>`. Tests with 1 df also produce
+`chi2_<test>`, `df_<test>` and `p_<test>`. Tests with 1 df also produce
 `beta_<test>` and `se_<test>`. The further columns are listed below.
 
 - `num_<f>`, `den_<f>_<g>`: the raw score quantities. They are kept because

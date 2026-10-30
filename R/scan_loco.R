@@ -45,11 +45,11 @@ rx_scan_loco <- function(build, K_of, markers, map, incidences,
     r_c$chr_loco <- cc
     pieces[[cc]] <- r_c
     nulls[[cc]] <- data.frame(chr = cc, n_snp = sum(inside), logLik = f_c$logLik,
-                              converge = .rx_fit_converged(f_c),
-                              secondes = as.numeric(difftime(Sys.time(), t0, units = "secs")))
+                              converged = .rx_fit_converged(f_c),
+                              seconds = as.numeric(difftime(Sys.time(), t0, units = "secs")))
     nulls[[cc]]$theta <- list(f_c$theta)
     if (verbose) message(sprintf("  rx_scan_loco : chromosome %s, %d SNP, nul logLik %.3f, %.1f s",
-                                 cc, sum(inside), f_c$logLik, nulls[[cc]]$secondes))
+                                 cc, sum(inside), f_c$logLik, nulls[[cc]]$seconds))
   }
   out <- do.call(rbind, pieces); rownames(out) <- NULL
   attr(out, "loco") <- do.call(rbind, nulls)
@@ -88,8 +88,8 @@ rx_scan_exact <- function(res, test, build, K_of, markers, map, incidences,
     out <- .rx_refit_snp(build, K, Zf, fams, markers[, j], fit_args, theta_init)
     out <- cbind(data.frame(snp = snp, chr = map$chr[j],
                             pos = if (!is.null(map$pos)) map$pos[j] else NA,
-                            p_fige = res[[col]][i]), out)
-    if (verbose) message(sprintf("  rx_scan_exact : %s  p fige %.2e  p exact %.2e", snp, out$p_fige, out$p_exact))
+                            p_fixed_V = res[[col]][i]), out)
+    if (verbose) message(sprintf("  rx_scan_exact : %s  p fige %.2e  p exact %.2e", snp, out$p_fixed_V, out$p_exact))
     out
   })
   out <- do.call(rbind, rows); rownames(out) <- NULL
@@ -112,8 +112,8 @@ rx_scan_exact <- function(res, test, build, K_of, markers, map, incidences,
   out <- data.frame(chi2_exact = chi2,
                     p_exact = stats::pchisq(chi2, k, lower.tail = FALSE),
                     logLik = f$logLik,
-                    converge = .rx_fit_converged(f),
-                    secondes = as.numeric(difftime(Sys.time(), t0, units = "secs")))
+                    converged = .rx_fit_converged(f),
+                    seconds = as.numeric(difftime(Sys.time(), t0, units = "secs")))
   for (a in seq_len(k)) { out[[paste0("beta_", fams[a])]] <- b[a]; out[[paste0("se_", fams[a])]] <- sqrt(Vb[a, a]) }
   out
 }

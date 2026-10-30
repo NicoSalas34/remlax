@@ -69,7 +69,7 @@ def ecrire_paquet(path, forme="liste", dsum=False):
     X = np.column_stack([np.ones(n), x])
     w = Ecrivain(path, forme)
     w.put("y", y); w.put("X", X)
-    w.put("X_assign", [0, 1], "i4"); w.put("X_termes", ["(Intercept)", "x"], "str")
+    w.put("X_assign", [0, 1], "i4"); w.put("X_terms", ["(Intercept)", "x"], "str")
     w.put("term_names", ["g", "bloc"], "str")
     for nm, code, qq in (("g", g, q), ("bloc", b, rep)):
         w.put("term_%s_zi" % nm, np.arange(n), "i4")
@@ -194,15 +194,15 @@ def test_cli_ajustement_complet_et_inference(paquet):
     assert out["backend"] == "cpu"
     assert out["par_floor"] == -10.0 and out["par_ceil"] == 10.0
     assert out["n_par"] == 3 and out["n_obs"] == len(paquet["y"])
-    assert out["composantes_noms"] == ["g", "bloc", "residuelle"]
-    assert [p_["nom"] for p_ in out["vpredict"]["predictions"]] == ["h2", "vg"]
+    assert out["component_names"] == ["g", "bloc", "residual"]
+    assert [p_["name"] for p_ in out["vpredict"]["predictions"]] == ["h2", "vg"]
     assert out["vpredict"]["predictions"][0]["se"] > 0
-    assert [t["terme"] for t in out["wald"]["tests"]] == ["(Intercept)", "x"]
-    assert out["kenward_roger"]["disponible"] is True
+    assert [t["term"] for t in out["wald"]["tests"]] == ["(Intercept)", "x"]
+    assert out["kenward_roger"]["available"] is True
     assert set(out["pev_dims"]) == {"g", "bloc"}
     assert set(out["blup_dims"]) == {"g", "bloc"} and out["sigma_dims"]["g"] == [1, 1]
     for f_ in ("out_theta", "out_beta", "out_vbeta", "out_vbeta_kr", "out_hessian",
-               "out_sigma_g", "out_sigma_bloc", "out_sigma_res", "out_sigmares_residuelle",
+               "out_sigma_g", "out_sigma_bloc", "out_sigma_res", "out_sigmares_residual",
                "out_blup_g", "out_pev_g"):
         assert os.path.exists(os.path.join(p, f_ + ".bin")), f_
     # accord avec un appel direct
@@ -241,7 +241,7 @@ def test_cli_theta_in_evaluation_seule_et_sans_hessien(paquet):
 def test_cli_restarts_fixed_theta_et_pev_termes(paquet):
     p = paquet["path"]
     r = cli(p, "--backend", "cpu", "--restarts", "1", "--restart-sd", "0.3",
-            "--fixed-theta", "1", "--theta-in", "--pev-termes", "g", "--quiet")
+            "--fixed-theta", "1", "--theta-in", "--pev-terms", "g", "--quiet")
     assert r.returncode == 0, r.stderr
     out = _json(p)
     assert out["n_restarts"] == 1 and out["restart_gain"] >= 0
@@ -260,7 +260,7 @@ def test_cli_predict_et_only_predict(paquet):
     assert r.returncode == 0, r.stderr
     out = _json(p)
     th = _lire(p, "out_theta")
-    assert len(out["predictions"]["valeur"]) == 2
+    assert len(out["predictions"]["value"]) == 2
     assert os.path.exists(os.path.join(p, "out_pred_cov.bin"))
     # only-predict : aucun ajustement, theta relu, memes predictions
     th.tofile(os.path.join(p, "in_theta.bin"))
@@ -269,7 +269,7 @@ def test_cli_predict_et_only_predict(paquet):
     out2 = _json(p)
     # les booleens sortent en 1.0 dans result.json (float() sur un bool)
     assert out2["only_predict"] in (True, 1.0) and out2["logLik"] is None
-    assert np.allclose(out2["predictions"]["valeur"], out["predictions"]["valeur"], atol=1e-8)
+    assert np.allclose(out2["predictions"]["value"], out["predictions"]["value"], atol=1e-8)
     assert np.allclose(out2["predictions"]["se"], out["predictions"]["se"], atol=1e-8)
     cov = _lire(p, "out_pred_cov", (2, 2))
     assert np.allclose(np.sqrt(np.diag(cov)), out2["predictions"]["se"])
@@ -282,7 +282,7 @@ def test_cli_dsum_et_backend_gpu(tmp_path):
     assert r.returncode == 0, r.stderr
     out = _json(p)
     assert out["n_par"] == 4
-    assert out["composantes_noms"] == ["g", "bloc", "pair", "impair"]
+    assert out["component_names"] == ["g", "bloc", "pair", "impair"]
     assert set(out["sigma_res_dims"]) == {"pair", "impair"}
     a_gpu = any(d["platform"] != "cpu" for d in device_report())
     r = cli(p, "--backend", "gpu", "--quiet", "--no-hessian", "--maxiter", "5")

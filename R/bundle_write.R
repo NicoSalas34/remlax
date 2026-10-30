@@ -55,10 +55,10 @@ rx_export <- function(model, dir) {
 # "assign" of model.matrix), so that a Wald test covers a whole term.
 .rx_export_fixed <- function(w, model) {
   .rx_put(w, "y", model$y); .rx_put(w, "X", model$X)
-  if (!is.null(model$weights)) .rx_put(w, "poids", model$weights)
+  if (!is.null(model$weights)) .rx_put(w, "weights", model$weights)
   if (!is.null(model$X_assign)) {
     .rx_put(w, "X_assign", as.integer(model$X_assign), "i4")
-    .rx_put(w, "X_termes", as.character(model$X_termes), "str")
+    .rx_put(w, "X_terms", as.character(model$X_terms), "str")
   }
 }
 

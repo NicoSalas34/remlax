@@ -65,11 +65,11 @@ class Bundle:
         if not self.has("X_assign"):
             return None
         asg = self.get("X_assign").astype(int)
-        names = self.get("X_termes")
+        names = self.get("X_terms")
         out, codes = [], sorted(set(asg.tolist()))
         for k, a in enumerate(codes):
             cols = [j for j in range(len(asg)) if asg[j] == a]
-            out.append((names[k] if k < len(names) else "terme %d" % a, cols))
+            out.append((names[k] if k < len(names) else "term %d" % a, cols))
         return out
 
     def terms(self):

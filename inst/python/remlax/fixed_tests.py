@@ -18,12 +18,12 @@ from .incidence import dense_Z
 from .model import assemble_V
 
 
-def _column_groups(termes_fixes, p):
+def _column_groups(fixed_terms, p):
     """The tested groups of columns: the fixed terms, or one per column."""
-    return termes_fixes or [("colonne %d" % (j + 1), [j]) for j in range(p)]
+    return fixed_terms or [("column %d" % (j + 1), [j]) for j in range(p)]
 
 
-def wald(y, X, V, termes_fixes=None):
+def wald(y, X, V, fixed_terms=None):
     """Conditional Wald tests at fixed V.
 
       var(beta) = (X' V^-1 X)^-1
@@ -38,7 +38,7 @@ def wald(y, X, V, termes_fixes=None):
     Ai = np.linalg.pinv(A)
     beta = Ai @ (X.T @ Vi @ y)
     out = []
-    for name, cols in _column_groups(termes_fixes, p):
+    for name, cols in _column_groups(fixed_terms, p):
         cols = list(cols)
         L = np.zeros((len(cols), p))
         for r, c in enumerate(cols):
@@ -47,9 +47,9 @@ def wald(y, X, V, termes_fixes=None):
         M = L @ Ai @ L.T
         rg = np.linalg.matrix_rank(M)
         if rg == 0:
-            out.append(dict(terme=name, ddl=0, F=np.nan, p=np.nan)); continue
+            out.append(dict(term=name, df=0, F=np.nan, p=np.nan)); continue
         stat = float(Lb @ np.linalg.pinv(M) @ Lb)
-        out.append(dict(terme=name, ddl=int(rg), F=stat / rg,
+        out.append(dict(term=name, df=int(rg), F=stat / rg,
                         chi2=stat, p=float(chi2.sf(stat, rg))))
     return dict(beta=[float(b) for b in beta],
                 se_beta=[float(np.sqrt(max(v, 0))) for v in np.diag(Ai)],
@@ -73,7 +73,7 @@ def _expected_reml_info(D, P_mat):
     return I
 
 
-def kenward_roger(theta, terms, res, y, X, termes_fixes=None):
+def kenward_roger(theta, terms, res, y, X, fixed_terms=None):
     """Kenward & Roger (1997) adjustment: variance of beta and denominator
     degrees of freedom.
 
@@ -95,7 +95,7 @@ def kenward_roger(theta, terms, res, y, X, termes_fixes=None):
     omitted, as in pbkrtest and SAS: it vanishes when V is linear in the
     variance parameters, true of every structure here except correlation
     parameters between levels, and computed in the internal parametrisation it
-    is not invariant (dev/notes.md). second_ordre_omis says whether the model
+    is not invariant (dev/notes.md). second_order_omitted says whether the model
     has parameters for which the omission is not exact.
 
     Cost: the first derivatives of V are formed in full (n x n), one per
@@ -126,8 +126,8 @@ def kenward_roger(theta, terms, res, y, X, termes_fixes=None):
     w, Qv = np.linalg.eigh(0.5 * (I + I.T))
     tol = 1e-10 * max(abs(w).max(), 1.0)
     if not np.all(w > tol):
-        return dict(disponible=False,
-                    raison="information REML non definie positive (%d direction(s) "
+        return dict(available=False,
+                    reason="information REML non definie positive (%d direction(s) "
                            "plate(s)) : la covariance des parametres de variance "
                            "n'existe pas, donc l'ajustement de Kenward-Roger non plus."
                            % int((w <= tol).sum()))
@@ -136,17 +136,17 @@ def kenward_roger(theta, terms, res, y, X, termes_fixes=None):
     beta = Phi @ (X.T @ Vi @ y)
     df_resid = float(n - np.linalg.matrix_rank(X))
     tests = []
-    for name, cols in _column_groups(termes_fixes, p):
+    for name, cols in _column_groups(fixed_terms, p):
         d = _kr_test(name, cols, beta, Phi, Phi_A, dPhi, W, k, p, df_resid)
         if d is not None:
             tests.append(d)
     n_lvl = sum(n_level(t) for t in terms)
     n_lvl += sum(n_level(s) for s in res_sections(res, n))
-    return dict(disponible=True, tests=tests,
+    return dict(available=True, tests=tests,
                 se_beta=[float(np.sqrt(max(v, 0))) for v in np.diag(Phi_A)],
-                se_beta_brut=[float(np.sqrt(max(v, 0))) for v in np.diag(Phi)],
+                se_beta_raw=[float(np.sqrt(max(v, 0))) for v in np.diag(Phi)],
                 vbeta_kr=Phi_A, beta=[float(b) for b in beta],
-                second_ordre_omis=bool(n_lvl > 0))
+                second_order_omitted=bool(n_lvl > 0))
 
 
 def _kr_adjusted_cov(D, U, Vi, Phi, W, k, p):
@@ -185,8 +185,8 @@ def _kr_test(name, cols, beta, Phi, Phi_A, dPhi, W, k, p, df_resid):
     A2 = float(sum(W[i, j] * np.trace(TD[i] @ TD[j])
                    for i in range(k) for j in range(k)))
     if abs(A1) < 1e-12 and abs(A2) < 1e-12:
-        return dict(terme=name, ddl=l, denDF=df_resid, F=float(Fstar),
-                    F_brut=float(Fstar), echelle=1.0,
+        return dict(term=name, df=l, denDF=df_resid, F=float(Fstar),
+                    F_raw=float(Fstar), scale=1.0,
                     p=float(f_dist.sf(Fstar, l, df_resid)),
                     note="dispositif orthogonal : aucun ajustement")
     B = (A1 + 6.0 * A2) / (2.0 * l)
@@ -203,8 +203,8 @@ def _kr_test(name, cols, beta, Phi, Phi_A, dPhi, W, k, p, df_resid):
         m_df, lam = df_resid, 1.0
         note = "appariement des moments hors domaine : test NON ajuste"
     FKR = lam * Fstar
-    d = dict(terme=name, ddl=l, denDF=float(m_df), F=float(FKR),
-             F_brut=float(Fstar), echelle=float(lam),
+    d = dict(term=name, df=l, denDF=float(m_df), F=float(FKR),
+             F_raw=float(Fstar), scale=float(lam),
              p=float(f_dist.sf(FKR, l, m_df)))
     if note:
         d["note"] = note

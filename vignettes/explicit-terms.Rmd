@@ -127,7 +127,7 @@ print(mod)
 ```
 
 ```
-Modele REML 'modele' : 240 observations, 1 effets fixes
+Modele REML 'model' : 240 observations, 1 effets fixes
   terme dge_ige        us    t=2   q=60    K=I        (3 parametres)
   terme champ          iid   t=1   q=240   AR1xAR1    (3 parametres)
   residuelle     iid   t=1  (1 parametre)
@@ -197,12 +197,12 @@ signal; that is the identifiability problem this class of model lives with,
 not a solver failure.
 
 ```r
-fit$composantes_noms
+fit$component_names
 ```
 
 ```
 [1] "dge_ige[1,1]"  "dge_ige[2,1]"  "dge_ige[2,2]"  "champ"
-[5] "champ!ar1ar11" "champ!ar1ar12" "residuelle"
+[5] "champ!ar1ar11" "champ!ar1ar12" "residual"
 ```
 
 The `!` suffix marks a between-level parameter; the trailing digit
@@ -292,21 +292,21 @@ fv <- rx_fit(mod, backend = "cpu", verbose = FALSE,
              vpredict = c(var_dge = "V1", cov_di = "V2", var_ige = "V3",
                           r_di = "V2/sqrt(V1*V3)",
                           T2   = "V1 + 2*V2 + V3"))
-fv$vpredict$composantes
+fv$vpredict$components
 fv$vpredict$predictions
 ```
 
 ```
-  i           nom     valeur
+  i          name      value
 1 1  dge_ige[1,1]  1.0066785
 2 2  dge_ige[2,1] -0.3334784
 3 3  dge_ige[2,2]  0.4200020
 4 4         champ  0.2010646
 5 5 champ!ar1ar11  0.9081110
 6 6 champ!ar1ar12  0.1514925
-7 7    residuelle  0.8130207
+7 7      residual  0.8130207
 
-      nom     expression     valeur        se
+     name     expression      value        se
 1 var_dge             V1  1.0066785 0.2513742
 2  cov_di             V2 -0.3334784 0.1130389
 3 var_ige             V3  0.4200020 0.1009573
@@ -375,7 +375,7 @@ gives a different model with no error message.
 
 **Order of `theta`:** for each term, `Sigma` parameters then between-level
 parameters; terms in declaration order, then the residual. That is what
-`fit$composantes_noms` reflects and what every `vpredict` expression depends
+`fit$component_names` reflects and what every `vpredict` expression depends
 on.
 
 ---
