@@ -56,7 +56,7 @@ are computed for the terms named in \code{pev} of \code{\link[=rx_fit]{rx_fit()}
 An object of class \code{rx_bayes}.
 
 \code{rx_bayes_available()}: \code{TRUE} when the Python interpreter of
-remlax can import blackjax.
+remlax has blackjax and optax installed (checked without importing them).
 }
 \description{
 Passed as \verb{bayes =} to \code{\link[=rx_fit]{rx_fit()}} or \code{\link[=rx_reml]{rx_reml()}}. By default no REML fit is

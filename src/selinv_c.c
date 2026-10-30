@@ -1,20 +1,21 @@
-/* Inversion selective supernodale (Takahashi par blocs), noyau C appele depuis
- * Python (remlax/selinv.py) par ctypes.
+/* Supernodal selected inversion (block Takahashi recurrence), the C kernel of
+ * the mixed model equations engine. R compiles it at installation into the
+ * package library; the Python solver (remlax/selinv.py) loads that library
+ * through ctypes, from the path R passes in REMLAX_SELINV_LIB.
  *
- * Aucune dependance de liaison : les routines BLAS et LAPACK (dgemm, dtrsm,
- * dpotri) arrivent en ARGUMENTS, sous forme des pointeurs de fonction exposes
- * par scipy.linalg.cython_blas et cython_lapack. Le fichier se compile donc
- * avec le seul compilateur C : cc -O2 -shared -fPIC selinv_c.c -o libselinv.so
+ * No link dependency: the BLAS and LAPACK routines (dgemm, dtrsm, dpotri)
+ * arrive as arguments, as the function pointers exposed by
+ * scipy.linalg.cython_blas and cython_lapack.
  *
- * Rangement (celui de CHOLMOD supernodal) :
- *   sup[ns+1]  premiere colonne de chaque supernoeud (base 0)
- *   pi[ns+1]   debut des lignes de chaque supernoeud dans s
- *   off[ns+1]  debut du bloc de chaque supernoeud dans x et Z
- *   s          indices de lignes, ceux d'un supernoeud tries et commencant par
- *              ses propres colonnes
- *   sn_of[m]   supernoeud de chaque colonne
- *   x          facteur de Cholesky L, bloc nrow x ncol en ordre colonne
- *   Z          sortie : (L L')^-1 sur le meme rangement
+ * Storage (that of supernodal CHOLMOD):
+ *   sup[ns+1]  first column of each supernode (0-based)
+ *   pi[ns+1]   start of the rows of each supernode in s
+ *   off[ns+1]  start of the block of each supernode in x and Z
+ *   s          row indices; those of a supernode sorted, starting with its
+ *              own columns
+ *   sn_of[m]   supernode of each column
+ *   x          Cholesky factor L, nrow x ncol blocks in column order
+ *   Z          output: (L L')^-1 on the same storage
  *
  * Z_RJ = - Z_RR L_RJ L_JJ^-1 ;  Z_JJ = (L_JJ L_JJ')^-1 - (L_RJ L_JJ^-1)' Z_RJ.
  */

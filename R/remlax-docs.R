@@ -1160,6 +1160,27 @@ NULL
 
 # ------------------------------------------------------------------------------
 
+#' The solver's cache
+#'
+#' The Python solver keeps the programs compiled by XLA in a persistent cache,
+#' so that a second fit of the same shape does not compile again. The cache is
+#' in `tools::R_user_dir("remlax", "cache")`. Files unused for more than 30
+#' days are removed once per session; `rx_cache_clear()` empties the folder.
+#' During `R CMD check`, or with `options(remlax.cache = FALSE)`, the solver
+#' uses a folder of `tempdir()` instead, and nothing is written elsewhere. A
+#' `REMLAX_CACHE` environment variable takes precedence.
+#'
+#' @return The size of the removed files in bytes, invisibly.
+#' @examples
+#' \dontrun{
+#' rx_cache_clear()
+#' }
+#' @usage rx_cache_clear()
+#' @name rx_cache_clear
+NULL
+
+# ------------------------------------------------------------------------------
+
 #' GWAS at fixed V on a fitted model
 #'
 #' `rx_scan()` does not refit. It writes the `theta` already estimated by

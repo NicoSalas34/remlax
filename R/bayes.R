@@ -154,11 +154,15 @@ rx_bayes <- function(start = c("map", "reml"), chains = NULL, superchains = 4L,
 
 #' @rdname rx_bayes
 #' @return `rx_bayes_available()`: `TRUE` when the Python interpreter of
-#'   remlax can import blackjax.
+#'   remlax has blackjax and optax installed (checked without importing them).
 rx_bayes_available <- function() {
   py <- rx_python_cmd()
+  # find_spec tells whether the modules are installed without importing them
+  # (importing blackjax imports JAX, several seconds).
+  code <- paste("import importlib.util as u, sys;",
+                "sys.exit(0 if u.find_spec('blackjax') and u.find_spec('optax') else 1)")
   out <- suppressWarnings(tryCatch(
-    system2(py[1], c(py[-1], "-c", shQuote("import blackjax, optax")), stdout = TRUE, stderr = TRUE),
+    .rx_system2(py[1], shQuote(c(py[-1], "-c", code)), stdout = TRUE, stderr = TRUE),
     error = function(e) structure("", status = 1L)))
   is.null(attr(out, "status"))
 }

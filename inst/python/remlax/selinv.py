@@ -51,46 +51,24 @@ _C_KERNEL = None
 
 
 def _c_kernel():
-    """C kernel of the selected inversion (selinv_c.c), compiled on first use.
+    """C kernel of the selected inversion (src/selinv_c.c of the R package).
 
-    The source ships with the package. It is compiled with the system C
-    compiler into a cache directory (~/.cache/remlax, or $REMLAX_CACHE),
-    without linking any library: BLAS and LAPACK are those of SciPy, passed
-    as pointers. Without a compiler, the NumPy loop takes over with the same
-    result, several times slower (dev/notes.md).
+    R compiles it at installation into the package library and passes the
+    path of that library in REMLAX_SELINV_LIB; nothing is compiled at run
+    time. In a development checkout, without that variable, the source found
+    of the repository (src/selinv_c.c) is compiled once into
+    $REMLAX_CACHE. When neither is available, or the library cannot be
+    loaded, the NumPy loop takes over with the same result, several times
+    slower (dev/notes.md). BLAS and LAPACK are those of SciPy, passed as
+    pointers.
     """
     global _C_KERNEL
     if _C_KERNEL is not None:
         return _C_KERNEL or None
     try:
-        src = os.path.join(os.path.dirname(os.path.abspath(__file__)), "selinv_c.c")
-        with open(src, "rb") as f:
-            h = hashlib.sha1(f.read()).hexdigest()[:12]
-        caches = [os.environ.get("REMLAX_CACHE"),
-                  os.path.join(os.path.expanduser("~"), ".cache", "remlax"),
-                  os.path.join(os.environ.get("TMPDIR", "/tmp"), "remlax_cache")]
-        so = None
-        for c in caches:
-            if not c:
-                continue
-            try:
-                os.makedirs(c, exist_ok=True)
-            except OSError:
-                continue
-            cand = os.path.join(c, "libselinv_%s.so" % h)
-            if os.path.exists(cand) or os.access(c, os.W_OK):
-                so = cand
-                break
-        if so is None:
-            raise RuntimeError("aucun cache inscriptible")
-        if not os.path.exists(so):
-            cc = os.environ.get("CC") or shutil.which("cc") or shutil.which("gcc")
-            if cc is None:
-                raise RuntimeError("pas de compilateur C")
-            tmp = "%s.%d.tmp" % (so, os.getpid())
-            subprocess.run([cc, "-O2", "-shared", "-fPIC", src, "-o", tmp],
-                           check=True, capture_output=True)
-            os.replace(tmp, so)
+        so = os.environ.get("REMLAX_SELINV_LIB") or _dev_kernel()
+        if not so:
+            raise RuntimeError("noyau C indisponible")
         lib = ctypes.CDLL(so)
         fn = lib.rx_selinv_brut
         fn.restype = ctypes.c_int
@@ -113,6 +91,32 @@ def _c_kernel():
     except Exception:
         _C_KERNEL = False
     return _C_KERNEL or None
+
+
+def _dev_kernel():
+    """Path of the kernel compiled from a development checkout, or None.
+
+    Only used when the solver runs outside the installed R package: the
+    source sits in src/ of the repository, two levels above this package. The
+    library goes to $REMLAX_CACHE, which must be set."""
+    src = os.path.normpath(os.path.join(os.path.dirname(os.path.abspath(__file__)),
+                                        "..", "..", "..", "src", "selinv_c.c"))
+    cache = os.environ.get("REMLAX_CACHE")
+    if not (os.path.exists(src) and cache):
+        return None
+    with open(src, "rb") as f:
+        h = hashlib.sha1(f.read()).hexdigest()[:12]
+    os.makedirs(cache, exist_ok=True)
+    so = os.path.join(cache, "libselinv_%s.so" % h)
+    if not os.path.exists(so):
+        cc = os.environ.get("CC") or shutil.which("cc") or shutil.which("gcc")
+        if cc is None:
+            return None
+        tmp = "%s.%d.tmp" % (so, os.getpid())
+        subprocess.run([cc, "-O2", "-shared", "-fPIC", src, "-o", tmp],
+                       check=True, capture_output=True)
+        os.replace(tmp, so)
+    return so
 
 
 def _set_cholmod_options():

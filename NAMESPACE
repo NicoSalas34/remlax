@@ -36,6 +36,7 @@ export(rx_n_theta)
 export(rx_python_cmd)
 export(rx_solver_args)
 export(rx_python_check)
+export(rx_cache_clear)
 export(rx_install_python)
 export(rx_remove_python)
 
@@ -72,6 +73,7 @@ S3method(fitted, rx_fit)
 S3method(residuals, rx_fit)
 
 import(Matrix)
+useDynLib(remlax, .registration = TRUE)
 importFrom(jsonlite, toJSON, fromJSON)
 importFrom(stats, as.formula, model.frame, model.matrix, model.response,
            terms, delete.response, na.pass, setNames, var, sd, pchisq, pf,

@@ -11,6 +11,9 @@
 #      sets the number otherwise.
 #   3. system2(env =) is ignored on Windows, so the variables are set with
 #      Sys.setenv() for the duration of the call, then restored.
+#   4. The solver writes its cache only where cache.R says (REMLAX_CACHE), and
+#      loads the selected inversion kernel compiled by R at installation
+#      (REMLAX_SELINV_LIB) instead of compiling anything at run time.
 # ==============================================================================
 
 # Number of computation threads to impose, or NULL for no limit.
@@ -24,7 +27,9 @@
 
 # system2() with the solver's environment variables set for the call.
 .rx_system2 <- function(command, args = character(), ..., env = character()) {
-  v <- c(PYTHONDONTWRITEBYTECODE = "1")
+  v <- c(PYTHONDONTWRITEBYTECODE = "1", REMLAX_CACHE = .rx_cache_dir())
+  if (!nzchar(Sys.getenv("REMLAX_SELINV_LIB")) && nzchar(.rx_selinv_lib()))
+    v <- c(v, REMLAX_SELINV_LIB = .rx_selinv_lib())
   n <- .rx_threads()
   if (!is.null(n)) {
     v <- c(v, OMP_NUM_THREADS = n, OPENBLAS_NUM_THREADS = n, MKL_NUM_THREADS = n)
