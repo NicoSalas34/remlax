@@ -38,7 +38,8 @@ rx_scan <- function(fit, model, marqueurs, carte = NULL,
   # message still exists.
   keep_bundle <- FALSE
   if (is.null(dir)) {
-    dir <- file.path(tempdir(), paste0("rx_scan_", as.integer(Sys.time())))
+    # tempfile(): unique, so two scans started in the same second do not share a folder.
+    dir <- tempfile("rx_scan_")
     on.exit(if (!keep && !keep_bundle) unlink(dir, recursive = TRUE), add = TRUE)
   }
   # tempdir() can be relative (when $TMPDIR is); the path would then resolve

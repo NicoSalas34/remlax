@@ -33,3 +33,22 @@ test_that("rx_reml avec trait par nom et lignes incompletes egale l'ajustement s
                 data = dc, trait = "car", backend = "cpu", verbose = FALSE)
   expect_equal(f1$logLik, f2$logLik, tolerance = 1e-10)
 })
+
+test_that("deux scans successifs n'utilisent pas le meme dossier", {
+  skip_si_pas_de_jax()
+  set.seed(5)
+  q <- 20; n <- q * 4
+  gen <- factor(rep(seq_len(q), 4))
+  M <- matrix(sample(c(-1, 1), q * 15, replace = TRUE), q, 15,
+              dimnames = list(levels(gen), paste0("snp", 1:15)))
+  y <- 1 + M[as.integer(gen), 1] + rnorm(q)[gen] + rnorm(n)
+  m <- rx_model(y, matrix(1, n, 1), list(rx_term("gen", gen)))
+  f <- rx_fit(m, backend = "cpu", verbose = FALSE)
+  avant <- list.files(tempdir(), "^rx_scan_")
+  for (i in 1:2)
+    rx_scan(f, m, M, incidences = c(dir = "gen"), tests = "dir", maf = NULL,
+            backend = "cpu", verbose = FALSE, keep = TRUE)
+  nouveaux <- setdiff(list.files(tempdir(), "^rx_scan_"), avant)
+  expect_length(nouveaux, 2L)
+  unlink(file.path(tempdir(), nouveaux), recursive = TRUE)
+})
