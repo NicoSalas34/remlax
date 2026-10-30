@@ -5,25 +5,25 @@
 \alias{rx_scan_exact}
 \title{GWAS with one null per chromosome, and exact refit of the top SNPs}
 \usage{
-rx_scan_loco(construire, K_de, marqueurs, carte, incidences,
-             tests = c("dir", "ind", "dir+ind"), maf = NULL, codage = "pm1",
+rx_scan_loco(build, K_of, markers, map, incidences,
+             tests = c("dir", "ind", "dir+ind"), maf = NULL, coding = "pm1",
              fit_args = list(), theta_init = NULL, verbose = TRUE, ...)
-rx_scan_exact(res, test, construire, K_de, marqueurs, carte, incidences,
+rx_scan_exact(res, test, build, K_of, markers, map, incidences,
               top = 10L, loco = TRUE, fit_args = list(), theta_init = NULL,
-              verbose = TRUE)
+              verbose = TRUE, ...)
 }
 \arguments{
-\item{construire}{function \verb{(K, X_sup = NULL)} returning an \link{rx_model}.}
+\item{build}{function \verb{(K, X_sup = NULL)} returning an \link{rx_model}.}
 
-\item{K_de}{function \code{(W)} returning the \verb{q x q} relationship matrix computed
+\item{K_of}{function \code{(W)} returning the \verb{q x q} relationship matrix computed
 from a dose matrix \code{W} (\verb{q x p'}), named as the levels of the genetic term.}
 
-\item{marqueurs}{dose matrix \verb{q x p}, rows in the order of the levels of the
+\item{markers}{dose matrix \verb{q x p}, rows in the order of the levels of the
 genetic term. Doses must be centred when the \code{ind} family is tested.}
 
-\item{carte}{data frame with columns \code{snp}, \code{chr} (required) and \code{pos}.}
+\item{map}{data frame with columns \code{snp}, \code{chr} (required) and \code{pos}.}
 
-\item{incidences, tests, maf, codage}{passed to \code{\link[=rx_scan]{rx_scan()}}.}
+\item{incidences, tests, maf, coding}{passed to \code{\link[=rx_scan]{rx_scan()}}.}
 
 \item{fit_args}{list of arguments passed to \code{\link[=rx_fit]{rx_fit()}} (\code{backend},
 \code{optimizer}, ...).}
@@ -33,7 +33,9 @@ the genome-wide null.}
 
 \item{verbose}{print one line per chromosome or per refitted SNP.}
 
-\item{...}{further arguments passed to \code{\link[=rx_scan]{rx_scan()}}.}
+\item{...}{further arguments passed to \code{\link[=rx_scan]{rx_scan()}}, and the former argument
+names (\code{construire}, \code{K_de}, \code{marqueurs}, \code{carte}, \code{codage}), still
+accepted with a deprecation warning.}
 
 \item{res}{result of \code{rx_scan()} or \code{rx_scan_loco()}.}
 
@@ -70,7 +72,7 @@ components. At fixed V, the p-value of a SNP of large effect is about six
 times too large. A REML likelihood ratio test is not used, since two models
 with different fixed effects do not share the same restricted likelihood.
 
-The model is built by the caller. \code{construire(K, X_sup = NULL)} returns the
+The model is built by the caller. \code{build(K, X_sup = NULL)} returns the
 \link{rx_model} for a relationship matrix \code{K} and, when given, extra fixed-effect
 columns \code{X_sup} appended to \code{X}. The relationship matrix can then change
 without guessing where it enters the model, and the design of the null is
@@ -78,15 +80,15 @@ kept by construction.
 }
 \examples{
 \dontrun{
-construire <- function(K, X_sup = NULL)
+build <- function(K, X_sup = NULL)
   rx_model(d$y, cbind(rep(1, nrow(d)), X_sup),
            list(rx_term("dge_ige", list(Zd, Zn), K = K, struct = "us")),
            rx_residual())
-K_de <- function(W) { W <- scale(W, scale = FALSE); tcrossprod(W) / ncol(W) }
+K_of <- function(W) { W <- scale(W, scale = FALSE); tcrossprod(W) / ncol(W) }
 incid <- c(dir = "dge_ige:1", ind = "dge_ige:2")
-loco <- rx_scan_loco(construire, K_de, M, carte, incidences = incid,
+loco <- rx_scan_loco(build, K_of, M, map, incidences = incid,
                      tests = c("dir", "ind"), fit_args = list(backend = "cpu"))
-rx_scan_exact(loco, "ind", construire, K_de, M, carte, incid, top = 10,
+rx_scan_exact(loco, "ind", build, K_of, M, map, incid, top = 10,
               fit_args = list(backend = "cpu"))
 }
 }

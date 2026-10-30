@@ -42,6 +42,7 @@ export(rx_remove_python)
 
 # --- scan GWAS ---
 export(rx_scan)
+export(rx_scan_threshold)
 export(rx_scan_seuil)
 export(rx_scan_loco)
 export(rx_scan_exact)

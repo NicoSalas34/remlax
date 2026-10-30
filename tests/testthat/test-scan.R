@@ -1,6 +1,6 @@
 # Scan GWAS a V figee : refus en pur R, puis un scan complet sur un jeu simule
 # (skip sans Python porteur de jax). Le SNP causal doit ressortir en tete, la
-# table doit porter une colonne par test, et rx_scan_seuil compte les SNP
+# table doit porter une colonne par test, et rx_scan_threshold compte les SNP
 # effectivement testes.
 
 .jeu_scan <- function(seed = 5, q = 30, rep = 4, p = 40) {
@@ -36,9 +36,9 @@ test_that("rx_scan refuse ce qui ne peut pas s'interpreter, avant tout appel Pyt
   expect_error(rx_scan(faux, m2, j$M, incidences = c(dir = "dge_ige:3"), verbose = FALSE),
                "hors de")
   res <- data.frame(p_dir = c(0.1, NA, 0.5, 0.01))
-  expect_equal(rx_scan_seuil(res, "dir"), 0.05 / 3)
-  expect_equal(rx_scan_seuil(res, "dir", alpha = 0.1), 0.1 / 3)
-  expect_error(rx_scan_seuil(res, "ind"), "absente")
+  expect_equal(rx_scan_threshold(res, "dir"), 0.05 / 3)
+  expect_equal(rx_scan_threshold(res, "dir", alpha = 0.1), 0.1 / 3)
+  expect_error(rx_scan_threshold(res, "ind"), "absente")
 })
 
 test_that("rx_scan sur un jeu simule : colonnes, causal en tete, seuil", {
@@ -49,7 +49,7 @@ test_that("rx_scan sur un jeu simule : colonnes, causal en tete, seuil", {
   f <- rx_fit(m, backend = "cpu", verbose = FALSE, hessian = FALSE)
   tests <- c("dir", "ind", "dir+ind", "ind|dir")
   sc <- rx_scan(f, m, j$M, incidences = c(dir = "gen", ind = "vois"), tests = tests,
-                maf = 0.05, codage = "pm1", backend = "cpu", verbose = FALSE)
+                maf = 0.05, coding = "pm1", backend = "cpu", verbose = FALSE)
   expect_s3_class(sc, "data.frame")
   expect_equal(nrow(sc), j$p)
   expect_equal(sc$snp[1:2], c("snp1", "snp2"))
@@ -60,7 +60,7 @@ test_that("rx_scan sur un jeu simule : colonnes, causal en tete, seuil", {
   expect_true(all(c("beta_dir", "se_dir", "r_dir_ind") %in% names(sc)))
   expect_equal(unique(sc[["ddl_dir+ind"]]), 2)
   expect_equal(which.min(sc$p_dir), 1L)
-  expect_true(sc$p_dir[1] < rx_scan_seuil(sc, "dir"))
+  expect_true(sc$p_dir[1] < rx_scan_threshold(sc, "dir"))
   expect_equal(sc$chi2_dir, (sc$beta_dir / sc$se_dir)^2, tolerance = 1e-8)
   meta <- attr(sc, "meta")
   expect_equal(meta$p, j$p)
@@ -68,6 +68,6 @@ test_that("rx_scan sur un jeu simule : colonnes, causal en tete, seuil", {
   expect_true(is.finite(meta$lambda_gc[["dir"]]))
   # doses 0/1/2 avec la famille sim : le solveur refuse (doses non centrees)
   expect_error(rx_scan(f, m, j$M + 1, incidences = c(dir = "gen", ind = "vois"),
-                       tests = c("sim"), codage = "012", backend = "cpu", verbose = FALSE),
+                       tests = c("sim"), coding = "012", backend = "cpu", verbose = FALSE),
                "code")
 })

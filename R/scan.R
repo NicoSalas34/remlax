@@ -2,7 +2,7 @@
 # scan.R - rx_scan(): genome-wide scan at fixed V on a fitted model
 # ==============================================================================
 #   fit  <- rx_fit(model)
-#   gwas <- rx_scan(fit, model, marqueurs = M, carte = carte,
+#   gwas <- rx_scan(fit, model, markers = M, map = map,
 #                   incidences = c(dir = "gen", ind = "voisin"),
 #                   tests = c("dir", "ind", "dir+ind+sim", "ind|dir+sim"))
 #
@@ -17,22 +17,25 @@
 # error.
 # ==============================================================================
 
-rx_scan <- function(fit, model, marqueurs, carte = NULL,
+rx_scan <- function(fit, model, markers, map = NULL,
                     incidences = c(dir = "gen", ind = "voisin"),
                     tests = c("dir", "ind", "sim", "dir+ind+sim"),
-                    maf = 0.05, codage = c("pm1", "012"),
-                    backend = c("auto", "gpu", "cpu"), bloc = 1024L,
-                    dir = NULL, verbose = TRUE, keep = FALSE) {
+                    maf = 0.05, coding = c("pm1", "012"),
+                    backend = c("auto", "gpu", "cpu"), block = 1024L,
+                    dir = NULL, verbose = TRUE, keep = FALSE, ...) {
+  .rx_renamed_args(environment(), list(...),
+                   c(marqueurs = "markers", carte = "map", codage = "coding", bloc = "block"),
+                   "rx_scan")
   backend <- match.arg(backend)
-  codage  <- match.arg(codage)
+  coding  <- match.arg(coding)
   stopifnot(is.list(fit), !is.null(fit$theta), is.list(model))
   if (!is.null(model$lag))
     stop("rx_scan : non disponible avec un decalage spatial (rx_lag) ; le balayage suppose ",
          "y lineaire a V donnee.", call. = FALSE)
   Z <- .rx_scan_incidences(model, incidences)
-  marqueurs <- .rx_scan_doses(marqueurs, Z, incidences)
-  p <- ncol(marqueurs[[names(Z)[1]]])
-  keep_snp <- .rx_scan_maf(marqueurs, Z, maf, codage, verbose, p)
+  markers <- .rx_scan_doses(markers, Z, incidences)
+  p <- ncol(markers[[names(Z)[1]]])
+  keep_snp <- .rx_scan_maf(markers, Z, maf, coding, verbose, p)
 
   # The bundle is kept when the solver fails, so that the path in the error
   # message still exists.
@@ -46,7 +49,7 @@ rx_scan <- function(fit, model, marqueurs, carte = NULL,
   # against the working directory of the Python process.
   dir.create(dir, recursive = TRUE, showWarnings = FALSE)
   dir <- normalizePath(dir, mustWork = TRUE)
-  .rx_scan_write(dir, model, fit, Z, marqueurs, keep_snp, carte, p)
+  .rx_scan_write(dir, model, fit, Z, markers, keep_snp, map, p)
 
   # Every value is quoted for the shell: a conditional test "ind|dir+sim"
   # would otherwise be read as a pipe, and the bundle path may contain spaces.
@@ -54,7 +57,7 @@ rx_scan <- function(fit, model, marqueurs, carte = NULL,
   args <- c(shQuote(sol$args), shQuote(dir),
             "--tests", shQuote(paste(tests, collapse = ",")),
             "--backend", backend, "--theta-in", "--maxiter", "0",
-            "--bloc", as.character(as.integer(bloc)))
+            "--bloc", as.character(as.integer(block)))
   if (!verbose) args <- c(args, "--quiet")
   code <- .rx_system2(rx_python_cmd(), args, stdout = "", stderr = "", env = sol$env)
   if (!identical(as.integer(code), 0L)) {
@@ -130,31 +133,31 @@ rx_scan <- function(fit, model, marqueurs, carte = NULL,
 # Dose matrices by family, indexed by genotype in the order of the levels of
 # the term. One matrix serves both families unless a list is given (neighbours
 # of another species carry another set of SNPs).
-.rx_scan_doses <- function(marqueurs, Z, incidences) {
-  if (!is.list(marqueurs)) marqueurs <- list(dir = marqueurs, ind = marqueurs)
+.rx_scan_doses <- function(markers, Z, incidences) {
+  if (!is.list(markers)) markers <- list(dir = markers, ind = markers)
   for (fam in names(Z)) {
-    if (is.null(marqueurs[[fam]]))
-      stop("marqueurs : matrice absente pour la famille '", fam, "'.", call. = FALSE)
-    M <- as.matrix(marqueurs[[fam]])
+    if (is.null(markers[[fam]]))
+      stop("markers : matrice absente pour la famille '", fam, "'.", call. = FALSE)
+    M <- as.matrix(markers[[fam]])
     if (nrow(M) != ncol(Z[[fam]]))
-      stop("marqueurs[['", fam, "']] a ", nrow(M), " lignes mais l'incidence '",
+      stop("markers[['", fam, "']] a ", nrow(M), " lignes mais l'incidence '",
            incidences[[fam]], "' a ", ncol(Z[[fam]]), " colonnes. Les doses sont ",
            "indexees par GENOTYPE, dans l'ordre des niveaux du terme.",
            call. = FALSE)
-    marqueurs[[fam]] <- M
+    markers[[fam]] <- M
   }
-  if (length(unique(vapply(marqueurs[names(Z)], ncol, 1L))) > 1L)
+  if (length(unique(vapply(markers[names(Z)], ncol, 1L))) > 1L)
     stop("les matrices de doses n'ont pas le meme nombre de SNP.", call. = FALSE)
-  marqueurs
+  markers
 }
 
 # SNPs kept by the minor allele frequency filter, computed on the direct doses
-# with the coding of `codage`; monomorphic SNPs are dropped.
-.rx_scan_maf <- function(marqueurs, Z, maf, codage, verbose, p) {
+# with the coding of `coding`; monomorphic SNPs are dropped.
+.rx_scan_maf <- function(markers, Z, maf, coding, verbose, p) {
   keep <- rep(TRUE, p)
   if (is.null(maf)) return(keep)
-  Md <- marqueurs[[if ("dir" %in% names(Z)) "dir" else names(Z)[1]]]
-  f <- if (codage == "pm1") (colMeans(Md) + 1) / 2 else colMeans(Md) / 2
+  Md <- markers[[if ("dir" %in% names(Z)) "dir" else names(Z)[1]]]
+  f <- if (coding == "pm1") (colMeans(Md) + 1) / 2 else colMeans(Md) / 2
   keep <- pmin(f, 1 - f) >= maf & apply(Md, 2, stats::sd) > 0
   if (verbose)
     message(sprintf("  rx_scan : %d SNP sur %d passent MAF >= %.3g",
@@ -165,15 +168,15 @@ rx_scan <- function(fit, model, marqueurs, carte = NULL,
 # The bundle of the fitted model, its theta, and the arrays of the scan
 # (incidences in 0-based COO triplets, doses, kept SNPs, map) described by
 # scan_manifest.json. Identical doses for both families are written once.
-.rx_scan_write <- function(dir, model, fit, Z, marqueurs, keep_snp, carte, p) {
+.rx_scan_write <- function(dir, model, fit, Z, markers, keep_snp, map, p) {
   rx_export(model, dir)
   con <- file(file.path(dir, "in_theta.bin"), "wb")
   writeBin(as.double(fit$theta), con, size = 8); close(con)
   w <- .rx_bundle_writer(dir)
   fams <- names(Z)
   shared <- length(fams) < 2 ||
-    (identical(dim(marqueurs[[fams[1]]]), dim(marqueurs[[fams[2]]])) &&
-       identical(marqueurs[[fams[1]]], marqueurs[[fams[2]]]))
+    (identical(dim(markers[[fams[1]]]), dim(markers[[fams[2]]])) &&
+       identical(markers[[fams[1]]], markers[[fams[2]]]))
   meta <- list(p = p)
   for (fam in fams) {
     S <- methods::as(methods::as(Z[[fam]], "CsparseMatrix"), "TsparseMatrix")
@@ -182,23 +185,23 @@ rx_scan <- function(fit, model, marqueurs, carte = NULL,
     .rx_put(w, paste0(pre, "_zj"), S@j, "i4")
     .rx_put(w, paste0(pre, "_zx"), S@x)
     meta[[paste0("q_", fam)]] <- ncol(Z[[fam]])
-    if (!shared) .rx_put(w, paste0("scan_M", fam), marqueurs[[fam]])
+    if (!shared) .rx_put(w, paste0("scan_M", fam), markers[[fam]])
   }
-  if (shared) .rx_put(w, "scan_M", marqueurs[[fams[1]]])
+  if (shared) .rx_put(w, "scan_M", markers[[fams[1]]])
   .rx_put(w, "scan_garder", as.integer(keep_snp), "i4")
-  if (!is.null(carte)) {
-    if (!is.null(carte$snp)) .rx_put(w, "scan_snp", carte$snp, "str")
-    if (!is.null(carte$chr)) .rx_put(w, "scan_chr", carte$chr, "str")
-    if (!is.null(carte$pos)) .rx_put(w, "scan_pos", as.double(carte$pos))
-  } else if (!is.null(colnames(marqueurs[[names(Z)[1]]]))) {
-    .rx_put(w, "scan_snp", colnames(marqueurs[[names(Z)[1]]]), "str")
+  if (!is.null(map)) {
+    if (!is.null(map$snp)) .rx_put(w, "scan_snp", map$snp, "str")
+    if (!is.null(map$chr)) .rx_put(w, "scan_chr", map$chr, "str")
+    if (!is.null(map$pos)) .rx_put(w, "scan_pos", as.double(map$pos))
+  } else if (!is.null(colnames(markers[[names(Z)[1]]]))) {
+    .rx_put(w, "scan_snp", colnames(markers[[names(Z)[1]]]), "str")
   }
   writeLines(jsonlite::toJSON(list(arrays = w$manifest, meta = meta), auto_unbox = TRUE),
              file.path(dir, "scan_manifest.json"))
 }
 
 # Bonferroni threshold over the SNPs actually tested.
-rx_scan_seuil <- function(res, test, alpha = 0.05) {
+rx_scan_threshold <- function(res, test, alpha = 0.05) {
   col <- paste0("p_", test)
   if (is.null(res[[col]]))
     stop("colonne '", col, "' absente ; tests disponibles : ",
@@ -206,4 +209,30 @@ rx_scan_seuil <- function(res, test, alpha = 0.05) {
                collapse = ", "), call. = FALSE)
   m <- sum(is.finite(res[[col]]))
   alpha / max(m, 1L)
+}
+
+# Former name of rx_scan_threshold().
+rx_scan_seuil <- function(res, test, alpha = 0.05) {
+  .Deprecated("rx_scan_threshold", package = "remlax")
+  rx_scan_threshold(res, test, alpha)
+}
+
+# Arguments renamed in English: a former name passed through `...` still works,
+# with a deprecation warning, and is assigned to its new name in `env`. Returns
+# the other arguments of `dots`, which the caller may forward.
+.rx_renamed_args <- function(env, dots, renamed, fun, forward = FALSE) {
+  if (!length(dots)) return(invisible(dots))
+  nm <- names(dots)
+  if (is.null(nm)) nm <- rep("", length(dots))
+  old <- nm %in% names(renamed)
+  if (!forward && any(!old))
+    stop(fun, " : argument(s) inconnu(s) : ",
+         paste(ifelse(nzchar(nm[!old]), nm[!old], "<sans nom>"), collapse = ", "), call. = FALSE)
+  for (o in nm[old]) {
+    new <- renamed[[o]]
+    warning(sprintf("%s : l'argument `%s` est renomme `%s` ; l'ancien nom sera retire.",
+                    fun, o, new), call. = FALSE)
+    assign(new, dots[[o]], envir = env)
+  }
+  invisible(dots[!old])
 }

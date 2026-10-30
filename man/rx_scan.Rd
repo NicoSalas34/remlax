@@ -2,28 +2,29 @@
 % Please edit documentation in R/remlax-docs.R
 \name{rx_scan}
 \alias{rx_scan}
+\alias{rx_scan_threshold}
 \alias{rx_scan_seuil}
 \title{GWAS at fixed V on a fitted model}
 \usage{
-rx_scan(fit, model, marqueurs, carte = NULL,
+rx_scan(fit, model, markers, map = NULL,
         incidences = c(dir = "gen", ind = "voisin"),
         tests = c("dir", "ind", "sim", "dir+ind+sim"),
-        maf = 0.05, codage = c("pm1", "012"),
-        backend = c("auto", "gpu", "cpu"), bloc = 1024L,
-        dir = NULL, verbose = TRUE, keep = FALSE)
-rx_scan_seuil(res, test, alpha = 0.05)
+        maf = 0.05, coding = c("pm1", "012"),
+        backend = c("auto", "gpu", "cpu"), block = 1024L,
+        dir = NULL, verbose = TRUE, keep = FALSE, ...)
+rx_scan_threshold(res, test, alpha = 0.05)
 }
 \arguments{
 \item{fit}{an \code{rx_fit} object; only \code{fit$theta} is read.}
 
 \item{model}{the corresponding \link{rx_model}.}
 
-\item{marqueurs}{matrix of genotype doses (\code{q} rows named by the term's
+\item{markers}{matrix of genotype doses (\code{q} rows named by the term's
 levels, \code{p} SNP columns), or \code{list(dir = , ind = )} for the inter-species
 case (joint tests are then refused). The \code{sim} family requires centred
 doses (\verb{+/-1} coding).}
 
-\item{carte}{optional data frame with columns \code{snp}, \code{chr}, \code{pos}.}
+\item{map}{optional data frame with columns \code{snp}, \code{chr}, \code{pos}.}
 
 \item{incidences}{named vector: which terms carry the focal incidence
 (\code{dir}) and the neighbour incidence (\code{ind}).}
@@ -31,14 +32,17 @@ doses (\verb{+/-1} coding).}
 \item{tests}{test specifications, e.g. \code{"dir"}, \code{"ind"}, \code{"sim"},
 \code{"dir+ind+sim"}; a bar denotes a conditional test, \code{"ind|dir+sim"}.}
 
-\item{maf}{minor allele frequency filter computed on \code{marqueurs$dir}; \code{NULL}
+\item{maf}{minor allele frequency filter computed on \code{markers$dir}; \code{NULL}
 to keep all.}
 
-\item{codage}{\code{"pm1"} (doses in \code{-1/+1}) or \code{"012"}; used for the MAF only.}
+\item{coding}{\code{"pm1"} (doses in \code{-1/+1}) or \code{"012"}; used for the MAF only.}
 
 \item{backend, dir, verbose, keep}{as in \code{\link[=rx_fit]{rx_fit()}}.}
 
-\item{bloc}{SNP block width for the \code{sim} family.}
+\item{...}{former argument names (\code{marqueurs}, \code{carte}, \code{codage}, \code{bloc}),
+still accepted with a deprecation warning.}
+
+\item{block}{SNP block width for the \code{sim} family.}
 
 \item{res}{result of \code{rx_scan()}.}
 
@@ -50,8 +54,9 @@ to keep all.}
 A data frame with one row per SNP and an attribute \code{"meta"} (genomic
 control lambda per test, timings, \verb{-2 logL} of the null).
 
-\code{rx_scan_seuil()} returns the Bonferroni threshold \code{alpha / m} for a test
-column, \code{m} being the number of finite p-values.
+\code{rx_scan_threshold()} returns the Bonferroni threshold \code{alpha / m} for a test
+column, \code{m} being the number of finite p-values. \code{rx_scan_seuil()} is its
+former name, deprecated.
 }
 \description{
 \code{rx_scan()} does not refit. It writes the \code{theta} already estimated by
@@ -71,10 +76,10 @@ m <- rx_model(d$y, cbind(1, d$x), terms = list(rx_term("gid", d$gid)))
 fit <- rx_fit(m, backend = "cpu", verbose = FALSE)
 M <- matrix(sample(c(-1, 1), 30 * 50, replace = TRUE), 30, 50,
             dimnames = list(levels(d$gid), paste0("snp", 1:50)))
-gw <- rx_scan(fit, m, marqueurs = M, incidences = c(dir = "gid"),
+gw <- rx_scan(fit, m, markers = M, incidences = c(dir = "gid"),
               tests = "dir", backend = "cpu", verbose = FALSE)
 head(gw)
-rx_scan_seuil(gw, "dir")
+rx_scan_threshold(gw, "dir")
 }
 \dontshow{\}) # examplesIf}
 }

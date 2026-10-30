@@ -17,7 +17,7 @@ modifies none of them. It consumes the output of `fit_reml`.
 |---|---|
 | `inst/python/remlax/scan.py` | the algebra: projection, covariate families, tests. Pure NumPy, no JAX required |
 | `inst/python/remlax/scan_cli.py` | entry point, run by `inst/python/remlax_run.py scan_cli`, beside `cli.py` |
-| `R/scan.R` | `rx_scan()` / `rx_scan_seuil()` |
+| `R/scan.R` | `rx_scan()` / `rx_scan_threshold()` |
 | `R/scan_loco.R` | `rx_scan_loco()` / `rx_scan_exact()`, built on `rx_scan()` |
 | `tests-python/test_scan.py` | the scan checked against the Wald test with the column added to X |
 | `validation/etude_scan_familles.py` (remlax-validation) | which covariate detects which mechanism |
@@ -265,14 +265,14 @@ library(remlax)
 
 fit  <- rx_fit(modele)                       # the usual fit
 gwas <- rx_scan(fit, modele,
-                marqueurs  = M,              # q x p, GENOTYPE-level doses in +/-1
-                carte      = carte,          # snp, chr, pos
+                markers    = M,              # q x p, GENOTYPE-level doses in +/-1
+                map        = map,            # snp, chr, pos
                 incidences = c(dir = "gen", ind = "voisin"),
                 tests      = c("dir", "ind", "dir+ind+sim",
                                "ind|dir+sim", "sim|dir+ind"),
                 maf = 0.05)
 attr(gwas, "meta")$lambda_gc                 # genomic control per test
-rx_scan_seuil(gwas, "ind|dir+sim")           # Bonferroni over the tested SNPs
+rx_scan_threshold(gwas, "ind|dir+sim")       # Bonferroni over the tested SNPs
 ```
 
 `incidences` names the model terms that carry `Z_dir` and `Z_ind`. It takes
@@ -333,24 +333,24 @@ SNP as a fixed effect, and returns a Wald test with re-estimated variance
 components. A REML likelihood ratio test cannot be used here: two models with
 different fixed effects do not share the same restricted likelihood.
 
-Both functions receive the model as a function, `construire(K, X_sup = NULL)`.
+Both functions receive the model as a function, `build(K, X_sup = NULL)`.
 It returns the `rx_model` for a relationship matrix `K` and, when given, extra
 fixed-effect columns `X_sup`. The relationship matrix can then change without
 guessing where it enters the model, and the design of the null is kept by
-construction. `K_de(W)` computes the relationship matrix from a dose matrix.
+construction. `K_of(W)` computes the relationship matrix from a dose matrix.
 
 ```r
-construire <- function(K, X_sup = NULL) {
+build <- function(K, X_sup = NULL) {
   X <- cbind(model.matrix(~ rep, d), X_sup)
   rx_model(d$y, X, list(rx_term("dge_ige", list(Zd, Zn), K = K, struct = "us"),
                         rx_term("bloc", d$bloc)), rx_residual())
 }
 incid <- c(dir = "dge_ige:1", ind = "dge_ige:2")
-loco  <- rx_scan_loco(construire, K_de, M, carte, incidences = incid,
+loco  <- rx_scan_loco(build, K_of, M, map, incidences = incid,
                       tests = c("dir", "ind", "dir+ind"),
                       fit_args = list(backend = "cpu"))
 attr(loco, "loco")                           # one null per chromosome
-tetes <- rx_scan_exact(loco, "ind", construire, K_de, M, carte, incid, top = 8,
+tetes <- rx_scan_exact(loco, "ind", build, K_of, M, map, incid, top = 8,
                        fit_args = list(backend = "cpu"))
 ```
 
@@ -378,7 +378,7 @@ it was not measured on null simulations.
 ### Cross-species case
 
 When the neighbours belong to another species, set
-`marqueurs = list(dir = M_ble, ind = M_luzerne)`. The scan then tests the
+`markers = list(dir = M_ble, ind = M_luzerne)`. The scan then tests the
 effect of the alleles of the partner on the phenotype of the focal plant. Joint
 tests are refused in this case, because column j of the two matrices does not
 refer to the same SNP.

@@ -103,3 +103,17 @@ test_that("un echantillon a posteriori immobile est declare inexploitable", {
                                               ess_min = 420, divergences = 0)))
   expect_length(remlax:::.rx_bayes_problems(bon), 0L)
 })
+
+test_that("les anciens noms des arguments du scan restent acceptes, avec un avertissement", {
+  m <- rx_model(rnorm(8), matrix(1, 8, 1), list(rx_term("gen", factor(rep(1:4, 2)))))
+  faux <- list(theta = c(0, 0))
+  M <- matrix(1, 4, 2, dimnames = list(1:4, c("a", "b")))
+  # L'ancien nom est reconnu : l'erreur vient ensuite de l'incidence absente.
+  expect_warning(expect_error(rx_scan(faux, m, marqueurs = M, incidences = c(dir = "absent"),
+                                      verbose = FALSE), "pas dans le modele"),
+                 "renomme `markers`")
+  expect_error(rx_scan(faux, m, M, incidences = c(dir = "gen"), zzz = 1), "inconnu")
+  res <- data.frame(snp = c("a", "b"), p_dir = c(0.01, 0.5))
+  expect_equal(rx_scan_threshold(res, "dir"), 0.025)
+  expect_warning(expect_equal(rx_scan_seuil(res, "dir"), 0.025), "rx_scan_threshold")
+})

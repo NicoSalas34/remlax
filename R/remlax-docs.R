@@ -1192,25 +1192,28 @@ NULL
 #'
 #' @param fit an `rx_fit` object; only `fit$theta` is read.
 #' @param model the corresponding [rx_model].
-#' @param marqueurs matrix of genotype doses (`q` rows named by the term's
+#' @param markers matrix of genotype doses (`q` rows named by the term's
 #'   levels, `p` SNP columns), or `list(dir = , ind = )` for the inter-species
 #'   case (joint tests are then refused). The `sim` family requires centred
 #'   doses (`+/-1` coding).
-#' @param carte optional data frame with columns `snp`, `chr`, `pos`.
+#' @param map optional data frame with columns `snp`, `chr`, `pos`.
 #' @param incidences named vector: which terms carry the focal incidence
 #'   (`dir`) and the neighbour incidence (`ind`).
 #' @param tests test specifications, e.g. `"dir"`, `"ind"`, `"sim"`,
 #'   `"dir+ind+sim"`; a bar denotes a conditional test, `"ind|dir+sim"`.
-#' @param maf minor allele frequency filter computed on `marqueurs$dir`; `NULL`
+#' @param maf minor allele frequency filter computed on `markers$dir`; `NULL`
 #'   to keep all.
-#' @param codage `"pm1"` (doses in `-1/+1`) or `"012"`; used for the MAF only.
+#' @param coding `"pm1"` (doses in `-1/+1`) or `"012"`; used for the MAF only.
 #' @param backend,dir,verbose,keep as in [rx_fit()].
-#' @param bloc SNP block width for the `sim` family.
+#' @param ... former argument names (`marqueurs`, `carte`, `codage`, `bloc`),
+#'   still accepted with a deprecation warning.
+#' @param block SNP block width for the `sim` family.
 #' @return A data frame with one row per SNP and an attribute `"meta"` (genomic
 #'   control lambda per test, timings, `-2 logL` of the null).
 #'
-#' `rx_scan_seuil()` returns the Bonferroni threshold `alpha / m` for a test
-#' column, `m` being the number of finite p-values.
+#' `rx_scan_threshold()` returns the Bonferroni threshold `alpha / m` for a test
+#' column, `m` being the number of finite p-values. `rx_scan_seuil()` is its
+#' former name, deprecated.
 #' @param res result of `rx_scan()`.
 #' @param test name of a test present in `res` (column `p_<test>`).
 #' @param alpha family-wise level.
@@ -1223,21 +1226,21 @@ NULL
 #' fit <- rx_fit(m, backend = "cpu", verbose = FALSE)
 #' M <- matrix(sample(c(-1, 1), 30 * 50, replace = TRUE), 30, 50,
 #'             dimnames = list(levels(d$gid), paste0("snp", 1:50)))
-#' gw <- rx_scan(fit, m, marqueurs = M, incidences = c(dir = "gid"),
+#' gw <- rx_scan(fit, m, markers = M, incidences = c(dir = "gid"),
 #'               tests = "dir", backend = "cpu", verbose = FALSE)
 #' head(gw)
-#' rx_scan_seuil(gw, "dir")
+#' rx_scan_threshold(gw, "dir")
 #' }
 #' @usage
-#' rx_scan(fit, model, marqueurs, carte = NULL,
+#' rx_scan(fit, model, markers, map = NULL,
 #'         incidences = c(dir = "gen", ind = "voisin"),
 #'         tests = c("dir", "ind", "sim", "dir+ind+sim"),
-#'         maf = 0.05, codage = c("pm1", "012"),
-#'         backend = c("auto", "gpu", "cpu"), bloc = 1024L,
-#'         dir = NULL, verbose = TRUE, keep = FALSE)
-#' rx_scan_seuil(res, test, alpha = 0.05)
+#'         maf = 0.05, coding = c("pm1", "012"),
+#'         backend = c("auto", "gpu", "cpu"), block = 1024L,
+#'         dir = NULL, verbose = TRUE, keep = FALSE, ...)
+#' rx_scan_threshold(res, test, alpha = 0.05)
 #' @name rx_scan
-#' @aliases rx_scan_seuil
+#' @aliases rx_scan_threshold rx_scan_seuil
 NULL
 
 # ------------------------------------------------------------------------------
@@ -1255,25 +1258,27 @@ NULL
 #' times too large. A REML likelihood ratio test is not used, since two models
 #' with different fixed effects do not share the same restricted likelihood.
 #'
-#' The model is built by the caller. `construire(K, X_sup = NULL)` returns the
+#' The model is built by the caller. `build(K, X_sup = NULL)` returns the
 #' [rx_model] for a relationship matrix `K` and, when given, extra fixed-effect
 #' columns `X_sup` appended to `X`. The relationship matrix can then change
 #' without guessing where it enters the model, and the design of the null is
 #' kept by construction.
 #'
-#' @param construire function `(K, X_sup = NULL)` returning an [rx_model].
-#' @param K_de function `(W)` returning the `q x q` relationship matrix computed
+#' @param build function `(K, X_sup = NULL)` returning an [rx_model].
+#' @param K_of function `(W)` returning the `q x q` relationship matrix computed
 #'   from a dose matrix `W` (`q x p'`), named as the levels of the genetic term.
-#' @param marqueurs dose matrix `q x p`, rows in the order of the levels of the
+#' @param markers dose matrix `q x p`, rows in the order of the levels of the
 #'   genetic term. Doses must be centred when the `ind` family is tested.
-#' @param carte data frame with columns `snp`, `chr` (required) and `pos`.
-#' @param incidences,tests,maf,codage passed to [rx_scan()].
+#' @param map data frame with columns `snp`, `chr` (required) and `pos`.
+#' @param incidences,tests,maf,coding passed to [rx_scan()].
 #' @param fit_args list of arguments passed to [rx_fit()] (`backend`,
 #'   `optimizer`, ...).
 #' @param theta_init starting values of the refits, for instance the `theta` of
 #'   the genome-wide null.
 #' @param verbose print one line per chromosome or per refitted SNP.
-#' @param ... further arguments passed to [rx_scan()].
+#' @param ... further arguments passed to [rx_scan()], and the former argument
+#'   names (`construire`, `K_de`, `marqueurs`, `carte`, `codage`), still
+#'   accepted with a deprecation warning.
 #' @param res result of `rx_scan()` or `rx_scan_loco()`.
 #' @param test linear test to refit: `"dir"`, `"ind"` or `"dir+ind"`. The `sim`
 #'   family and conditional tests are not refitted.
@@ -1293,24 +1298,24 @@ NULL
 #' @seealso [rx_scan()]
 #' @examples
 #' \dontrun{
-#' construire <- function(K, X_sup = NULL)
+#' build <- function(K, X_sup = NULL)
 #'   rx_model(d$y, cbind(rep(1, nrow(d)), X_sup),
 #'            list(rx_term("dge_ige", list(Zd, Zn), K = K, struct = "us")),
 #'            rx_residual())
-#' K_de <- function(W) { W <- scale(W, scale = FALSE); tcrossprod(W) / ncol(W) }
+#' K_of <- function(W) { W <- scale(W, scale = FALSE); tcrossprod(W) / ncol(W) }
 #' incid <- c(dir = "dge_ige:1", ind = "dge_ige:2")
-#' loco <- rx_scan_loco(construire, K_de, M, carte, incidences = incid,
+#' loco <- rx_scan_loco(build, K_of, M, map, incidences = incid,
 #'                      tests = c("dir", "ind"), fit_args = list(backend = "cpu"))
-#' rx_scan_exact(loco, "ind", construire, K_de, M, carte, incid, top = 10,
+#' rx_scan_exact(loco, "ind", build, K_of, M, map, incid, top = 10,
 #'               fit_args = list(backend = "cpu"))
 #' }
 #' @usage
-#' rx_scan_loco(construire, K_de, marqueurs, carte, incidences,
-#'              tests = c("dir", "ind", "dir+ind"), maf = NULL, codage = "pm1",
+#' rx_scan_loco(build, K_of, markers, map, incidences,
+#'              tests = c("dir", "ind", "dir+ind"), maf = NULL, coding = "pm1",
 #'              fit_args = list(), theta_init = NULL, verbose = TRUE, ...)
-#' rx_scan_exact(res, test, construire, K_de, marqueurs, carte, incidences,
+#' rx_scan_exact(res, test, build, K_of, markers, map, incidences,
 #'               top = 10L, loco = TRUE, fit_args = list(), theta_init = NULL,
-#'               verbose = TRUE)
+#'               verbose = TRUE, ...)
 #' @name rx_scan_loco
 #' @aliases rx_scan_exact
 NULL
