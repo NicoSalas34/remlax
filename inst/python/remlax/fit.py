@@ -174,7 +174,6 @@ def _fit_model(terms, res, y, X, theta_init=None, maxiter=3000,
                  memoire=memoire, finition=finition, arret_lent=arret_lent,
                  fixed_idx=fixed_idx, lag=lag, optimizer=optimizer))
 
-    floor_in = floor
     eng = _build_engine(terms, res, y, X, lag, moteur, inversion, memoire, optimizer,
                         floor, verbose)
     floor, moteur, memoire = eng.floor, eng.engine, eng.memory
@@ -222,7 +221,7 @@ def _fit_model(terms, res, y, X, theta_init=None, maxiter=3000,
     _chrono("hessien")
     return _dense_restart_if_needed(
         out, terms, res, y, X, moteur, maxiter, verbose,
-        dict(maxiter=maxiter, floor=floor_in, ceil=ceil, verbose=verbose, hessian=hessian,
+        dict(maxiter=maxiter, floor=floor, ceil=ceil, verbose=verbose, hessian=hessian,
              blups=blups, pev=pev, tol=tol, polish=polish, check=False, n_restarts=0,
              fixed_idx=fixed_idx, lag=lag, optimizer=optimizer, moteur="dense",
              inversion=inversion, memoire=memoire, finition=finition,
