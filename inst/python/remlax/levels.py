@@ -272,11 +272,18 @@ def _distance_anisotrope(dx, dy, delta, alpha, lam):
     v = -dx * sa + dy * ca
     sd = jnp.sqrt(delta)
     a, b = jnp.abs(sd * u), jnp.abs(v / sd)
-    if abs(lam - 2.0) < 1e-12:
-        return jnp.sqrt(a ** 2 + b ** 2)
     if abs(lam - 1.0) < 1e-12:
         return a + b
-    return (a ** lam + b ** lam) ** (1.0 / lam)
+    # The root and the powers have an infinite derivative at 0, where the
+    # diagonal of the kernel sits (dx = dy = 0). Evaluating them on a
+    # placeholder there keeps the gradient finite (its value at h = 0 is 0);
+    # the distance itself is unchanged.
+    def _pow(x, e):
+        pos = x > 0
+        return jnp.where(pos, jnp.where(pos, x, 1.0) ** e, 0.0)
+    s = a ** 2 + b ** 2 if abs(lam - 2.0) < 1e-12 else _pow(a, lam) + _pow(b, lam)
+    e = 0.5 if abs(lam - 2.0) < 1e-12 else 1.0 / lam
+    return _pow(s, e)
 
 
 def _own_corr(theta_lv, q, expr, coord=None, opts=None):

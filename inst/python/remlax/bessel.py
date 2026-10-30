@@ -73,5 +73,9 @@ def matern(z, nu):
     """Matern correlation M(z, nu), with z >= 0, nu > 0 and M(0, nu) = 1."""
     z = jnp.asarray(z, dtype=jnp.float64)
     nu = jnp.asarray(nu, dtype=jnp.float64)
-    v = jnp.exp((1.0 - nu) * jnp.log(2.0) - gammaln(nu)) * z_nu_kv(z, nu)
-    return jnp.where(z <= 1e-13, jnp.ones_like(v), v)
+    # z_nu_kv works in log z: at z = 0 its derivative is not finite, and a
+    # where() alone would still send that NaN into the gradient. It is
+    # evaluated on a placeholder there; M(0, nu) = 1 is set afterwards.
+    small = z <= 1e-13
+    v = jnp.exp((1.0 - nu) * jnp.log(2.0) - gammaln(nu)) * z_nu_kv(jnp.where(small, 1.0, z), nu)
+    return jnp.where(small, jnp.ones_like(v), v)

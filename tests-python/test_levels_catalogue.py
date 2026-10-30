@@ -287,3 +287,25 @@ def test_mtrn_lambda_1_city_block_et_tout_fixe():
     dx, dy, _ = _d(X2)
     assert np.allclose(C, np.exp(-(dx + dy) / 2.0), atol=1e-9)
     assert Lv.n_level_params("mtrn", opts=opts) == 0
+
+
+@pytest.mark.parametrize("lam", [1.0, 1.5, 2.0])
+def test_mtrn_anisotrope_gradient_fini_et_exact(lam):
+    """The diagonal of the kernel sits at distance 0, where the root, the
+    powers of the anisotropic distance and log z of the Matern function have
+    an infinite derivative. The gradient of the whole correlation matrix must
+    stay finite (the fit of mtrn_aniso was refused at its start) and match
+    finite differences, with every parameter estimated."""
+    import jax
+    opts = {"est_phi": 1.0, "est_nu": 1.0, "est_delta": 1.0, "est_alpha": 1.0, "lambda": lam}
+    k = Lv.n_level_params("mtrn", opts=opts)
+    th0 = jnp.asarray([np.log(2.0), np.log(1.5), np.log(1.4), 0.3][:k])
+    f = lambda th: jnp.sum(Lv.level_corr(th, "mtrn", Q, coord=X2, opts=opts) * W_GRAD)  # noqa: E731
+    g = np.asarray(jax.grad(f)(th0))
+    assert np.all(np.isfinite(g))
+    h = 1e-6
+    fd = np.array([(f(th0.at[i].add(h)) - f(th0.at[i].add(-h))) / (2 * h) for i in range(k)])
+    np.testing.assert_allclose(g, fd, rtol=1e-5, atol=1e-8)
+
+
+W_GRAD = np.random.default_rng(3).normal(size=(Q, Q))

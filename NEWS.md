@@ -20,7 +20,10 @@
     iterations, not the steps tried;
   - the fallback of the selected inversion to its slower NumPy loop is
     announced;
-  - `rx_residual(level = "sep")`, which could not work, is refused.
+  - `rx_residual(level = "sep")`, which could not work, is refused;
+  - the anisotropic Matern kernel has a finite gradient at zero distance:
+    with `delta` or `alpha` estimated, its fit was refused at the start
+    because the gradient on the diagonal of the kernel was not finite.
 * `rx_fit()` warns when a REML fit did not converge or stopped on a saddle
   point, and when a posterior sample cannot be used (collapsed step size,
   nested R-hat above 1.01, ESS under 100, divergences, failed search for the
