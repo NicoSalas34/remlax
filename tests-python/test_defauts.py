@@ -81,3 +81,13 @@ def test_iterations_ai_comptent_les_pas_acceptes(capsys):
     lignes = [l for l in capsys.readouterr().out.splitlines() if l.lstrip().startswith("aiv")]
     assert r["scipy_success"]
     assert r["n_iter"] == len(lignes)
+
+
+def test_repli_du_noyau_c_annonce(monkeypatch, capsys):
+    """Sans noyau C chargeable, la bascule vers la boucle NumPy est dite."""
+    from remlax import selinv
+    monkeypatch.setattr(selinv, "_C_KERNEL", None)
+    monkeypatch.setenv("REMLAX_SELINV_LIB", "/chemin/absent/libselinv.so")
+    assert selinv._c_kernel() is None
+    assert "indisponible" in capsys.readouterr().err
+    monkeypatch.setattr(selinv, "_C_KERNEL", None)

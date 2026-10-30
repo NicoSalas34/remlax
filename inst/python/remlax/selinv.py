@@ -40,6 +40,7 @@ import hashlib
 import os
 import shutil
 import subprocess
+import sys
 
 import numpy as np
 import scipy.sparse as sp
@@ -57,7 +58,7 @@ def _c_kernel():
     path of that library in REMLAX_SELINV_LIB; nothing is compiled at run
     time. In a development checkout, without that variable, the source found
     of the repository (src/selinv_c.c) is compiled once into
-    $REMLAX_CACHE. When neither is available, or the library cannot be
+    $REMLAX_CACHE (or the temporary directory). When neither is available, or the library cannot be
     loaded, the NumPy loop takes over with the same result, several times
     slower (dev/notes.md). BLAS and LAPACK are those of SciPy, passed as
     pointers.
@@ -88,8 +89,12 @@ def _c_kernel():
             return api.PyCapsule_GetPointer(cap, api.PyCapsule_GetName(cap))
         _C_KERNEL = (fn, ptr(cython_blas, "dgemm"), ptr(cython_blas, "dtrsm"),
                      ptr(cython_lapack, "dpotri"))
-    except Exception:
+    except Exception as e:
         _C_KERNEL = False
+        # Said once per process: the NumPy loop gives the same result, but
+        # several times more slowly.
+        print("[remlax] noyau C de l'inversion selective indisponible (%s) : boucle NumPy, "
+              "meme resultat, plus lente" % e, file=sys.stderr, flush=True)
     return _C_KERNEL or None
 
 
@@ -98,12 +103,13 @@ def _dev_kernel():
 
     Only used when the solver runs outside the installed R package: the
     source sits in src/ of the repository, two levels above this package. The
-    library goes to $REMLAX_CACHE, which must be set."""
+    library goes to $REMLAX_CACHE, or to a folder of the temporary directory."""
     src = os.path.normpath(os.path.join(os.path.dirname(os.path.abspath(__file__)),
                                         "..", "..", "..", "src", "selinv_c.c"))
-    cache = os.environ.get("REMLAX_CACHE")
-    if not (os.path.exists(src) and cache):
+    if not os.path.exists(src):
         return None
+    import tempfile
+    cache = os.environ.get("REMLAX_CACHE") or os.path.join(tempfile.gettempdir(), "remlax_cache")
     with open(src, "rb") as f:
         h = hashlib.sha1(f.read()).hexdigest()[:12]
     os.makedirs(cache, exist_ok=True)
