@@ -1,5 +1,13 @@
 # remlax (development version)
 
+* CRAN policy. The solver writes its compilation cache in
+  `tools::R_user_dir("remlax", "cache")`, pruned of files unused for 30 days,
+  or in `tempdir()` during `R CMD check` and with
+  `options(remlax.cache = FALSE)`; it no longer writes in `~/.cache/remlax`.
+  `rx_cache_clear()` empties the cache. The selected inversion kernel of the
+  mixed model equations engine is compiled by R at installation (`src/`)
+  instead of by the solver at first use.
+
 * Internal reorganisation, with no change of results: every fit, value,
   gradient and AI matrix of the reference cases is identical to the bit
   before and after. On the R side, `R/remlax.R` and its companions are split
