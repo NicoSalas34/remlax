@@ -244,8 +244,13 @@ plot.rx_fit <- function(x, genotype = NULL, surface = NULL, spaTrend = c("raw", 
   vt <- tg$trend
   if (spaTrend == "percentage") vt <- 100 * vt / mean(obs)
   graphics::layout(matrix(c(1:6, 7, 8, 9, 9, 10, 10), 2, byrow = TRUE), widths = rep(c(4, 1), 3))
-  seqp <- grDevices::hcl.colors(100, "YlGnBu", rev = TRUE)
-  divp <- grDevices::hcl.colors(101, "Blue-Red 2")
+  # Interpolated between fixed anchors of the palettes YlGnBu (reversed) and
+  # Blue-Red 2: hcl.colors(101, "Blue-Red 2") failed with "invalid hcl color"
+  # on R 4.6.1 for macOS.
+  seqp <- grDevices::colorRampPalette(c("#FCFFDD", "#E3F8D4", "#BCE9C5", "#85D5B7", "#18BDB0",
+                                        "#00A0AE", "#007EB3", "#004C90", "#26185F"))(100)
+  divp <- grDevices::colorRampPalette(c("#4A6FE3", "#788CE1", "#9DA8E2", "#C0C5E3", "#E2E2E2",
+                                        "#E6BCC3", "#E495A5", "#DD6D87", "#D33F6A"))(101)
   zl <- range(c(obs, aj), na.rm = TRUE)
   sym <- function(v) { a <- max(abs(v), na.rm = TRUE); c(-a, a) }
   xl <- s$x_name; yl <- s$y_name
