@@ -78,7 +78,7 @@ def test_jacobien_tanh_uniforme():
 def test_prior_terme_inconnu_refuse():
     terms = [dict(name="g", struct="iid", t=1, rank=0, q=5, LK=None)]
     res = dict(struct="iid", t=1, rank=0)
-    with pytest.raises(ValueError, match="inconnu"):
+    with pytest.raises(ValueError, match="unknown"):
         B._resolve_prior({"terms": {"autre": {}}}, terms, res, np.zeros(5), np.ones((5, 1)))
 
 

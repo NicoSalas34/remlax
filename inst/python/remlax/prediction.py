@@ -35,7 +35,7 @@ def predict(theta, terms, res, y, X, L, M=None, vbeta=None):
     n, p = X.shape
     L = np.atleast_2d(np.asarray(L, dtype=float))
     if L.shape[1] != p:
-        raise ValueError("predict : L a %d colonnes pour %d effets fixes."
+        raise ValueError("predict: L has %d columns for %d fixed effects."
                          % (L.shape[1], p))
     Zs = [dense_Z(t, n) for t in terms]
     V = np.asarray(assemble_V(jnp.asarray(theta), terms, Zs, res, n))
@@ -58,7 +58,7 @@ def predict(theta, terms, res, y, X, L, M=None, vbeta=None):
         Mk = np.atleast_2d(np.asarray(M[name], dtype=float))       # l x (t*q)
         t_, q_ = tm["t"], tm["q"]
         if Mk.shape != (L.shape[0], t_ * q_):
-            raise ValueError("predict : M['%s'] est %s, attendu (%d, %d)."
+            raise ValueError("predict: M['%s'] is %s, expected (%d, %d)."
                              % (name, Mk.shape, L.shape[0], t_ * q_))
         Sig, Kq = term_sigma_K(tm, th_terms[k])
         Mb = Mk.reshape(Mk.shape[0], t_, q_)

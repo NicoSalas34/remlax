@@ -261,11 +261,11 @@ print(fit)
 ```
 
 ```
-Ajustement REML (cpu) : logLik -388.088838 | 3 parametres | 240 obs | 1.6 s
-  max|grad| 3.42e-14 | decrement de Newton 1.43e-28 | 0 valeur(s) propre(s) negative(s)
-  Sigma[gid] 1x1, diagonale : 1.401
-  Sigma[bloc] 1x1, diagonale : 0.00722
-  residuelle : 0.8988
+REML fit (cpu): logLik -388.088838 | 3 parameters | 240 obs | 1.6 s
+  max|grad| 3.42e-14 | Newton decrement 1.43e-28 | 0 negative eigenvalue(s)
+  Sigma[gid] 1x1, diagonal: 1.401
+  Sigma[bloc] 1x1, diagonal: 0.00722
+  residual: 0.8988
   vpredict :
     h2            0.60735   SE  0.05871   [V1/(V1+V2+V3)]
 ```

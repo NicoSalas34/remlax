@@ -32,7 +32,7 @@ test_that("theta_init en evaluation seule, fixed_theta, hessian/blups coupes", {
   expect_identical(fe[["theta"]], f[["theta"]])
   expect_equal(fe[["logLik"]], f[["logLik"]], tolerance = 1e-10)
   expect_equal(fe[["n_iter"]], 0)
-  expect_match(fe[["scipy_message"]], "evaluation seule")
+  expect_match(fe[["scipy_message"]], "evaluation only")
   th0 <- f[["theta"]]; th0[1] <- th0[1] + 0.5
   ff <- rx_fit(m, backend = "cpu", verbose = FALSE, theta_init = th0, fixed_theta = 1L)
   expect_equal(ff[["theta"]][1], th0[1])
@@ -52,7 +52,7 @@ test_that("theta_init en evaluation seule, fixed_theta, hessian/blups coupes", {
   rx_fit(m, backend = "cpu", verbose = FALSE, dir = dir, keep = TRUE, hessian = FALSE)
   expect_true(file.exists(file.path(dir, "result.json")))
   expect_s3_class(rx_read_result(dir), "rx_fit")
-  expect_output(print(f), "Ajustement REML")
+  expect_output(print(f), "REML fit")
   expect_output(print(f), "Sigma\\[bloc\\]")
 })
 
@@ -115,7 +115,7 @@ test_that("rx_predict : classify, at, levels, average, sed, part aleatoire, vcov
   Cv <- L %*% Vb %*% t(L)
   expect_equal(S[1, 2], sqrt(Cv[1, 1] + Cv[2, 2] - 2 * Cv[1, 2]), tolerance = 1e-8)
   expect_equal(attr(p, "sed.mean"), sqrt(mean(S[upper.tri(S)]^2)), tolerance = 1e-10)
-  expect_output(print(p), "erreur-type moyenne des differences")
+  expect_output(print(p), "mean standard error of differences")
   # at : covariable forcee a 0 ; levels : sous-ensemble
   p0 <- rx_predict(f, classify = "trt", at = list(x = 0))
   expect_equal(p0$predicted.value, as.numeric(cbind(1, rbind(0, diag(3)), 0) %*% beta),
@@ -148,11 +148,11 @@ test_that("rx_predict : classify, at, levels, average, sed, part aleatoire, vcov
   pk <- rx_predict(f, classify = "trt", vcov = "kenward-roger")
   expect_equal(pk$std.error, sqrt(diag(L %*% f[["vbeta_kr"]] %*% t(L))), tolerance = 1e-8)
   expect_warning(rx_predict(f, classify = "bloc", vcov = "kenward-roger", backend = "cpu"),
-                 "FIXES")
+                 "FIXED")
   f2 <- rx_reml(y ~ trt + x, random = ~ bloc, data = d, backend = "cpu", verbose = FALSE)
   expect_error(rx_predict(f2, classify = "trt", vcov = "kenward-roger"), "kenward_roger")
   # refus : variable inconnue, ajustement sans formule
-  expect_error(rx_predict(f, classify = "zzz"), "ni dans le modele")
+  expect_error(rx_predict(f, classify = "zzz"), "neither in the fixed model")
   fm <- rx_fit(f[["model"]], backend = "cpu", verbose = FALSE, hessian = FALSE)
   expect_error(rx_predict(fm, classify = "trt"), "rx_reml")
 })

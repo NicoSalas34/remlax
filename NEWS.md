@@ -31,7 +31,7 @@
   warning.
 * The Bayesian route, the spatial lag, the blocks engine, the hybrid
   inversion, `rx_scan_loco()` and `rx_scan_exact()` are marked experimental.
-* Every identifier of the interface is in English; messages are not yet.
+* Every identifier of the interface is in English.
   Fit fields: `engine`, `memory`, `optimizer`, `seconds`, `seconds_optim`,
   `degenerate_components`, `component_names`, `conv_hessian_ok`, `cores`,
   `threads_bound`, `n_par_identified`, `n_flat_expected`, `n_flat_excluded`,
@@ -69,6 +69,7 @@
   `order` and `t_launch`, and the timing variables are `RX_T_LAUNCH` and
   `RX_T_START`. `REMLAX_THREADS=all` and `REMLAX_BLAS_NUMPY=keep` replace
   `tous` and `garder`, which are still accepted.
+* Messages, printed output and comments are in English.
 
 * CRAN policy. The solver writes its compilation cache in
   `tools::R_user_dir("remlax", "cache")`, pruned of files unused for 30 days,

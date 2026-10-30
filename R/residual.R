@@ -19,14 +19,14 @@ rx_residual <- function(struct = "iid", trait = NULL, unit = NULL, rank = 0L,
                         rows = NULL, name = NULL) {
   struct <- match.arg(struct, c("iid", "diag", "us", "fa", "none"))
   if (struct == "none" && (!identical(level, "id") || !is.null(sections)))
-    stop("rx_residual(\"none\") : ni structure entre unites ni sections, il n'y a pas de ",
-         "residuelle a structurer.", call. = FALSE)
+    stop("rx_residual(\"none\") takes neither a structure between units nor sections. ",
+         "There is no residual to structure.", call. = FALSE)
   level  <- match.arg(level, RX_LEVEL_STRUCTURES)
   # A separable product needs its factors (parts), which a residual section
   # does not carry: ar1ar1 covers the separable residual field.
   if (identical(level, "sep"))
-    stop("rx_residual : le produit separable (level = \"sep\") n'est pas disponible pour ",
-         "la residuelle. Pour un champ ar1 x ar1, utiliser level = \"ar1ar1\" avec dims.",
+    stop("rx_residual: the separable product (level = \"sep\") is not available for ",
+         "the residual. For an ar1 x ar1 field, use level = \"ar1ar1\" with dims.",
          call. = FALSE)
   structure(list(struct = struct, trait = trait, unit = unit, rank = as.integer(rank),
                  level = level, order = as.integer(order), coord = coord,

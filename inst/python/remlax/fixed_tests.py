@@ -127,9 +127,9 @@ def kenward_roger(theta, terms, res, y, X, fixed_terms=None):
     tol = 1e-10 * max(abs(w).max(), 1.0)
     if not np.all(w > tol):
         return dict(available=False,
-                    reason="information REML non definie positive (%d direction(s) "
-                           "plate(s)) : la covariance des parametres de variance "
-                           "n'existe pas, donc l'ajustement de Kenward-Roger non plus."
+                    reason="REML information not positive definite (%d flat "
+                           "direction(s)). The covariance of the variance parameters "
+                           "does not exist, so neither does the Kenward-Roger adjustment."
                            % int((w <= tol).sum()))
     W = Qv @ np.diag(1.0 / w) @ Qv.T
     Phi_A, dPhi = _kr_adjusted_cov(D, U, Vi, Phi, W, k, p)
@@ -188,7 +188,7 @@ def _kr_test(name, cols, beta, Phi, Phi_A, dPhi, W, k, p, df_resid):
         return dict(term=name, df=l, denDF=df_resid, F=float(Fstar),
                     F_raw=float(Fstar), scale=1.0,
                     p=float(f_dist.sf(Fstar, l, df_resid)),
-                    note="dispositif orthogonal : aucun ajustement")
+                    note="orthogonal design: no adjustment")
     B = (A1 + 6.0 * A2) / (2.0 * l)
     g = ((l + 1) * A1 - (l + 4) * A2) / ((l + 2) * A2)
     den = 3.0 * l + 2.0 * (1.0 - g)
@@ -201,7 +201,7 @@ def _kr_test(name, cols, beta, Phi, Phi_A, dPhi, W, k, p, df_resid):
     note = None
     if not np.isfinite(m_df) or m_df <= 2.0:
         m_df, lam = df_resid, 1.0
-        note = "appariement des moments hors domaine : test NON ajuste"
+        note = "moment matching out of range: test NOT adjusted"
     FKR = lam * Fstar
     d = dict(term=name, df=l, denDF=float(m_df), F=float(FKR),
              F_raw=float(Fstar), scale=float(lam),

@@ -251,33 +251,33 @@ def test_validate_refuse_les_dispositifs_singuliers():
     y = RNG.normal(size=n); X = np.ones((n, 1))
     # (unite, caractere) en double sous une residuelle us
     unit = np.repeat(np.arange(n // 2), 2); trait = np.zeros(n, np.int64)
-    with pytest.raises(ValueError, match="en double"):
+    with pytest.raises(ValueError, match="duplicated"):
         validate([tm], od.residuelle("us", trait, unit, 2), y, X)
     # meme unite deux fois sous une structure ar1 entre unites, residuelle iid
-    with pytest.raises(ValueError, match="en double"):
+    with pytest.raises(ValueError, match="duplicated"):
         validate([tm], od.residuelle("iid", trait, unit, 1, lvl="ar1"), y, X)
     # indice de caractere hors de t
     tr2 = np.tile([0, 1, 2], n // 3 + 1)[:n]
-    with pytest.raises(ValueError, match="hors de la structure"):
+    with pytest.raises(ValueError, match="outside the residual structure"):
         validate([tm], od.residuelle("diag", tr2, np.arange(n), 2), y, X)
     # incidence entierement nulle
     tm0 = dict(tm); tm0["zx"] = np.zeros(n)
-    with pytest.raises(ValueError, match="entierement nulle"):
+    with pytest.raises(ValueError, match="entirely zero"):
         validate([tm0], od.residuelle_iid(n), y, X)
     # y non fini ; X non finie ; X de rang deficient
     y2 = y.copy(); y2[3] = np.nan
-    with pytest.raises(ValueError, match="non finies"):
+    with pytest.raises(ValueError, match="non-finite"):
         validate([tm], od.residuelle_iid(n), y2, X)
     X2 = X.copy(); X2[0, 0] = np.inf
-    with pytest.raises(ValueError, match="non finies"):
+    with pytest.raises(ValueError, match="non-finite"):
         validate([tm], od.residuelle_iid(n), y, X2)
-    with pytest.raises(ValueError, match="rang"):
+    with pytest.raises(ValueError, match="rank"):
         validate([tm], od.residuelle_iid(n), y, np.column_stack([X, X]))
     # structure residuelle inconnue et theta de mauvaise longueur
-    with pytest.raises(ValueError, match="structure residuelle inconnue"):
+    with pytest.raises(ValueError, match="unknown residual structure"):
         Zs = [dense_Z(tm, n)]
         neg2_reml(jnp.zeros(2), [tm], Zs, od.residuelle("corh", trait, np.arange(n), 1), y, X)
-    with pytest.raises(ValueError, match="longueur"):
+    with pytest.raises(ValueError, match="length"):
         fit_reml([tm], od.residuelle_iid(n), y, X, theta_init=np.zeros(5), verbose=False,
                  maxiter=0, polish=0, hessian=False, blups=False)
 

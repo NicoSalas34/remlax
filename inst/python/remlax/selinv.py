@@ -69,7 +69,7 @@ def _c_kernel():
     try:
         so = os.environ.get("REMLAX_SELINV_LIB") or _dev_kernel()
         if not so:
-            raise RuntimeError("noyau C indisponible")
+            raise RuntimeError("C kernel unavailable")
         lib = ctypes.CDLL(so)
         fn = lib.rx_selinv_brut
         fn.restype = ctypes.c_int
@@ -93,8 +93,8 @@ def _c_kernel():
         _C_KERNEL = False
         # Said once per process: the NumPy loop gives the same result, but
         # several times more slowly.
-        print("[remlax] noyau C de l'inversion selective indisponible (%s) : boucle NumPy, "
-              "meme resultat, plus lente" % e, file=sys.stderr, flush=True)
+        print("[remlax] C kernel of the selected inversion unavailable (%s). NumPy loop, "
+              "same result, slower." % e, file=sys.stderr, flush=True)
     return _C_KERNEL or None
 
 
@@ -195,7 +195,7 @@ class SparseFactor:
         # (order="auto" or "metis"), minimum degree of SuperLU otherwise.
         metis_perm = metis_order(A0) if order in ("auto", "metis") else None
         if order == "metis" and metis_perm is None:
-            raise ImportError("ordre METIS demande mais pymetis n'est pas installe")
+            raise ImportError("METIS order requested but pymetis is not installed")
         self.order = "metis" if metis_perm is not None else "mmd"
         if metis_perm is not None:
             self.perm = metis_perm
@@ -289,7 +289,7 @@ class SparseFactor:
         self._diag_pos = self._L_indptr[:-1]                 # diagonal at the top of each column
         self._L_keys = np.repeat(np.arange(m, dtype=np.int64), np.diff(self._L_indptr)) * m + self._L_indices
         if not np.array_equal(self._L_indices[self._diag_pos], np.arange(m)):
-            raise RuntimeError("CHOLMOD : diagonale absente en tete de colonne")
+            raise RuntimeError("CHOLMOD: diagonal missing at the head of a column")
         # Safeguard: the factor must be the one of OUR order (L L' v = A v).
         # Without nmethods = 1, CHOLMOD also tried its own orders and kept
         # the cheapest, and the selected inversion then failed.
@@ -298,7 +298,7 @@ class SparseFactor:
         v = np.random.default_rng(1).normal(size=m)
         Af = (sp.tril(S + sp.diags(dg)) + sp.triu(S, 1)).tocsr()
         if np.linalg.norm(Lv @ (Lv.T @ v) - Af @ v) > 1e-8 * np.linalg.norm(Af @ v):
-            raise RuntimeError("CHOLMOD : le facteur n'est pas dans l'ordre impose")
+            raise RuntimeError("CHOLMOD: the factor is not in the imposed order")
         self._build_supernodes(L)
         self.lu = None
 
@@ -325,7 +325,7 @@ class SparseFactor:
         # cvxopt stores its values in sorted CCS order: checked once.
         Ic = np.array(self._A.I).ravel(); Jc = np.array(self._A.J).ravel()
         if not (np.array_equal(Ic, Iu) and np.array_equal(Jc, Ju)):
-            raise RuntimeError("CHOLMOD : ordre CCS de cvxopt inattendu")
+            raise RuntimeError("CHOLMOD: unexpected CCS order from cvxopt")
 
     def factorise_values(self, x):
         """Factorise C given by its values at the entries (ii, jj). Returns log|C|."""
@@ -346,7 +346,7 @@ class SparseFactor:
             self.F = cholmod.symbolic(A, p=self._identity_perm)
             cholmod.numeric(A, self.F)
         except ArithmeticError:
-            raise np.linalg.LinAlgError("C n'est pas definie positive (CHOLMOD)")
+            raise np.linalg.LinAlgError("C is not positive definite (CHOLMOD)")
         colptr, rowind, val = (np.array(v).ravel() for v in cholmod.getfactor(self.F).CCS)
         if len(val) == len(self._L_indices) and self._L_row_order is None and \
                 np.array_equal(rowind, self._L_indices):
@@ -360,12 +360,12 @@ class SparseFactor:
             key = col * self.m + rowind.astype(np.int64)
             pos = np.searchsorted(self._L_keys, key)
             if np.any(pos >= len(self._L_keys)) or np.any(self._L_keys[np.minimum(pos, len(self._L_keys) - 1)] != key):
-                raise RuntimeError("CHOLMOD : le motif du facteur sort de celui de l'analyse")
+                raise RuntimeError("CHOLMOD: the pattern of the factor leaves that of the analysis")
             v2 = np.zeros(len(self._L_indices)); v2[pos] = val
             val = v2
         d = val[self._diag_pos]
         if np.any(~np.isfinite(d)) or np.any(d <= 0):
-            raise np.linalg.LinAlgError("C n'est pas definie positive")
+            raise np.linalg.LinAlgError("C is not positive definite")
         self._L_values = val
         self._flat = np.zeros(self.off[-1])
         self._flat[self._flat_map] = val
@@ -497,7 +497,7 @@ class SparseFactor:
                 pr = np.where(R >= R[pc[0]])[0]
                 rK = np.searchsorted(self.lignes[K], R[pr])
                 if np.any(rK >= self.nrow[K]) or np.any(self.lignes[K][np.minimum(rK, self.nrow[K] - 1)] != R[pr]):
-                    raise RuntimeError("selinv : motif non cordal (supernoeuds %d et %d)" % (s, K))
+                    raise RuntimeError("selinv: non-chordal pattern (supernodes %d and %d)" % (s, K))
                 cK = R[pc] - self.sup[K]
                 groups.append((int(K), pr, pc, rK, cK))
             self._gather.append(groups)
@@ -512,7 +512,7 @@ class SparseFactor:
             sel = np.where(K == k)[0]
             rr = np.searchsorted(self.lignes[k], lo[sel])
             if np.any(rr >= self.nrow[k]) or np.any(self.lignes[k][np.minimum(rr, self.nrow[k] - 1)] != lo[sel]):
-                raise RuntimeError("selinv : entree voulue hors du motif du facteur")
+                raise RuntimeError("selinv: requested entry outside the pattern of the factor")
             r[sel] = rr
         self._extract = self.off[K] + r + self.nrow[K] * (co - self.sup[K])
 
@@ -527,10 +527,10 @@ class SparseFactor:
                                                    matrix(T.col.astype(np.int64)), self.m))
         lu = _splu(Cp, "NATURAL")
         if not (np.array_equal(lu.perm_c, np.arange(self.m)) and np.array_equal(lu.perm_r, np.arange(self.m))):
-            raise np.linalg.LinAlgError("selinv : SuperLU a permute, factorisation non symetrique")
+            raise np.linalg.LinAlgError("selinv: SuperLU permuted, non-symmetric factorisation")
         d = lu.U.diagonal()
         if np.any(~np.isfinite(d)) or np.any(d <= 0):
-            raise np.linalg.LinAlgError("C n'est pas definie positive")
+            raise np.linalg.LinAlgError("C is not positive definite")
         self.lu, self.d = lu, d
         return float(np.sum(np.log(d)))
 
@@ -561,7 +561,7 @@ class SparseFactor:
             key = col_of * self.m + L.indices
             pos = np.searchsorted(self._keys, key)
             if np.any(pos >= len(self._keys)) or np.any(self._keys[np.minimum(pos, len(self._keys) - 1)] != key):
-                raise RuntimeError("selinv : le motif du facteur sort de celui de l'analyse")
+                raise RuntimeError("selinv: the pattern of the factor leaves that of the analysis")
             flat_map = self._flat_map[pos]
         flat = np.zeros(self.off[-1])
         flat[flat_map] = L.data * np.sqrt(self.d)[col_of]
@@ -581,7 +581,7 @@ class SparseFactor:
                         flat.ctypes.data_as(P(ctypes.c_double)), Z.ctypes.data_as(P(ctypes.c_double)),
                         pg, pt, pp)
             if status != 0:
-                raise np.linalg.LinAlgError("selinv (noyau C) : statut %d" % status)
+                raise np.linalg.LinAlgError("selinv (C kernel): status %d" % status)
             return Z[self._extract]
         Zb = [None] * self.ns
         for s in range(self.ns - 1, -1, -1):

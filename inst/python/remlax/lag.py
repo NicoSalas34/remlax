@@ -138,31 +138,31 @@ def prepare_lag(lag, y, X):
     tr = np.asarray(lag["trait"], dtype=np.int64)
     unit = np.asarray(lag["unit"], dtype=np.int64)
     if tr.shape != (n,) or unit.shape != (n,):
-        raise ValueError("lag : `trait` et `unit` doivent avoir %d elements (un par ligne de y)." % n)
+        raise ValueError("lag: `trait` and `unit` must have %d elements (one per row of y)." % n)
     if tr.min() < 0 or tr.max() >= q or unit.min() < 0 or unit.max() >= N:
-        raise ValueError("lag : indice de caractere hors de 0..%d ou d'unite hors de 0..%d." % (q - 1, N - 1))
+        raise ValueError("lag: trait index outside 0..%d or unit index outside 0..%d." % (q - 1, N - 1))
     key = tr * N + unit
     if len(np.unique(key)) != n:
-        raise ValueError("lag : %d couple(s) (caractere, unite) en double. Chaque unite ne "
-                         "peut porter qu'une observation par caractere : sinon M n'est pas "
-                         "definie." % (n - len(np.unique(key))))
+        raise ValueError("lag: %d duplicated (trait, unit) pair(s). Each unit can carry "
+                         "only one observation per trait. Otherwise M is not "
+                         "defined." % (n - len(np.unique(key))))
     Ws = [sp.csr_matrix(W, dtype=np.float64) for W in lag["W"]]
     if len(Ws) not in (1, q):
-        raise ValueError("lag : %d matrice(s) W pour %d caracteres (1 ou %d attendues)."
+        raise ValueError("lag: %d W matrices for %d traits (1 or %d expected)."
                          % (len(Ws), q, q))
     for k, W in enumerate(Ws):
         if W.shape != (N, N):
-            raise ValueError("lag : W[%d] est %s, attendu (%d, %d)." % (k, W.shape, N, N))
+            raise ValueError("lag: W[%d] is %s, expected (%d, %d)." % (k, W.shape, N, N))
         if np.any(W.diagonal() != 0):
-            raise ValueError("lag : W[%d] a une diagonale non nulle. Une plante n'est pas sa "
-                             "propre voisine ; un effet sur soi-meme rendrait Psi non identifie "
-                             "face aux effets fixes et a la residuelle." % k)
+            raise ValueError("lag: W[%d] has a nonzero diagonal. A plant is not its "
+                             "own neighbour. An effect on itself would leave Psi unidentified "
+                             "against the fixed effects and the residual." % k)
     mask = np.asarray(lag["mask"], dtype=bool).reshape(q, q)
     value = np.asarray(lag.get("value", np.zeros((q, q))), dtype=np.float64).reshape(q, q)
     value = np.where(mask, 0.0, value)
     crit = str(lag.get("criterion", "reml_y"))
     if crit not in CRITERES:
-        raise ValueError("lag : critere '%s' inconnu (%s)." % (crit, ", ".join(CRITERES)))
+        raise ValueError("lag: unknown criterion '%s' (%s)." % (crit, ", ".join(CRITERES)))
 
     # Scale: mean row sum of |W|, averaged over the W matrices.
     s = float(np.mean([np.asarray(abs(W).sum(axis=1)).mean() for W in Ws]))
@@ -198,11 +198,11 @@ def prepare_lag(lag, y, X):
     force = lag.get("force_path")
     if force:
         if force not in ("fast", "general", "nilpotent"):
-            raise ValueError("lag : force_path = %r inconnu." % force)
+            raise ValueError("lag: unknown force_path = %r." % force)
         if force == "nilpotent" and path != "nilpotent":
-            raise ValueError("lag : chemin nilpotent force sur un motif de Psi avec boucle.")
+            raise ValueError("lag: nilpotent path forced on a Psi pattern with a loop.")
         if force == "fast" and not (single_W and sym and complete):
-            raise ValueError("lag : chemin rapide force sans W unique symetrique et plan complet.")
+            raise ValueError("lag: fast path forced without a single symmetric W and a complete design.")
         path = force
 
     mi, mj = np.nonzero(mask)

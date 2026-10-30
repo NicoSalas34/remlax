@@ -98,12 +98,12 @@ vp
 ```
 
 ```
-Ajustement REML (cpu) : logLik -553.145225 | 20 parametres | 320 obs | 155.7 s
-  max|grad| 8.48e-09 | decrement de Newton 1.40e-23 | 0 valeur(s) propre(s) negative(s)
-  Sigma[gen] 4x4, diagonale : 3.7311 2.9334 0.4938 1.4171
-  Sigma[plant] 4x4, diagonale : 0.813372 0.805986 0.018849 0.006307
-  residuelle : aucune
-  1 direction(s) plate(s) par construction (entrees de meme motif, seule leur somme est identifiee) : 19 parametres identifies
+REML fit (cpu): logLik -553.145225 | 20 parameters | 320 obs | 155.7 s
+  max|grad| 8.48e-09 | Newton decrement 1.40e-23 | 0 negative eigenvalue(s)
+  Sigma[gen] 4x4, diagonal: 3.7311 2.9334 0.4938 1.4171
+  Sigma[plant] 4x4, diagonal: 0.813372 0.805986 0.018849 0.006307
+  residual: none
+  1 flat direction(s) by construction (entries with the same pattern, only their sum is identified): 19 identified parameters
 ```
 
 Without a residual, `V` must be positive definite from the terms alone. The
@@ -155,11 +155,11 @@ tb
 ```
 
 ```
-Ajustement REML (cpu) : logLik -494.836891 | 10 parametres | 320 obs | 24.9 s
-  max|grad| 1.01e-04 | decrement de Newton 4.20e-11 | 0 valeur(s) propre(s) negative(s)
-  Sigma[gen] 2x2, diagonale : 0.7416 0.5752
-  residuelle : 0.9560 0.8858
-  Psi (receveur en ligne, emetteur en colonne ; unites de W) | critere reml_y | log|det A| -0.910539 | rayon spectral de M 0.2930
+REML fit (cpu): logLik -494.836891 | 10 parameters | 320 obs | 24.9 s
+  max|grad| 1.01e-04 | Newton decrement 4.20e-11 | 0 negative eigenvalue(s)
+  Sigma[gen] 2x2, diagonal: 0.7416 0.5752
+  residual: 0.9560 0.8858
+  Psi (receiver in rows, emitter in columns, units of W) | criterion reml_y | log|det A| -0.910539 | spectral radius of M 0.2930
           T1                   T2
     T1 <-    0.04670 (0.00540)    0.00539 (0.00909)
     T2 <-   -0.07835 (0.00529)   -0.01178 (0.00869)
@@ -207,11 +207,11 @@ tbp
 ```
 
 ```
-Ajustement REML (cpu) : logLik -492.538658 | 17 parametres | 320 obs | 56.4 s
-  max|grad| 1.06e-08 | decrement de Newton 2.93e-24 | 0 valeur(s) propre(s) negative(s)
-  Sigma[gen] 4x4, diagonale : 0.757828 0.571184 0.015831 0.004371
-  residuelle : 0.8510 0.8605
-  Psi (receveur en ligne, emetteur en colonne ; unites de W) | critere reml_y | log|det A| -0.760373 | rayon spectral de M 0.2681
+REML fit (cpu): logLik -492.538658 | 17 parameters | 320 obs | 56.4 s
+  max|grad| 1.06e-08 | Newton decrement 2.93e-24 | 0 negative eigenvalue(s)
+  Sigma[gen] 4x4, diagonal: 0.757828 0.571184 0.015831 0.004371
+  residual: 0.8510 0.8605
+  Psi (receiver in rows, emitter in columns, units of W) | criterion reml_y | log|det A| -0.760373 | spectral radius of M 0.2681
           T1                   T2
     T1 <-    0.04590 (0.00672)    0.00718 (0.01060)
     T2 <-   -0.07622 (0.00620)   -0.01524 (0.00978)
@@ -232,7 +232,7 @@ m <- rx_model(d$y, X, list(rx_term("gen", c(Z_DGE, Z_IGE), struct = "us"),
 
 ```
 Warning message:
-rx_model : terme(s) iee avec une incidence W (IEE*) et Psi libre dans les deux sens pour T1/T2. Le sens de la transmission n'y est que faiblement identifie (directions faibles de VP+) : laisser libre au plus une de Psi[t,u], Psi[u,t] (rx_lag(struct = "mask") ou receivers/emitters).
+rx_model: term(s) iee with an incidence W (IEE*) and Psi free in both directions for T1/T2. The direction of transmission is then only weakly identified (weak directions of VP+). Leave at most one of Psi[t,u] and Psi[u,t] free (rx_lag(struct = "mask") or receivers/emitters).
 ```
 
 Leave at most one entry of each reciprocal pair free, here the hypothesised
@@ -248,12 +248,12 @@ tbi
 ```
 
 ```
-Ajustement REML (cpu) : logLik -492.625046 | 19 parametres | 320 obs | 163.3 s
-  max|grad| 1.33e-08 | decrement de Newton 1.79e-22 | 0 valeur(s) propre(s) negative(s)
-  Sigma[gen] 4x4, diagonale : 0.748706 0.569605 0.013158 0.004546
-  Sigma[iee] 2x2, diagonale : 0.006178 0.002004
-  residuelle : 0.818 0.846
-  Psi (receveur en ligne, emetteur en colonne ; unites de W) | critere reml_y | log|det A| -1.686256 | rayon spectral de M 0.3787
+REML fit (cpu): logLik -492.625046 | 19 parameters | 320 obs | 163.3 s
+  max|grad| 1.33e-08 | Newton decrement 1.79e-22 | 0 negative eigenvalue(s)
+  Sigma[gen] 4x4, diagonal: 0.748706 0.569605 0.013158 0.004546
+  Sigma[iee] 2x2, diagonal: 0.006178 0.002004
+  residual: 0.818 0.846
+  Psi (receiver in rows, emitter in columns, units of W) | criterion reml_y | log|det A| -1.686256 | spectral radius of M 0.3787
           T1                   T2                  
     T1 <-    0.04945 (0.00389)    0.00000          
     T2 <-   -0.07648 (0.00625)   -0.01498 (0.00979)
@@ -275,11 +275,11 @@ tbs
 ```
 
 ```
-Ajustement REML (cpu) : logLik -494.261208 | 12 parametres | 320 obs | 32.7 s
-  max|grad| 4.14e-11 | decrement de Newton 7.38e-24 | 0 valeur(s) propre(s) negative(s)
-  Sigma[geno] 2x2, diagonale : 0.7342 0.5622
-  residuelle : 0.9576 0.8969
-  Psi (receveur en ligne, emetteur en colonne ; unites de W) | critere reml_y | log|det A| -0.633419 | rayon spectral de M 0.2473
+REML fit (cpu): logLik -494.261208 | 12 parameters | 320 obs | 32.7 s
+  max|grad| 4.14e-11 | Newton decrement 7.38e-24 | 0 negative eigenvalue(s)
+  Sigma[geno] 2x2, diagonal: 0.7342 0.5622
+  residual: 0.9576 0.8969
+  Psi (receiver in rows, emitter in columns, units of W) | criterion reml_y | log|det A| -0.633419 | spectral radius of M 0.2473
           T1                   T2
     T1 <-    0.04532 (0.00593)    0.00763 (0.00974)
     T2 <-   -0.07771 (0.00573)   -0.01322 (0.00924)

@@ -64,8 +64,8 @@ summary.rx_fit <- function(object, coef = FALSE, ...) {
     comp_names <- x$component_names %||% character()
     vc <- data.frame(i = seq_along(comp_names), name = comp_names, value = NA_real_, se = NA_real_,
                      constraint = NA_character_, stringsAsFactors = FALSE)
-    if (length(comp_names)) warning("summary : ajustement sans table des composantes ",
-                                    "(moteur anterieur ?) ; refaire l'ajustement.", call. = FALSE)
+    if (length(comp_names)) warning("summary: the fit has no table of components ",
+                                    "(it may come from an earlier engine). Refit the model.", call. = FALSE)
   }
   varcomp <- data.frame(component = as.numeric(vc$value),
                         std.error = as.numeric(vc$se),
@@ -102,76 +102,76 @@ summary.rx_fit <- function(object, coef = FALSE, ...) {
 }
 
 print.summary.rx_fit <- function(x, digits = max(4L, getOption("digits") - 3L), ...) {
-  cat("Modele mixte ajuste par REML (remlax, ", x$backend %||% "?", ")\n", sep = "")
-  if (!is.null(x$call)) cat("Appel : ", paste(deparse(x$call, width.cutoff = 70L), collapse = "\n  "),
+  cat("Mixed model fitted by REML (remlax, ", x$backend %||% "?", ")\n", sep = "")
+  if (!is.null(x$call)) cat("Call: ", paste(deparse(x$call, width.cutoff = 70L), collapse = "\n  "),
                             "\n", sep = "")
-  cat(sprintf("\n%d observations, %d ddl residuels, %d parametre(s) de variance dont %d estime(s)%s%s\n",
+  cat(sprintf("\n%d observations, %d residual df, %d variance parameter(s), %d of them estimated%s%s\n",
               x$n_obs, x$nedf, x$n_par, x$n_estimated,
               if (isTRUE(x$n_not_identified > 0))
-                sprintf(" et identifie(s) (%d non identifie(s) : entrees N)", x$n_not_identified) else "",
-              if (isTRUE(x$n_at_bound > 0)) sprintf(", %d a une borne", x$n_at_bound) else ""))
-  cat(sprintf("logLik %.4f (convention asreml : %.4f)   AIC %.2f   BIC %.2f\n",
+                sprintf(" and identified (%d not identified: entries N)", x$n_not_identified) else "",
+              if (isTRUE(x$n_at_bound > 0)) sprintf(", %d at a bound", x$n_at_bound) else ""))
+  cat(sprintf("logLik %.4f (asreml convention: %.4f)   AIC %.2f   BIC %.2f\n",
               x$loglik, x$loglik_asreml, x$aic, x$bic))
   cv <- x$convergence
-  cat(sprintf("Convergence : %s | max|grad| %.2e | decrement de Newton %.2e | %s iteration(s) | %.1f s\n",
-              if (isTRUE(x$converged)) "oui" else "NON", cv$max_grad, cv$newton_decrement,
+  cat(sprintf("Convergence: %s | max|grad| %.2e | Newton decrement %.2e | %s iteration(s) | %.1f s\n",
+              if (isTRUE(x$converged)) "yes" else "NO", cv$max_grad, cv$newton_decrement,
               format(cv$n_iter), cv$seconds))
   if (isTRUE(cv$n_neg_eig > 0))
-    cat(sprintf("  ATTENTION : %d valeur(s) propre(s) negative(s) du Hessien (point de selle ?)\n",
+    cat(sprintf("  WARNING: %d negative eigenvalue(s) of the Hessian (possible saddle point)\n",
                 cv$n_neg_eig))
 
-  cat("\nComposantes de variance :\n")
+  cat("\nVariance components:\n")
   vc <- x$varcomp
   vc$component <- signif(vc$component, digits); vc$std.error <- signif(vc$std.error, digits)
   vc$z.ratio <- round(vc$z.ratio, 2)
   print(vc, na.print = "")
-  cat("  bound : P variance, U non contrainte, B a une borne, F fixee, N non identifiee seule",
-      "(sa somme \"a+b\" l'est)\n")
+  cat("  bound: P variance, U unconstrained, B at a bound, F fixed, N not identified alone",
+      "(its sum \"a+b\" is)\n")
 
   if (!is.null(x$lag)) {
     Lg <- x$lag
-    cat(sprintf("\nDecalage spatial (Psi : receveur en ligne, emetteur en colonne, unites de W)\n"))
-    cat(sprintf("  critere %s | log|det(I - M)| %.6f | terme de moyenne %.6f | rayon spectral de M %.4f | chemin %s%s\n",
+    cat(sprintf("\nSpatial lag (Psi: receiver in rows, emitter in columns, units of W)\n"))
+    cat(sprintf("  criterion %s | log|det(I - M)| %.6f | mean term %.6f | spectral radius of M %.4f | path %s%s\n",
                 Lg$criterion, Lg$logdet_A, Lg$logdet_mean, Lg$spectral_radius, Lg$path,
-                if (isFALSE(Lg$admissible)) " | HORS REGION ADMISSIBLE" else ""))
-    cat(sprintf("  logLik de y* seule %.4f ; avec le jacobien %.4f\n", Lg$logLik_ystar,
+                if (isFALSE(Lg$admissible)) " | OUTSIDE THE ADMISSIBLE REGION" else ""))
+    cat(sprintf("  logLik of y* alone %.4f | with the Jacobian %.4f\n", Lg$logLik_ystar,
                 Lg$logLik_jacobian %||% NA_real_))
     if (!is.null(Lg$Psi)) {
-      cat("  Psi :\n"); print(signif(Lg$Psi, digits))
-      if (!is.null(Lg$Psi_se)) { cat("  erreurs-types :\n"); print(signif(Lg$Psi_se, digits)) }
+      cat("  Psi:\n"); print(signif(Lg$Psi, digits))
+      if (!is.null(Lg$Psi_se)) { cat("  standard errors:\n"); print(signif(Lg$Psi_se, digits)) }
     }
   }
   if (!is.null(x$dimensions)) {
-    cat("\nDimensions (a la maniere de SpATS) :\n")
+    cat("\nDimensions (in the manner of SpATS):\n")
     dd <- x$dimensions
     print(data.frame(Effective = round(dd$Effective, 1), Model = dd$Model,
                      Nominal = round(dd$Nominal, 1), Ratio = round(dd$Ratio, 3), Type = dd$Type,
                      row.names = rownames(dd)), na.print = "")
     for (ln in x$surfaces) cat("  ", ln, "\n", sep = "")
-    cat("  Pour un genotype sans parente, Ratio = heritabilite generalisee (Oakey et al. 2006).\n")
+    cat("  For a genotype without relationship matrix, Ratio = generalised heritability (Oakey et al. 2006).\n")
   }
   if (!is.null(x$vpredict) && NROW(x$vpredict)) {
-    cat("\nFonctions des composantes (vpredict) :\n")
+    cat("\nFunctions of the components (vpredict):\n")
     vp <- data.frame(estimate = signif(x$vpredict$value, digits),
                      std.error = signif(x$vpredict$se, digits),
                      expression = x$vpredict$expression, row.names = x$vpredict$name)
     print(vp, na.print = "")
   }
   if (!is.null(x$coef.fixed)) {
-    cat("\nEffets fixes :\n")
+    cat("\nFixed effects:\n")
     cf <- x$coef.fixed
     print(data.frame(solution = signif(cf$solution, digits), std.error = signif(cf$std.error, digits),
                      z.ratio = round(cf$z.ratio, 2), row.names = rownames(cf)))
   }
   if (!is.null(x$wald) && NROW(x$wald)) {
-    cat("\nTests de Wald (conditionnels) :\n")
+    cat("\nWald tests (conditional):\n")
     print(data.frame(df = x$wald$df, F.value = round(x$wald$F, 3),
                      Pr = format.pval(x$wald$p, digits = 3), row.names = x$wald$term))
   }
   if (!is.null(x$coef.random)) {
     cr <- x$coef.random
-    cat(sprintf("\nEffets aleatoires (BLUP) : %d niveau(x)%s\n", nrow(cr),
-                if (nrow(cr) > 20L) ", 20 premiers affiches (voir $coef.random)" else ""))
+    cat(sprintf("\nRandom effects (BLUP): %d level(s)%s\n", nrow(cr),
+                if (nrow(cr) > 20L) ", first 20 shown (see $coef.random)" else ""))
     print(utils::head(data.frame(solution = signif(cr$solution, digits),
                                  std.error = signif(cr$std.error, digits),
                                  row.names = rownames(cr)), 20L), na.print = "")

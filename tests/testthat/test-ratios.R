@@ -24,8 +24,8 @@ test_that("rx_cor_z : symetrie a r = 0, exemples de la table, bornes, Pearson (T
   expect_equal(zc$method, "pearson")
   zn <- rx_cor_z(0.5, se = 0.2, width_max = NULL)
   expect_true(is.na(zn$informative))
-  expect_error(rx_cor_z(0.5), "fournir")
-  expect_error(rx_cor_z(0.5, se = 0.1, n = 10), "fournir")
+  expect_error(rx_cor_z(0.5), "exactly one")
+  expect_error(rx_cor_z(0.5, se = 0.1, n = 10), "exactly one")
 })
 
 # ---- carte theta -> Sigma ------------------------------------------------------
@@ -52,7 +52,7 @@ test_that("rx_sigma_of : us ligne par ligne, iid, diag, fa, rr, chol, ante, corh
   Sc <- rx_sigma_of(c(log(1), log(2), 0), "corh", 2)
   expect_equal(diag(Sc), c(1, 4))
   expect_equal(Sc[1, 2] / 2, 0)   # tanh(0) = 0 -> r = milieu de (-1, 1) = 0
-  expect_error(rx_sigma_of(1, "inconnue", 1), "non prise en charge")
+  expect_error(rx_sigma_of(1, "inconnue", 1), "not supported")
 })
 
 test_that("rx_sigmas_from_theta : ordre du solveur (termes puis sections) et dimnames", {
@@ -71,7 +71,7 @@ test_that("rx_sigmas_from_theta : ordre du solveur (termes puis sections) et dim
   expect_equal(unname(S$col), 0.16 * diag(1))       # le rho n'est pas une composante
   expect_equal(dimnames(S$residual), list(c("t1", "t2"), c("t1", "t2")))
   expect_equal(S$residual, rx_sigma_of(th[6:8], "us", 2), ignore_attr = TRUE)
-  expect_error(rx_sigmas_from_theta(th[-1], mod), "attend")
+  expect_error(rx_sigmas_from_theta(th[-1], mod), "expects")
 })
 
 # ---- rx_ratios sur un modele a un terme et une residuelle, Hessien fourni -----
@@ -143,13 +143,13 @@ test_that("rx_ratios : controle theta -> Sigma, references illisibles, jacobian 
   fit <- faux_fit(th, diag(5) * 30, mod)
   comp <- data.frame(target = "y", direct = "gen:D", indirect_within = "gen:N", other = "bloc+residual")
   fit_perm <- fit; fit_perm$theta <- th[c(2, 1, 3, 4, 5)]
-  expect_error(rx_ratios(fit_perm, comp), "differe de fit\\$sigmas")
-  expect_error(rx_ratios(fit, data.frame(target = "y", direct = "gen:Q")), "absente")
-  expect_error(rx_ratios(fit, data.frame(target = "y", direct = "xx")), "aucun terme")
-  expect_error(rx_ratios(fit, data.frame(target = "y", direct = "gen")), "en nommer une")
-  expect_error(rx_ratios(fit, comp, jacobian = "solver"), "pas implemente")
+  expect_error(rx_ratios(fit_perm, comp), "differs from fit\\$sigmas")
+  expect_error(rx_ratios(fit, data.frame(target = "y", direct = "gen:Q")), "missing from")
+  expect_error(rx_ratios(fit, data.frame(target = "y", direct = "xx")), "no term")
+  expect_error(rx_ratios(fit, data.frame(target = "y", direct = "gen")), "Name one of them")
+  expect_error(rx_ratios(fit, comp, jacobian = "solver"), "not implemented")
   expect_error(rx_ratios(fit, data.frame(target = "y", direct = "gen:D", indirect_within = "bloc")),
-               "meme terme")
+               "same term")
   # references par indice et section residuelle nommee
   r <- rx_ratios(fit, data.frame(target = "y", direct = "gen[1]", indirect_within = "gen[2]",
                                  other = "bloc[1]+residual[1]"), quantities = "variances")
@@ -189,7 +189,7 @@ test_that("rx_ratios : courbure negative -> refuse (NA) ou projette (NOT_IDENTIF
   rr <- rx_ratios(fit, comp, curvature = "refuse")
   expect_true(all(is.na(rr$se)))
   expect_true(all(rr$flag %in% c("NO_HESSIAN", "NOT_ESTIMATED")))
-  expect_message(rp <- rx_ratios(fit, comp, curvature = "project"), "courbure negative")
+  expect_message(rp <- rx_ratios(fit, comp, curvature = "project"), "negative curvature")
   expect_true(all(is.finite(rp$se[rp$quantity == "var" & rp$component == "direct"])))
   vb <- rp[rp$quantity == "var" & rp$component == "bloc", ]
   expect_equal(vb$flag, "NOT_IDENTIFIED"); expect_equal(vb$dep_excluded, 1)
@@ -276,7 +276,7 @@ test_that("rx_term(colnames) : dimnames sur fit$sigmas et fit$blups, colnames re
   Zn <- Matrix::Matrix(matrix(rpois(n * q, 0.3), n, q), dimnames = list(NULL, paste0("g", 1:q)), sparse = TRUE)
   y <- rnorm(q)[g] + rnorm(n)
   tm <- rx_term("gen", list(direct = Zd, neigh = Zn), struct = "us")
-  expect_error(rx_term("gen", list(Zd, Zn), struct = "us", colnames = "a"), "noms distincts")
+  expect_error(rx_term("gen", list(Zd, Zn), struct = "us", colnames = "a"), "distinct names")
   mod <- rx_model(y, cbind(rep(1, n)), list(tm))
   fit <- rx_fit(mod, backend = "cpu", verbose = FALSE)
   expect_equal(dimnames(fit$sigmas$gen), list(c("direct", "neigh"), c("direct", "neigh")))
@@ -325,16 +325,16 @@ test_that("rx_grid_summary : by, AIC recalcule ou controle, effective (T2, T3, T
   s <- rx_grid_summary(g2, coords = c("r1", "r2"), by = "trait")
   expect_equal(nrow(s$best), 2L); expect_equal(s$best$r1, c(2, 2))
   expect_equal(s$n_supported$n_supported, c(4L, 4L))
-  expect_error(rx_grid_summary(g2, coords = c("r1", "r2")), "fournir `by`")
+  expect_error(rx_grid_summary(g2, coords = c("r1", "r2")), "Give `by`")
   g3 <- g; g3$AIC <- NULL
   s3 <- rx_grid_summary(g3, coords = c("r1", "r2"))
   expect_equal(s3$best$AIC, 8 - 2 * (-8.0))
   g4 <- g; g4$AIC[1] <- g4$AIC[1] + 1
-  expect_error(rx_grid_summary(g4, coords = c("r1", "r2")), "differe")
-  expect_error(rx_grid_summary(g3[, -3], coords = c("r1", "r2")), "ni")
+  expect_error(rx_grid_summary(g4, coords = c("r1", "r2")), "differs")
+  expect_error(rx_grid_summary(g3[, -3], coords = c("r1", "r2")), "neither")
   # effective : la cellule (1,3) a n_par_free 2 -> AIC_eff = 4 + 19.8 = 23.8 contre (2,2) 8 + 16 = 24
   se <- rx_grid_summary(g, coords = c("r1", "r2"), effective = TRUE)
   expect_equal(se$effective$best$r1, 1); expect_equal(se$effective$best$r2, 3)
   expect_true(se$effective$best_moved$best_moved)
-  expect_error(rx_grid_summary(g, coords = c("r1", "zz")), "absente")
+  expect_error(rx_grid_summary(g, coords = c("r1", "zz")), "missing coordinate")
 })

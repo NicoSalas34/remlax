@@ -37,7 +37,7 @@ def restrict_Z(term, rows, n):
     pos = np.full(n, -1, dtype=np.int64)
     pos[rows] = np.arange(len(rows), dtype=np.int64)
     zi = pos[np.asarray(term["zi"], dtype=np.int64)]
-    assert zi.min() >= 0, "une entree de l'incidence tombe hors du support"
+    assert zi.min() >= 0, "an entry of the incidence falls outside the support"
     Z = jnp.zeros((len(rows), term["t"] * term["q"]))
     return Z.at[zi, np.asarray(term["zj"], dtype=np.int64)].add(
         jnp.asarray(term["zx"]))

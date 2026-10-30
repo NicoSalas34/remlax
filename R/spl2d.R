@@ -51,8 +51,8 @@
   }, logical(1))
   if (!any(is_spl)) return(none)
   if (!is.null(trait) && nlevels(factor(trait)) > 1L)
-    stop("spl2d() : surface multi-caractere non prise en charge par la formule. ",
-         "Construire la base par rx_spl2d() et passer par rx_model().", call. = FALSE)
+    stop("spl2d(): the formula does not support a multi-trait surface. ",
+         "Build the basis with rx_spl2d() and go through rx_model().", call. = FALSE)
   terms_out <- list(); Xs <- list(); groups <- character(); used_names <- character()
   surfaces <- list()
   for (txt in labels[is_spl]) {
@@ -80,16 +80,16 @@
   arg_names <- names(args); if (is.null(arg_names)) arg_names <- rep("", length(args))
   pos <- args[arg_names == ""]; opt <- args[arg_names != ""]
   xa <- opt$x; ya <- opt$y; ip <- 1L
-  if (is.null(xa)) { if (length(pos) < ip) stop("spl2d() : coordonnee x manquante.", call. = FALSE)
+  if (is.null(xa)) { if (length(pos) < ip) stop("spl2d(): the x coordinate is missing.", call. = FALSE)
                      xa <- pos[[ip]]; ip <- ip + 1L }
-  if (is.null(ya)) { if (length(pos) < ip) stop("spl2d() : coordonnee y manquante.", call. = FALSE)
+  if (is.null(ya)) { if (length(pos) < ip) stop("spl2d(): the y coordinate is missing.", call. = FALSE)
                      ya <- pos[[ip]] }
   ev <- function(a, def) if (is.null(a)) def else eval(a, env)
   sp <- list(nseg = as.integer(ev(opt$nseg, c(10L, 10L))))
   sp$prefix <- as.character(ev(opt$name, if (!length(used_names)) "spl" else
                                            paste0("spl", length(used_names) + 1L)))
   if (sp$prefix %in% used_names)
-    stop("spl2d() : deux surfaces portent le nom '", sp$prefix, "'.", call. = FALSE)
+    stop("spl2d(): two surfaces have the name '", sp$prefix, "'.", call. = FALSE)
   sp$x <- .rx_spl2d_coordinate(xa, "x", data, env)
   sp$y <- .rx_spl2d_coordinate(ya, "y", data, env)
   sp$deg <- as.integer(ev(opt$deg, c(3L, 3L))); sp$pord <- as.integer(ev(opt$pord, 2L))
@@ -104,19 +104,19 @@
   sp$at_name <- paste(deparse(at_expr), collapse = "")
   av <- eval(at_expr, data, env)
   if (length(av) != nrow(data) || anyNA(av))
-    stop("spl2d() : la variable at = ", sp$at_name, " doit etre complete, de longueur ",
+    stop("spl2d(): the variable at = ", sp$at_name, " must be complete, of length ",
          nrow(data), ".", call. = FALSE)
   av <- factor(av)
   lv <- as.character(ev(opt$at.levels, levels(av)))
   outside <- setdiff(lv, levels(av))
   if (length(outside))
-    stop("spl2d() : at.levels contient des niveaux absents de ", sp$at_name, " : ",
+    stop("spl2d(): at.levels has levels missing from ", sp$at_name, ": ",
          paste(outside, collapse = ", "), ".", call. = FALSE)
   sp$levels <- lapply(lv, function(l) list(rows = which(av == l), level = l,
                                            prefix = paste0(sp$prefix, "_", gsub("[^A-Za-z0-9.]", "_", l))))
   prefixes <- vapply(sp$levels, `[[`, "", "prefix")
   if (anyDuplicated(prefixes))
-    stop("spl2d() : deux niveaux de ", sp$at_name, " donnent le meme nom de terme ('",
+    stop("spl2d(): two levels of ", sp$at_name, " give the same term name ('",
          prefixes[duplicated(prefixes)][1], "').", call. = FALSE)
   sp
 }
@@ -127,12 +127,12 @@
   v <- eval(a, data, env)
   if (is.factor(v)) {
     v2 <- suppressWarnings(as.numeric(as.character(v)))
-    if (anyNA(v2)) stop("spl2d() : la coordonnee ", which, " est un facteur a niveaux non ",
-                        "numeriques ; donner une coordonnee numerique.", call. = FALSE)
+    if (anyNA(v2)) stop("spl2d(): the coordinate ", which, " is a factor with non-numeric ",
+                        "levels. Give a numeric coordinate.", call. = FALSE)
     v <- v2
   }
   if (!is.numeric(v) || length(v) != nrow(data) || anyNA(v))
-    stop("spl2d() : la coordonnee ", which, " doit etre numerique, complete, de longueur ",
+    stop("spl2d(): the coordinate ", which, " must be numeric, complete, of length ",
          nrow(data), ".", call. = FALSE)
   v
 }
@@ -142,9 +142,9 @@
 .rx_spl2d_level <- function(lv, sp, data, txt) {
   r <- lv$rows
   if (length(unique(sp$x[r])) < 2L || length(unique(sp$y[r])) < 2L)
-    stop("spl2d() : ", if (is.null(lv$level)) "la surface" else
-         paste0("le niveau '", lv$level, "' de ", sp$at_name),
-         " n'a qu'une valeur de x ou de y ; une surface demande deux dimensions.", call. = FALSE)
+    stop("spl2d(): ", if (is.null(lv$level)) "the surface" else
+         paste0("the level '", lv$level, "' of ", sp$at_name),
+         " has only one value of x or y. A surface needs two dimensions.", call. = FALSE)
   s <- rx_spl2d(sp$x[r], sp$y[r], nseg = sp$nseg, deg = sp$deg, pord = sp$pord,
                 nest.div = sp$nest, prefix = lv$prefix)
   full_height <- function(M) {
@@ -224,14 +224,14 @@
 rx_spl2d <- function(x, y, nseg = c(10L, 10L), deg = c(3L, 3L), pord = 2L,
                      nest.div = c(1L, 1L), prefix = "spl") {
   x <- as.numeric(x); y <- as.numeric(y); n <- length(x)
-  if (length(y) != n) stop("rx_spl2d : x et y de longueurs differentes.")
+  if (length(y) != n) stop("rx_spl2d: x and y have different lengths.")
   if (any(pord != 2))
-    stop("rx_spl2d : seule la penalite d'ordre 2 est prise en charge (comme PSANOVA de SpATS).",
+    stop("rx_spl2d: only the penalty of order 2 is supported (as in PSANOVA of SpATS).",
          call. = FALSE)
   ns <- rep_len(as.integer(round(nseg)), 2L); deg <- rep_len(as.integer(deg), 2L)
   nd <- rep_len(as.integer(nest.div), 2L)
   if (any(ns %% nd != 0))
-    stop("rx_spl2d : nseg doit etre un multiple de nest.div.", call. = FALSE)
+    stop("rx_spl2d: nseg must be a multiple of nest.div.", call. = FALSE)
   basis <- list(deg = deg, pord = 2L, prefix = prefix,
                 x = list(xl = min(x), xr = max(x), nseg = ns[1], nest = nd[1]),
                 y = list(xl = min(y), xr = max(y), nseg = ns[2], nest = nd[2]))

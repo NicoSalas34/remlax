@@ -60,17 +60,17 @@ f1 <- rx_reml(y ~ 1, random = ~ gid, residual = ~ ar1(row):ar1(col), data = d,
 ```
 
 ```
-Ajustement REML (cpu) : logLik -345.664616 | 2 parametres | 192 obs | 0.9 s
-  Sigma[gid] 1x1, diagonale : 0.8006
-  residuelle : 1.626
+REML fit (cpu): logLik -345.664616 | 2 parameters | 192 obs | 0.9 s
+  Sigma[gid] 1x1, diagonal: 0.8006
+  residual: 1.626
 
-Ajustement REML (cpu) : logLik -320.758159 | 4 parametres | 192 obs | 1.7 s
-  max|grad| 2.17e-08 | decrement de Newton 5.77e-18 | 0 valeur(s) propre(s) negative(s)
-  Sigma[gid] 1x1, diagonale : 0.7505
-  residuelle : 1.591
+REML fit (cpu): logLik -320.758159 | 4 parameters | 192 obs | 1.7 s
+  max|grad| 2.17e-08 | Newton decrement 5.77e-18 | 0 negative eigenvalue(s)
+  Sigma[gid] 1x1, diagonal: 0.7505
+  residual: 1.591
 
-rho ligne = 0.46281   rho colonne = 0.31226
-LRT champ : chi2 = 49.813 pour 2 ddl, p = 1.52e-11
+rho row = 0.46281   rho column = 0.31226
+LRT field: chi2 = 49.813 on 2 df, p = 1.52e-11
 ```
 
 `~ ar1(row):ar1(col)` builds `R = s2 * (C_row (x) C_col)`. The correlations
@@ -114,11 +114,11 @@ f2$component_names
 ```
 
 ```
-Ajustement REML (cpu) : logLik -320.758159 | 5 parametres | 192 obs | 3.0 s
-  max|grad| 8.44e-11 | decrement de Newton 1.69e-28 | 0 valeur(s) propre(s) negative(s)
-  Sigma[gid] 1x1, diagonale : 0.7505
-  Sigma[row_col] 1x1, diagonale : 1.591
-  residuelle : 3.775e-11
+REML fit (cpu): logLik -320.758159 | 5 parameters | 192 obs | 3.0 s
+  max|grad| 8.44e-11 | Newton decrement 1.69e-28 | 0 negative eigenvalue(s)
+  Sigma[gid] 1x1, diagonal: 0.7505
+  Sigma[row_col] 1x1, diagonal: 1.591
+  residual: 3.775e-11
 
 $row_col
 [1] 0.4628062 0.3122591
@@ -274,9 +274,9 @@ tryCatch(
 ```
 
 ```
-ValueError: structure 'own' entre unites : 180 couple(s) (unite, caractere) en
-double. Chaque unite ne peut etre observee qu'une fois par caractere ; sinon la
-matrice residuelle est singuliere et la vraisemblance vaut NaN.
+ValueError: structure 'own' between units: 180 duplicated (unit, trait) pair(s).
+Each unit can be observed only once per trait. Otherwise the residual matrix
+is singular and the likelihood is NaN.
 ```
 
 The check covers **every** structure between units. It used to cover
@@ -312,10 +312,10 @@ print(ff)
 ```
 
 ```
-Ajustement REML (cpu) : logLik -78.941857 | 6 parametres | 60 obs | 0.4 s
-  max|grad| 3.46e-06 | decrement de Newton 1.68e-13 | 0 valeur(s) propre(s) negative(s)
-  Sigma[gid] 1x1, diagonale : 3.775e-11
-  residuelle : 0.6717 1.0029
+REML fit (cpu): logLik -78.941857 | 6 parameters | 60 obs | 0.4 s
+  max|grad| 3.46e-06 | Newton decrement 1.68e-13 | 0 negative eigenvalue(s)
+  Sigma[gid] 1x1, diagonal: 3.775e-11
+  residual: 0.6717 1.0029
    rho : 0.122630 0.036921
    noms : gid, residual[1,1], residual[2,1], residual[2,2],
           residual!ar1ar11, residual!ar1ar12
@@ -328,9 +328,8 @@ That is not a repetition, because `Sigma_trait` is what carries the correlation
 inside a cell. Only the same trait twice in the same cell is refused:
 
 ```
-residual = ~ ar1(row):ar1(col) : 1 couple(s) (cellule, caractere) en double. Un
-champ residuel structure exige au plus une observation par cellule et par
-caractere.
+residual = ~ ar1(row):ar1(col): 1 duplicated (cell, trait) pair(s). A structured
+residual field allows at most one observation per cell and per trait.
 ```
 
 The data here are pure noise, which is why the genotypic variance collapses to
@@ -353,11 +352,11 @@ fe <- rx_fit(me, backend = "cpu", verbose = FALSE)
 ```
 
 ```
-formule   : logLik -78.941857, 6 parametres
-explicite : logLik -78.941857, 6 parametres
-ecart de logLik      : 0.000e+00
-ecart max sur R      : 0.000e+00
-ecart max sur les rho : 0.000e+00
+formula  : logLik -78.941857, 6 parameters
+explicit : logLik -78.941857, 6 parameters
+logLik gap      : 0.000e+00
+max gap on R        : 0.000e+00
+max gap on the rhos : 0.000e+00
 ```
 
 Same likelihood, same 6 parameters, and the residual matrix and both AR1
@@ -422,12 +421,12 @@ sp <- rx_spl2d(d$coln, d$rown, nseg = c(6, 6))
 ```
 
 ```
-partie nulle (fixe) : 3 colonnes : spl_lin1, spl_lin2, spl_lin3
-  terme spl_fx     q = 7
-  terme spl_fy     q = 7
-  terme spl_fx_y   q = 7
-  terme spl_x_fy   q = 7
-  terme spl_fx_fy  q = 49
+null part (fixed): 3 columns: spl_lin1, spl_lin2, spl_lin3
+  term  spl_fx     q = 7
+  term  spl_fy     q = 7
+  term  spl_fx_y   q = 7
+  term  spl_x_fy   q = 7
+  term  spl_fx_fy  q = 49
 ```
 
 The null-space columns **must** go into the fixed effects. Left out, the
@@ -577,25 +576,25 @@ print(fs)
 ```
 
 ```
-Modele REML 'model' : 192 observations, 4 effets fixes
-  terme gid            iid   t=1   q=48    K=I        (1 parametre)
-  terme spl_fx         iid   t=1   q=7     K=I        (1 parametre)
-  terme spl_fy         iid   t=1   q=7     K=I        (1 parametre)
-  terme spl_fx_y       iid   t=1   q=7     K=I        (1 parametre)
-  terme spl_x_fy       iid   t=1   q=7     K=I        (1 parametre)
-  terme spl_fx_fy      iid   t=1   q=49    K=I        (1 parametre)
-  residuelle     iid   t=1  (1 parametre)
-  total : 7 parametres de variance
+REML model 'model': 192 observations, 4 fixed effects
+  term  gid            iid   t=1   q=48    K=I        (1 parameter)
+  term  spl_fx         iid   t=1   q=7     K=I        (1 parameter)
+  term  spl_fy         iid   t=1   q=7     K=I        (1 parameter)
+  term  spl_fx_y       iid   t=1   q=7     K=I        (1 parameter)
+  term  spl_x_fy       iid   t=1   q=7     K=I        (1 parameter)
+  term  spl_fx_fy      iid   t=1   q=49    K=I        (1 parameter)
+  residual       iid   t=1  (1 parameter)
+  total: 7 parameters
 
-Ajustement REML (cpu) : logLik -315.732960 | 7 parametres | 192 obs | 0.3 s
-  max|grad| 8.47e-11 | decrement de Newton 3.75e-25 | 0 valeur(s) propre(s) negative(s)
-  Sigma[gid] 1x1, diagonale : 0.7944
-  Sigma[spl_fx] 1x1, diagonale : 1.145
-  Sigma[spl_fy] 1x1, diagonale : 1.108
-  Sigma[spl_fx_y] 1x1, diagonale : 0.9422
-  Sigma[spl_x_fy] 1x1, diagonale : 3.775e-11
-  Sigma[spl_fx_fy] 1x1, diagonale : 13.31
-  residuelle : 0.9742
+REML fit (cpu): logLik -315.732960 | 7 parameters | 192 obs | 0.3 s
+  max|grad| 8.47e-11 | Newton decrement 3.75e-25 | 0 negative eigenvalue(s)
+  Sigma[gid] 1x1, diagonal: 0.7944
+  Sigma[spl_fx] 1x1, diagonal: 1.145
+  Sigma[spl_fy] 1x1, diagonal: 1.108
+  Sigma[spl_fx_y] 1x1, diagonal: 0.9422
+  Sigma[spl_x_fy] 1x1, diagonal: 3.775e-11
+  Sigma[spl_fx_fy] 1x1, diagonal: 13.31
+  residual: 0.9742
 ```
 
 `-315.73` with 7 parameters, against `-320.76` with 4 for the separable AR1.
@@ -626,8 +625,8 @@ known incidence, exactly as in sommer and asreml. The formula route and
 
 `lvr` (the truncated tent) exists in one dimension only. `ilv` is **not
 provided**: asreml's formula could not be recovered, and the natural candidate
-is not positive definite in two dimensions. `ilv(x, y)` raises "terme
-aleatoire non reconnu".
+is not positive definite in two dimensions. `ilv(x, y)` raises "unrecognised
+random term".
 
 ---
 

@@ -20,25 +20,25 @@ test_that("rx_scan refuse ce qui ne peut pas s'interpreter, avant tout appel Pyt
                 list(rx_term("gen", j$d$gen), rx_term("vois", j$d$vois)))
   faux <- list(theta = c(0, 0, 0))
   expect_error(rx_scan(faux, m, j$M, incidences = c(dir = "gen", zzz = "vois"), verbose = FALSE),
-               "inconnu")
+               "unknown")
   expect_error(rx_scan(faux, m, j$M, incidences = c(dir = "absent"), verbose = FALSE),
-               "pas dans le modele")
+               "not in the model")
   expect_error(rx_scan(faux, m, j$M[1:10, ], incidences = c(dir = "gen"), verbose = FALSE),
-               "lignes")
+               "rows")
   expect_error(rx_scan(faux, m, list(dir = j$M), incidences = c(dir = "gen", ind = "vois"),
-                       verbose = FALSE), "absente")
+                       verbose = FALSE), "no matrix")
   m2 <- rx_model(j$d$y, matrix(1, j$n, 1),
                  list(rx_term("dge_ige", list(as.matrix(rx_term("gen", j$d$gen)$Zl[[1]]),
                                               as.matrix(rx_term("vois", j$d$vois)$Zl[[1]])),
                               struct = "us")))
   expect_error(rx_scan(faux, m2, j$M, incidences = c(dir = "dge_ige"), verbose = FALSE),
-               "Preciser")
+               "which one")
   expect_error(rx_scan(faux, m2, j$M, incidences = c(dir = "dge_ige:3"), verbose = FALSE),
-               "hors de")
+               "outside")
   res <- data.frame(p_dir = c(0.1, NA, 0.5, 0.01))
   expect_equal(rx_scan_threshold(res, "dir"), 0.05 / 3)
   expect_equal(rx_scan_threshold(res, "dir", alpha = 0.1), 0.1 / 3)
-  expect_error(rx_scan_threshold(res, "ind"), "absente")
+  expect_error(rx_scan_threshold(res, "ind"), "is missing")
 })
 
 test_that("rx_scan sur un jeu simule : colonnes, causal en tete, seuil", {

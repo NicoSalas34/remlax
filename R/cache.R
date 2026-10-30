@@ -53,6 +53,6 @@ rx_cache_clear <- function() {
   f <- list.files(d, recursive = TRUE, full.names = TRUE, all.files = TRUE, no.. = TRUE)
   size <- sum(file.size(f), na.rm = TRUE)
   unlink(d, recursive = TRUE)
-  message(sprintf("remlax : cache %s vide (%.1f Mo liberes)", d, size / 2^20))
+  message(sprintf("remlax: cache %s emptied (%.1f MB freed)", d, size / 2^20))
   invisible(size)
 }

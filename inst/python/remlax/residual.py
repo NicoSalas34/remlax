@@ -33,7 +33,7 @@ def _section_S(theta_s, sec):
     if st in ("us", "fa"):
         Ls = chol_sigma(theta_s[:n_sig], st, t, sec["rank"])
         return Ls @ Ls.T
-    raise ValueError("structure residuelle inconnue : %s" % st)
+    raise ValueError("unknown residual structure: %s" % st)
 
 
 def _section_V(theta_s, sec):

@@ -28,19 +28,19 @@ rx_cor_z <- function(r, se = NULL, n = NULL, level = 0.95, width_max = 1.5,
                      clamp = 0.999999) {
   r <- as.numeric(r)
   if (is.null(se) == is.null(n))
-    stop("rx_cor_z : fournir `se` (methode delta) OU `n` (Pearson), pas les deux ni aucun.",
+    stop("rx_cor_z: give either `se` (delta method) or `n` (Pearson), exactly one of them.",
          call. = FALSE)
   if (!is.null(se)) {
     se <- as.numeric(se)
     if (length(se) == 1L) se <- rep(se, length(r))
-    if (length(se) != length(r)) stop("rx_cor_z : `se` n'a pas la longueur de `r`.", call. = FALSE)
+    if (length(se) != length(r)) stop("rx_cor_z: `se` does not have the length of `r`.", call. = FALSE)
     se_z <- se / pmax(1 - r^2, 1e-8)
     method <- "delta"
   } else {
     n <- as.numeric(n)
     if (length(n) == 1L) n <- rep(n, length(r))
-    if (length(n) != length(r)) stop("rx_cor_z : `n` n'a pas la longueur de `r`.", call. = FALSE)
-    if (any(n <= 3, na.rm = TRUE)) stop("rx_cor_z : `n` doit depasser 3.", call. = FALSE)
+    if (length(n) != length(r)) stop("rx_cor_z: `n` does not have the length of `r`.", call. = FALSE)
+    if (any(n <= 3, na.rm = TRUE)) stop("rx_cor_z: `n` must exceed 3.", call. = FALSE)
     se <- rep(NA_real_, length(r))
     se_z <- 1 / sqrt(n - 3)
     method <- "pearson"
@@ -103,14 +103,14 @@ rx_sigma_of <- function(th, struct, t, rank = 0L) {
     corh = { sd <- exp(th[seq_len(t)]); lo <- -1 / max(t - 1L, 1L)
              r <- lo + (tanh(th[t + 1L]) + 1) * 0.5 * (1 - lo)
              C <- (1 - r) * diag(t) + r * matrix(1, t, t); diag(sd, t) %*% C %*% diag(sd, t) },
-    stop("rx_sigma_of : structure '", struct, "' non prise en charge.", call. = FALSE))
+    stop("rx_sigma_of: structure '", struct, "' is not supported.", call. = FALSE))
 }
 
 # Layout of theta by term, then by residual section: a list of (name, struct,
 # t, rank, idx_sigma, idx_level, labels) in the solver's order.
 .rx_theta_layout <- function(model) {
   if (is.null(model) || is.null(model[["terms"]]))
-    stop("rx_ratios : le modele est requis (rx_model, ou fit[[\"model\"]]).", call. = FALSE)
+    stop("rx_ratios: the model is required (rx_model, or fit[[\"model\"]]).", call. = FALSE)
   out <- list(); o <- 0L
   for (tm in model[["terms"]]) {
     ns <- rx_n_params(tm[["struct"]], tm[["t"]], tm[["rank"]])
@@ -147,7 +147,7 @@ rx_sigma_of <- function(th, struct, t, rank = 0L) {
 rx_sigmas_from_theta <- function(theta, model) {
   lay <- .rx_theta_layout(model)
   if (length(theta) != attr(lay, "n_theta"))
-    stop("rx_sigmas_from_theta : theta a ", length(theta), " valeurs, le modele en attend ",
+    stop("rx_sigmas_from_theta: theta has ", length(theta), " values, the model expects ",
          attr(lay, "n_theta"), ".", call. = FALSE)
   out <- list()
   for (l in lay) {
@@ -178,32 +178,32 @@ rx_sigmas_from_theta <- function(theta, model) {
   noms <- names(lay)
   cand <- noms[vapply(noms, function(k) ref == k || startsWith(ref, paste0(k, "[")) ||
                         startsWith(ref, paste0(k, ":")), logical(1))]
-  if (!length(cand)) stop("rx_ratios : composante '", ref, "' : aucun terme ni section '",
-                          sub("[:\\[].*$", "", ref), "' dans le modele (connus : ",
+  if (!length(cand)) stop("rx_ratios: component '", ref, "': no term or section '",
+                          sub("[:\\[].*$", "", ref), "' in the model (known: ",
                           paste(noms, collapse = ", "), ").", call. = FALSE)
   k <- cand[which.max(nchar(cand))]
   l <- lay[[k]]; reste <- substring(ref, nchar(k) + 1L)
   if (!nzchar(reste)) {
-    if (l$t != 1L) stop("rx_ratios : '", ref, "' a t = ", l$t, " colonnes ; en nommer une.",
+    if (l$t != 1L) stop("rx_ratios: '", ref, "' has t = ", l$t, " columns. Name one of them.",
                         call. = FALSE)
     return(list(sigma = k, i = 1L, j = 1L))
   }
   if (grepl("^\\[\\d+(,\\d+)?\\]$", reste)) {
     ij <- as.integer(strsplit(gsub("[][]", "", reste), ",")[[1]])
     if (length(ij) == 1L) ij <- c(ij, ij)
-    if (any(ij < 1L | ij > l$t)) stop("rx_ratios : '", ref, "' hors de 1..", l$t, ".", call. = FALSE)
+    if (any(ij < 1L | ij > l$t)) stop("rx_ratios: '", ref, "' outside 1..", l$t, ".", call. = FALSE)
     return(list(sigma = k, i = ij[1], j = ij[2]))
   }
   if (startsWith(reste, ":")) {
     labs <- strsplit(substring(reste, 2L), "~", fixed = TRUE)[[1]]
     if (length(labs) == 1L) labs <- c(labs, labs)
     ij <- match(labs, l$labels)
-    if (anyNA(ij)) stop("rx_ratios : etiquette(s) '", paste(labs[is.na(ij)], collapse = "', '"),
-                        "' absente(s) de '", k, "' (", paste(l$labels, collapse = ", "), ").",
+    if (anyNA(ij)) stop("rx_ratios: label(s) '", paste(labs[is.na(ij)], collapse = "', '"),
+                        "' missing from '", k, "' (", paste(l$labels, collapse = ", "), ").",
                         call. = FALSE)
     return(list(sigma = k, i = ij[1], j = ij[2]))
   }
-  stop("rx_ratios : reference '", ref, "' illisible.", call. = FALSE)
+  stop("rx_ratios: unreadable reference '", ref, "'.", call. = FALSE)
 }
 
 # ------------------------------------------------------------------------------
@@ -245,14 +245,14 @@ rx_ratios <- function(fit, components, exposure = NULL, model = NULL,
                       bound_tol = 1e-7, dep_bound = 0.05, step = 1e-5) {
   jacobian <- match.arg(jacobian); curvature <- match.arg(curvature)
   if (jacobian == "solver")
-    stop("rx_ratios : jacobian = \"solver\" n'est pas implemente ; utiliser \"numeric\".",
+    stop("rx_ratios: jacobian = \"solver\" is not implemented. Use \"numeric\".",
          call. = FALSE)
   quantities <- match.arg(quantities, several.ok = TRUE)
   model <- model %||% fit[["model"]]
   lay <- .rx_theta_layout(model)
   theta <- as.numeric(fit[["theta"]])
   if (length(theta) != attr(lay, "n_theta"))
-    stop("rx_ratios : theta a ", length(theta), " valeurs, le modele en attend ",
+    stop("rx_ratios: theta has ", length(theta), " values, the model expects ",
          attr(lay, "n_theta"), ".", call. = FALSE)
   S0 <- rx_sigmas_from_theta(theta, model)
   .rx_check_sigmas(fit, S0)
@@ -325,9 +325,9 @@ rx_ratios <- function(fit, components, exposure = NULL, model = NULL,
     if (!is.null(A) && !is.null(B) && all(dim(A) == dim(B))) {
       e <- max(abs(as.matrix(A) - B)) / max(1, max(abs(B)))
       if (e > 1e-8)
-        stop(sprintf(paste0("rx_ratios : Sigma reconstruite depuis theta differe de fit$sigmas ",
-                            "pour '%s' (ecart relatif %.2e). L'ordre de theta n'est pas celui ",
-                            "du modele fourni."), nm, e), call. = FALSE)
+        stop(sprintf(paste0("rx_ratios: Sigma rebuilt from theta differs from fit$sigmas ",
+                            "for '%s' (relative gap %.2e). The order of theta is not that ",
+                            "of the given model."), nm, e), call. = FALSE)
     }
   }
 }
@@ -338,19 +338,19 @@ rx_ratios <- function(fit, components, exposure = NULL, model = NULL,
   components <- as.data.frame(components, stringsAsFactors = FALSE)
   req <- c("target", "direct")
   if (!all(req %in% names(components)))
-    stop("rx_ratios : `components` doit porter les colonnes target et direct.", call. = FALSE)
+    stop("rx_ratios: `components` must have the columns target and direct.", call. = FALSE)
   for (c_ in c("indirect_within", "indirect_between", "other"))
     if (!c_ %in% names(components)) components[[c_]] <- NA_character_
   nt <- nrow(components); tg <- as.character(components$target)
-  if (anyDuplicated(tg)) stop("rx_ratios : cibles en double.", call. = FALSE)
+  if (anyDuplicated(tg)) stop("rx_ratios: duplicated targets.", call. = FALSE)
   .na <- function(x) is.null(x) || (length(x) == 1L && (is.na(x) || !nzchar(x)))
   targets <- lapply(seq_len(nt), function(i) {
     d <- .rx_ref(components$direct[i], lay)
     iw <- if (.na(components$indirect_within[i])) NULL else .rx_ref(components$indirect_within[i], lay)
     ib <- if (.na(components$indirect_between[i])) NULL else .rx_ref(components$indirect_between[i], lay)
     if (!is.null(iw) && iw$sigma != d$sigma)
-      stop("rx_ratios : cible '", tg[i], "' : direct et indirect_within doivent vivre dans le ",
-           "meme terme (covariance directe-indirecte).", call. = FALSE)
+      stop("rx_ratios: target '", tg[i], "': direct and indirect_within must belong to the ",
+           "same term (direct-indirect covariance).", call. = FALSE)
     oth <- lapply(.rx_split_refs(components$other[i]), .rx_ref, lay = lay)
     names(oth) <- .rx_split_refs(components$other[i])
     list(target = tg[i], d = d, iw = iw, ib = ib, other = oth)
@@ -368,9 +368,9 @@ rx_ratios <- function(fit, components, exposure = NULL, model = NULL,
   k_other <- stats::setNames(vector("list", nt), tg)
   if (!is.null(exposure)) {
     exposure <- as.data.frame(exposure, stringsAsFactors = FALSE)
-    if (!"target" %in% names(exposure)) stop("rx_ratios : `exposure` sans colonne target.", call. = FALSE)
+    if (!"target" %in% names(exposure)) stop("rx_ratios: `exposure` has no column target.", call. = FALSE)
     m <- match(tg, as.character(exposure$target))
-    if (anyNA(m)) stop("rx_ratios : cible(s) sans exposition : ",
+    if (anyNA(m)) stop("rx_ratios: target(s) without exposure: ",
                        paste(tg[is.na(m)], collapse = ", "), ".", call. = FALSE)
     for (c_ in c("d", "k_within", "k_between", "c", "S_within", "S_between"))
       if (c_ %in% names(exposure)) {
@@ -511,8 +511,8 @@ rx_ratios <- function(fit, components, exposure = NULL, model = NULL,
     } else if (curvature == "refuse") {
       V <- NULL
     } else {
-      message(sprintf("rx_ratios : courbure negative, %d direction(s) sur %d ecartee(s) ; ",
-                      sum(!pos), length(pos)), "V est projetee sur la courbure positive.")
+      message(sprintf("rx_ratios: negative curvature, %d direction(s) out of %d set aside. ",
+                      sum(!pos), length(pos)), "V is projected onto the positive curvature.")
       Vi <- ed$vectors[, pos, drop = FALSE] %*% diag(1 / ed$values[pos], sum(pos)) %*%
             t(ed$vectors[, pos, drop = FALSE])
       V <- 2 * Vi
@@ -563,12 +563,12 @@ rx_ratios <- function(fit, components, exposure = NULL, model = NULL,
 }
 
 print.rx_ratios <- function(x, ...) {
-  cat(sprintf("rx_ratios : %d quantite(s), %d cible(s), %s ; sous-espace libre %d/%d ; drapeaux : %s\n",
-              nrow(x), length(unique(x$target)), if (isTRUE(x$scaled[1])) "mises a l'echelle" else "brutes",
+  cat(sprintf("rx_ratios: %d quantity(ies), %d target(s), %s | free subspace %d/%d | flags: %s\n",
+              nrow(x), length(unique(x$target)), if (isTRUE(x$scaled[1])) "scaled" else "raw",
               length(attr(x, "free")), length(attr(x, "se_theta")),
               paste(names(table(x$flag)), table(x$flag), sep = "=", collapse = ", ")))
   if (is.finite(attr(x, "check_se") %||% NA))
-    cat(sprintf("  controle se_theta / fit$se_theta (mediane) : %.6f\n", attr(x, "check_se")))
+    cat(sprintf("  check se_theta / fit$se_theta (median): %.6f\n", attr(x, "check_se")))
   print.data.frame(utils::head(as.data.frame(x)[, c("target", "quantity", "component", "estimate", "se", "flag")], 12), ...)
   if (nrow(x) > 12) cat("  ...\n")
   invisible(x)
@@ -588,33 +588,33 @@ rx_grid_summary <- function(table, coords, aic = "AIC", loglik = "logLik", n_par
                             n_par_free = "n_par_free", n_obs = "n_obs", effective = FALSE) {
   tb <- as.data.frame(table, stringsAsFactors = FALSE)
   if (!all(coords %in% names(tb)))
-    stop("rx_grid_summary : coordonnee(s) absente(s) : ",
+    stop("rx_grid_summary: missing coordinate(s): ",
          paste(setdiff(coords, names(tb)), collapse = ", "), ".", call. = FALSE)
   if (!is.null(by) && !all(by %in% names(tb)))
-    stop("rx_grid_summary : colonne(s) `by` absente(s).", call. = FALSE)
+    stop("rx_grid_summary: missing `by` column(s).", call. = FALSE)
   if (!aic %in% names(tb)) {
     if (!all(c(loglik, n_par) %in% names(tb)))
-      stop("rx_grid_summary : ni `", aic, "` ni (`", loglik, "`, `", n_par, "`) dans la table.",
+      stop("rx_grid_summary: neither `", aic, "` nor (`", loglik, "`, `", n_par, "`) in the table.",
            call. = FALSE)
     tb[[aic]] <- 2 * tb[[n_par]] - 2 * tb[[loglik]]
   } else if (all(c(loglik, n_par) %in% names(tb))) {
     e <- max(abs(tb[[aic]] - (2 * tb[[n_par]] - 2 * tb[[loglik]])), na.rm = TRUE)
     if (is.finite(e) && e > 1e-6)
-      stop(sprintf("rx_grid_summary : `%s` fourni differe de 2 %s - 2 %s (ecart max %.3g).",
+      stop(sprintf("rx_grid_summary: the given `%s` differs from 2 %s - 2 %s (max gap %.3g).",
                    aic, n_par, loglik, e), call. = FALSE)
   }
   if (n_obs %in% names(tb) && is.null(by) && length(unique(tb[[n_obs]])) > 1L)
-    stop("rx_grid_summary : `", n_obs, "` varie dans la table ; des grilles d'effectifs ",
-         "differents ne se comparent pas, fournir `by`.", call. = FALSE)
+    stop("rx_grid_summary: `", n_obs, "` varies in the table. Grids with different sample sizes ",
+         "cannot be compared. Give `by`.", call. = FALSE)
   grp <- if (is.null(by)) rep("all", nrow(tb)) else do.call(paste, c(tb[by], sep = "|"))
   tb$.group <- grp
   bilan <- function(sub, col_aic) {
     if (n_obs %in% names(sub) && length(unique(sub[[n_obs]])) > 1L)
-      stop("rx_grid_summary : `", n_obs, "` varie a l'interieur du groupe '", sub$.group[1],
+      stop("rx_grid_summary: `", n_obs, "` varies within the group '", sub$.group[1],
            "'.", call. = FALSE)
     a <- sub[[col_aic]]
     ok <- is.finite(a)
-    if (!any(ok)) stop("rx_grid_summary : aucun AIC fini dans le groupe '", sub$.group[1], "'.",
+    if (!any(ok)) stop("rx_grid_summary: no finite AIC in the group '", sub$.group[1], "'.",
                        call. = FALSE)
     amin <- min(a[ok])
     sub$delta_aic <- a - amin
@@ -662,7 +662,7 @@ rx_grid_summary <- function(table, coords, aic = "AIC", loglik = "logLik", n_par
   rownames(out$n_supported) <- NULL; if (!is.null(out$best_pd)) rownames(out$best_pd) <- NULL
   if (effective) {
     if (!all(c(n_par_free, loglik) %in% names(tb)))
-      stop("rx_grid_summary : effective = TRUE exige `", n_par_free, "` et `", loglik, "`.",
+      stop("rx_grid_summary: effective = TRUE requires `", n_par_free, "` and `", loglik, "`.",
            call. = FALSE)
     tb$AIC_eff <- 2 * tb[[n_par_free]] - 2 * tb[[loglik]]
     pe <- lapply(split(tb, tb$.group), bilan, col_aic = "AIC_eff")
@@ -684,7 +684,7 @@ rx_grid_summary <- function(table, coords, aic = "AIC", loglik = "logLik", n_par
 }
 
 print.rx_grid_summary <- function(x, ...) {
-  cat(sprintf("rx_grid_summary : %d groupe(s), coordonnees %s, tol %g\n",
+  cat(sprintf("rx_grid_summary: %d group(s), coordinates %s, tol %g\n",
               nrow(x$best), paste(x$coords, collapse = ", "), x$tol))
   b <- x$best
   b$n_supported <- x$n_supported$n_supported

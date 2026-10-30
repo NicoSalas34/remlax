@@ -89,7 +89,7 @@ def test_repli_du_noyau_c_annonce(monkeypatch, capsys):
     monkeypatch.setattr(selinv, "_C_KERNEL", None)
     monkeypatch.setenv("REMLAX_SELINV_LIB", "/chemin/absent/libselinv.so")
     assert selinv._c_kernel() is None
-    assert "indisponible" in capsys.readouterr().err
+    assert "unavailable" in capsys.readouterr().err
     monkeypatch.setattr(selinv, "_C_KERNEL", None)
 
 

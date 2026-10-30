@@ -84,15 +84,15 @@ def _term_kind(tm):
 def out_of_scope(terms, res, lag=None):
     """Reason why the model is outside the scope of this engine, or None."""
     if lag is not None:
-        return "decalage spatial"
+        return "spatial lag"
     if res.get("struct") == "none":
-        return "residuelle 'none'"
+        return "residual 'none'"
     for sec in res_sections(res, 1):
         if sec.get("lvl", "id") != "id":
-            return "residuelle a structure entre unites (%s)" % sec.get("lvl")
+            return "residual with a structure between units (%s)" % sec.get("lvl")
     for tm in terms:
         if _term_kind(tm) == "kinv":
-            return "terme '%s' donne par sa precision K^-1 seule" % tm["name"]
+            return "term '%s' given only by its precision K^-1" % tm["name"]
     return None
 
 
@@ -203,7 +203,7 @@ class BlockPlan:
                                                    np.asarray(y, float), Zfull, secs,
                                                    code_offset, octets_lot))
         if verbose:
-            print("  [blocs] %s" % self.summary(), flush=True)
+            print("  [blocks] %s" % self.summary(), flush=True)
 
     # Buckets
     def _build_bucket(self, block_ids, labels, sizes, Xq, y, Zfull, secs, code_offset,
@@ -367,7 +367,7 @@ class BlockPlan:
 
     def summary(self):
         txt = ", ".join("%d x %d" % (P["nb"], P["m"]) for P in self.buckets)
-        return ("%d blocs en %d paquets (%s) ; globaux %s, w = %d"
+        return ("%d blocks in %d buckets (%s), global terms %s, w = %d"
                 % (self.n_blocks, len(self.buckets), txt,
                    [self.terms[k]["name"] for k in self.globaux], self.w))
 

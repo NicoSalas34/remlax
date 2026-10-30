@@ -10,7 +10,7 @@
 
 rx_read_result <- function(dir, model = NULL, fixed_theta = NULL) {
   f <- file.path(dir, "result.json")
-  if (!file.exists(f)) stop("resultat introuvable : ", f)
+  if (!file.exists(f)) stop("result not found: ", f)
   r <- jsonlite::fromJSON(f, simplifyVector = TRUE)
   rd <- .rx_bin_reader(dir)
   r <- .rx_read_fixed_effects(r, rd)
@@ -89,7 +89,7 @@ rx_read_result <- function(dir, model = NULL, fixed_theta = NULL) {
   if (!is.null(v)) {
     q_ <- as.integer(round(sqrt(length(v))))
     if (q_ * q_ == length(v)) r[["hessian"]] <- matrix(v, q_, q_)
-    else warning(sprintf("out_hessian a %d valeurs, non carre : ignore", length(v)))
+    else warning(sprintf("out_hessian has %d values and is not square: ignored", length(v)))
   }
   r
 }

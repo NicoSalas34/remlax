@@ -24,22 +24,22 @@ def _check_section(res, n):
     kind = res.get("lvl", "id")
     if kind == "sep":
         # A residual section carries no factors (parts) for the product.
-        raise ValueError("structure residuelle 'sep' non disponible : utiliser ar1ar1 "
-                         "pour un champ separable.")
+        raise ValueError("residual structure 'sep' not available. Use ar1ar1 "
+                         "for a separable field.")
     if res["struct"] in ("us", "diag", "fa") or kind != "id":
         key = un.astype(np.int64) * (int(tr.max()) + 1) + tr.astype(np.int64)
         if len(np.unique(key)) != n:
             d = n - len(np.unique(key))
-            what = ("structure residuelle '%s'" % res["struct"] if kind == "id"
-                    else "structure '%s' entre unites" % kind)
+            what = ("residual structure '%s'" % res["struct"] if kind == "id"
+                    else "structure '%s' between units" % kind)
             raise ValueError(
-                "%s : %d couple(s) (unite, caractere) en double. Chaque unite ne "
-                "peut etre observee qu'une fois par caractere ; sinon la matrice "
-                "residuelle est singuliere et la vraisemblance vaut NaN."
+                "%s: %d duplicated (unit, trait) pair(s). Each unit can be "
+                "observed only once per trait. Otherwise the residual matrix "
+                "is singular and the likelihood is NaN."
                 % (what, d))
     if res["struct"] in ("us", "diag", "fa"):
         if int(tr.max()) + 1 > res["t"]:
-            raise ValueError("indice de caractere %d hors de la structure residuelle (t=%d)"
+            raise ValueError("trait index %d outside the residual structure (t=%d)"
                              % (tr.max(), res["t"]))
 
 
@@ -51,19 +51,19 @@ def _check_terms_y_X(terms, y, X, n):
         ncol = tm["t"] * tm["q"]
         zj = np.asarray(tm["zj"], dtype=np.int64); zx = np.asarray(tm["zx"], dtype=np.float64)
         if zj.size == 0:
-            raise ValueError("terme '%s' : incidence entierement nulle." % tm["name"])
+            raise ValueError("term '%s': incidence entirely zero." % tm["name"])
         zi = np.asarray(tm["zi"], dtype=np.int64)
         cle = zi * ncol + zj
         u, inv = np.unique(cle, return_inverse=True)
         per_cell = np.abs(np.bincount(inv, weights=zx, minlength=len(u)))
         if not np.any(per_cell > 0):
-            raise ValueError("terme '%s' : incidence entierement nulle." % tm["name"])
+            raise ValueError("term '%s': incidence entirely zero." % tm["name"])
     if not np.all(np.isfinite(y)):
-        raise ValueError("y contient des valeurs non finies.")
+        raise ValueError("y contains non-finite values.")
     if not np.all(np.isfinite(X)):
-        raise ValueError("X contient des valeurs non finies.")
+        raise ValueError("X contains non-finite values.")
     if np.linalg.matrix_rank(X) < X.shape[1]:
-        raise ValueError("X est de rang %d pour %d colonnes."
+        raise ValueError("X has rank %d for %d columns."
                          % (np.linalg.matrix_rank(X), X.shape[1]))
 
 
@@ -75,7 +75,7 @@ def require_K(terms, what):
     bad = [tm["name"] for tm in terms if tm.get("Kinv") is not None and tm.get("LK") is None]
     if bad:
         raise ValueError(
-            "%s : terme(s) %s donne(s) par leur seule precision Kinv, sans facteur de K. "
-            "Ce calcul a besoin de K et traiterait ces niveaux comme independants. "
-            "Fournir K, ou ajuster par le moteur MME sans voie bayesienne."
+            "%s: term(s) %s given only by their precision Kinv, without a factor of K. "
+            "This computation needs K and would treat these levels as independent. "
+            "Supply K, or fit with the MME engine without the Bayesian route."
             % (what, ", ".join(bad)))

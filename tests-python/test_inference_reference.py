@@ -206,7 +206,7 @@ def test_predict_contre_combinaison_lineaire_a_la_main(ajuste):
     assert np.allclose(prb["se"], np.sqrt(np.diag(cov_ref)), atol=1e-8)
     # le BLUP relu est celui de fit_reml
     assert np.allclose(u, f["blups"]["bloc"].ravel(), atol=1e-8)
-    with pytest.raises(ValueError, match="colonnes"):
+    with pytest.raises(ValueError, match="columns"):
         predict(th, terms, res, y, X, np.ones((1, T + 1)))
-    with pytest.raises(ValueError, match="attendu"):
+    with pytest.raises(ValueError, match="expected"):
         predict(th, terms, res, y, X, Lb, M={"bloc": np.eye(B + 1)})

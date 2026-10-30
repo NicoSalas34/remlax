@@ -29,7 +29,7 @@ test_that("rx_neighbourhood : comptes de voisins a rank 1 sur la grille alternee
   expect_equal(dim(nb$level[["A<-B"]]), c(18L, 3L))
   expect_equal(colnames(nb$level[["A<-B"]]), sort(unique(d$level[d$group == "B"])))
   expect_s3_class(nb, "rx_neighbourhood")
-  expect_output(print(nb), "Voisinage")
+  expect_output(print(nb), "Neighbourhood")
 })
 
 test_that("rx_neighbourhood : poids en distance physique, spacing c(5, 5) (T2)", {
@@ -105,9 +105,9 @@ test_that("rx_neighbourhood : rang par paire = rang scalaire paire a paire (T6)"
   expect_equal(nbm$params$rank[nbm$params$pair == "B<-A"], 2)
   expect_equal(nbm$params$pair, c("A<-A", "A<-B", "B<-A", "B<-B"))
   expect_error(rx_neighbourhood(co, d$group, level = d$level, rank = list("A<-A" = 1)),
-               "ne donne rien")
+               "gives nothing")
   expect_error(rx_neighbourhood(co, d$group, level = d$level, rank = 1, pairs = "A<-C"),
-               "inconnue")
+               "unknown pair")
 })
 
 test_that("rx_neighbourhood : deux blocs ne se voient pas (T7) ; rank 0 = vide", {
@@ -123,9 +123,9 @@ test_that("rx_neighbourhood : deux blocs ne se voient pas (T7) ; rank 0 = vide",
   expect_equal(sum(n0$level[["A<-A"]]), 0)
   # refus : coordonnees non entieres, id en double, level absent
   expect_error(rx_neighbourhood(d[, c("row", "col")] + 0.5, d$group, level = d$level, rank = 1),
-               "ENTIERES")
+               "INTEGER")
   expect_error(rx_neighbourhood(d[, c("row", "col")], d$group, level = d$level,
-                                id = rep("a", nrow(d)), rank = 1), "doublons")
+                                id = rep("a", nrow(d)), rank = 1), "duplicates")
   expect_error(rx_neighbourhood(d[, c("row", "col")], d$group, rank = 1), "level")
 })
 
@@ -187,8 +187,8 @@ test_that("rx_exposure : invariance d'echelle et restriction aux lignes (T4, T5)
   expect_equal(er$n_rows, n)
   et <- rx_exposure(D2, Z2, K = K)
   expect_equal(et$k, e$k / 2)
-  expect_error(rx_exposure(Zd, Zn, K = K[1:3, 1:3]), "K est")
-  expect_error(rx_exposure(Zd, Zn, rows = 0L), "hors de")
+  expect_error(rx_exposure(Zd, Zn, K = K[1:3, 1:3]), "K is")
+  expect_error(rx_exposure(Zd, Zn, rows = 0L), "outside")
 })
 
 test_that("rx_exposure : forme modele, K lu dans le terme, rows = auto", {
@@ -211,8 +211,8 @@ test_that("rx_exposure : forme modele, K lu dans le terme, rows = auto", {
   expect_equal(e[c("d", "k", "c", "S", "n_rows")], e_ref[c("d", "k", "c", "S", "n_rows")])
   e_idx <- rx_exposure(mod, direct = "gen[1]", indirect = "gen[2]", rows = "auto")
   expect_equal(e_idx$k, e$k)
-  expect_error(rx_exposure(mod, direct = "gen:D1", indirect = "gen:X"), "absente")
-  expect_error(rx_exposure(mod, direct = "gen:D1", indirect = "autre:N1"), "absent du modele")
+  expect_error(rx_exposure(mod, direct = "gen:D1", indirect = "gen:X"), "is missing from the term")
+  expect_error(rx_exposure(mod, direct = "gen:D1", indirect = "autre:N1"), "not in the model")
 })
 
 # ---- rx_grm ------------------------------------------------------------------
@@ -229,5 +229,5 @@ test_that("rx_grm : VanRaden 1 a ploidie 2, diagonale moyenne proche de 1, blend
   expect_equal(rownames(Gb), rownames(M))
   Gc <- rx_grm(M * 2, ploidy = 2, coding = "count")
   expect_equal(unclass(Gc)[, ], unclass(G)[, ])
-  expect_error(rx_grm(M * 3, ploidy = 2, coding = "count"), "sortent")
+  expect_error(rx_grm(M * 3, ploidy = 2, coding = "count"), "fall outside")
 })

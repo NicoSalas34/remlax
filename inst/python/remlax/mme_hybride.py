@@ -94,7 +94,7 @@ class HybridFactor:
         nc, lab = connected_components(G, directed=False)
         sizes = np.bincount(lab, minlength=nc)
         if nS and sizes.max() > taille_max:
-            raise OutOfScope("composante de %d inconnues apres retrait du separateur (max %d)"
+            raise OutOfScope("component of %d unknowns after removing the separator (max %d)"
                                 % (sizes.max(), taille_max))
 
         def cost(t):
@@ -134,7 +134,7 @@ class HybridFactor:
         self._batch_of, self._slot, self._loc = batch_of, slot, loc
         self._compile()
         if verbose:
-            print("  [mme] hybride : separateur %d inconnues | %d blocs en %d paquets (%s)"
+            print("  [mme] hybrid: separator %d unknowns | %d blocks in %d buckets (%s)"
                   % (nD, nc, len(self.batches),
                      ", ".join("%d x %d" % (P["nb"], P["m"]) for P in self.batches)), flush=True)
 
@@ -211,7 +211,7 @@ class HybridFactor:
         ld, Ls, Qs, Lsch = self._f_fact(jnp.asarray(x), self._idx)
         ld = float(ld)
         if not np.isfinite(ld):
-            raise np.linalg.LinAlgError("C n'est pas definie positive (hybride)")
+            raise np.linalg.LinAlgError("C is not positive definite (hybrid)")
         self._state = (Ls, Qs, Lsch)
         return ld
 

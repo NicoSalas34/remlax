@@ -149,7 +149,7 @@ def test_bundle_options_de_niveaux_et_sections(tmp_path):
     w.put("res_s1_trait", np.zeros(len(np.arange(1, bd.n - 2, 2))), "i4")
     w.put("res_s1_unit", np.arange(len(np.arange(1, bd.n - 2, 2))), "i4")
     w.close()
-    with pytest.raises(ValueError, match="partitionnent"):
+    with pytest.raises(ValueError, match="do not partition"):
         Bundle(p).residual()
 
 
@@ -189,7 +189,7 @@ def test_cli_ajustement_complet_et_inference(paquet):
             "--floor", "-10", "--ceil", "10", "--pev",
             "--vpredict", "h2=V1/(V1+V2+V3);vg=V1", "--wald", "--kenward-roger")
     assert r.returncode == 0, r.stderr + r.stdout
-    assert "[remlax] backend retenu : cpu" in r.stdout and "logLik" in r.stdout
+    assert "[remlax] backend chosen: cpu" in r.stdout and "logLik" in r.stdout
     out = _json(p)
     assert out["backend"] == "cpu"
     assert out["par_floor"] == -10.0 and out["par_ceil"] == 10.0
@@ -231,7 +231,7 @@ def test_cli_theta_in_evaluation_seule_et_sans_hessien(paquet):
     v = float(neg2_reml(jnp.asarray(th), paquet["terms"], Zs, paquet["res"],
                         jnp.asarray(paquet["y"]), jnp.asarray(paquet["X"])))
     assert out["neg2_reml"] == pytest.approx(v, rel=1e-12)
-    assert out["n_iter"] == 0 and "evaluation seule" in out["scipy_message"]
+    assert out["n_iter"] == 0 and "evaluation only" in out["scipy_message"]
     assert out["newton_decrement"] is None                     # NaN -> null
     assert out["blup_dims"] == {} and "hessian" not in out
     assert not os.path.exists(os.path.join(p, "out_beta.bin")) or \
@@ -289,7 +289,7 @@ def test_cli_dsum_et_backend_gpu(tmp_path):
     if a_gpu:
         assert r.returncode == 0
     else:
-        assert r.returncode != 0 and "GPU demande" in (r.stderr + r.stdout)
+        assert r.returncode != 0 and "GPU requested" in (r.stderr + r.stdout)
 
 
 def test_device_pick_et_report():

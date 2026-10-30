@@ -30,7 +30,7 @@ rx_scan_loco <- function(build, K_of, markers, map, incidences,
   stopifnot(is.function(build), is.function(K_of), is.matrix(markers),
             is.data.frame(map), !is.null(map$chr), nrow(map) == ncol(markers))
   chrs <- unique(as.character(map$chr))
-  if (length(chrs) < 2L) stop("rx_scan_loco : il faut au moins deux chromosomes.", call. = FALSE)
+  if (length(chrs) < 2L) stop("rx_scan_loco: at least two chromosomes are needed.", call. = FALSE)
   pieces <- list(); nulls <- list()
   for (cc in chrs) {
     inside <- as.character(map$chr) == cc
@@ -48,7 +48,7 @@ rx_scan_loco <- function(build, K_of, markers, map, incidences,
                               converged = .rx_fit_converged(f_c),
                               seconds = as.numeric(difftime(Sys.time(), t0, units = "secs")))
     nulls[[cc]]$theta <- list(f_c$theta)
-    if (verbose) message(sprintf("  rx_scan_loco : chromosome %s, %d SNP, nul logLik %.3f, %.1f s",
+    if (verbose) message(sprintf("  rx_scan_loco: chromosome %s, %d SNPs, null logLik %.3f, %.1f s",
                                  cc, sum(inside), f_c$logLik, nulls[[cc]]$seconds))
   }
   out <- do.call(rbind, pieces); rownames(out) <- NULL
@@ -65,10 +65,10 @@ rx_scan_exact <- function(res, test, build, K_of, markers, map, incidences,
                    "rx_scan_exact")
   fams <- strsplit(test, "+", fixed = TRUE)[[1]]
   if (grepl("|", test, fixed = TRUE) || !all(fams %in% c("dir", "ind")))
-    stop("rx_scan_exact : test lineaire attendu (\"dir\", \"ind\" ou \"dir+ind\").", call. = FALSE)
+    stop("rx_scan_exact: a linear test is expected (\"dir\", \"ind\" or \"dir+ind\").", call. = FALSE)
   col <- paste0("p_", test)
-  if (is.null(res[[col]])) stop("colonne '", col, "' absente de `res`.", call. = FALSE)
-  if (is.null(res$snp)) stop("`res` doit porter la colonne `snp`.", call. = FALSE)
+  if (is.null(res[[col]])) stop("column '", col, "' is missing from `res`.", call. = FALSE)
+  if (is.null(res$snp)) stop("`res` must have the column `snp`.", call. = FALSE)
   ord <- order(res[[col]])
   ord <- ord[is.finite(res[[col]][ord])][seq_len(min(top, sum(is.finite(res[[col]]))))]
   K_all <- if (!loco) K_of(markers) else NULL
@@ -89,7 +89,7 @@ rx_scan_exact <- function(res, test, build, K_of, markers, map, incidences,
     out <- cbind(data.frame(snp = snp, chr = map$chr[j],
                             pos = if (!is.null(map$pos)) map$pos[j] else NA,
                             p_fixed_V = res[[col]][i]), out)
-    if (verbose) message(sprintf("  rx_scan_exact : %s  p fige %.2e  p exact %.2e", snp, out$p_fixed_V, out$p_exact))
+    if (verbose) message(sprintf("  rx_scan_exact: %s  p fixed V %.2e  p exact %.2e", snp, out$p_fixed_V, out$p_exact))
     out
   })
   out <- do.call(rbind, rows); rownames(out) <- NULL
@@ -132,10 +132,10 @@ rx_scan_exact <- function(res, test, build, K_of, markers, map, incidences,
   spec <- ref$name; a <- ref$index
   term_names <- vapply(model$terms, `[[`, "", "name")
   k <- match(spec, term_names)
-  if (is.na(k)) stop("terme '", spec, "' absent du modele (", paste(term_names, collapse = ", "), ").",
+  if (is.na(k)) stop("term '", spec, "' is not in the model (", paste(term_names, collapse = ", "), ").",
                      call. = FALSE)
   tm <- model$terms[[k]]
-  if (a < 1L || a > tm$t) stop("indice ", a, " hors de 1..", tm$t, " pour '", spec, "'.", call. = FALSE)
+  if (a < 1L || a > tm$t) stop("index ", a, " outside 1..", tm$t, " for '", spec, "'.", call. = FALSE)
   tm$Zl[[a]]
 }
 

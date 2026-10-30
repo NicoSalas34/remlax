@@ -29,7 +29,7 @@ rx_n_params <- function(struct, t, rank = 0L) {
          chol = ,
          ante = as.integer((k + 1) * (t - k / 2)),
          corh = as.integer(t + 1L),
-         stop("structure inconnue : ", struct))
+         stop("unknown structure: ", struct))
 }
 
 # Between-level (correlation) structures, aligned on appendix C of the
@@ -80,15 +80,15 @@ rx_n_level <- function(level, order = 0L, opts = NULL, parts = NULL) {
 # silently count zero parameters and become an identity.
 .rx_n_level_sep <- function(parts) {
   if (is.null(parts) || !length(parts))
-    stop("level='sep' exige `parts`, la liste des facteurs (famille, dimension).",
+    stop("level='sep' requires `parts`, the list of factors (family, dimension).",
          call. = FALSE)
   families <- vapply(parts, function(x) as.character(x[[1]]), "")
   refused <- intersect(families, c("ar2", "ar3", "ma2", "arma", "corb", "corg",
                                    "mtrn", "own", RX_METRIC))
   if (length(refused))
-    stop("level='sep' : les familles ", paste(sort(unique(refused)), collapse = ", "),
-         " ne sont pas admises dans `parts` (compte dependant d'un ordre ou ",
-         "d'options, ou coordonnees requises).", call. = FALSE)
+    stop("level='sep': the families ", paste(sort(unique(refused)), collapse = ", "),
+         " are not allowed in `parts` (their count depends on an order or ",
+         "on options, or they need coordinates).", call. = FALSE)
   sum(vapply(parts, function(x) rx_n_level(as.character(x[[1]]), 0L), integer(1)))
 }
 

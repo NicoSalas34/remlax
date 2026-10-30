@@ -136,9 +136,9 @@ def bound_threads(verbose=True):
     try:
         os.sched_setaffinity(0, cores)
     except OSError as e:
-        msg = "[remlax] bornage des fils impossible (%s) : %d coeurs visibles pour %d demandes" % (e, len(mask), n)
+        msg = "[remlax] thread binding impossible (%s): %d cores visible for %d requested" % (e, len(mask), n)
     else:
-        msg = "[remlax] fils bornes a %d coeurs (%s) sur les %d visibles : %s" % (
+        msg = "[remlax] threads bound to %d cores (%s) out of the %d visible: %s" % (
             n, source, len(mask), ",".join(map(str, cores)))
     _ETAT["message"] = msg
     if verbose:

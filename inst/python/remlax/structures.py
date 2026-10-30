@@ -102,7 +102,7 @@ def n_params(struct, t, rank=0):
         return int((k + 1) * (t - k / 2.0))
     if struct == "corh":
         return t + 1
-    raise ValueError("structure inconnue : %s" % struct)
+    raise ValueError("unknown structure: %s" % struct)
 
 
 def _band_idx(t, k):
@@ -197,7 +197,7 @@ def chol_sigma(theta, struct, t, rank=0):
         C = (1.0 - r) * jnp.eye(t) + r * jnp.ones((t, t))
         Lc = jnp.linalg.cholesky(C + 1e-12 * jnp.eye(t))
         return sd[:, None] * Lc
-    raise ValueError("structure inconnue : %s" % struct)
+    raise ValueError("unknown structure: %s" % struct)
 
 
 def build_sigma(theta, struct, t, rank=0):
@@ -231,4 +231,4 @@ def theta0(struct, t, rank=0, var=1.0):
         return np.concatenate([np.zeros(nb), np.full(t, s if struct == "chol" else -s)])
     if struct == "corh":
         return np.concatenate([np.full(t, s), np.zeros(1)])
-    raise ValueError("structure inconnue : %s" % struct)
+    raise ValueError("unknown structure: %s" % struct)

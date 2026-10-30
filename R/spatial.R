@@ -19,7 +19,7 @@
 # Fitted values X beta + sum of Z u.
 fitted.rx_fit <- function(object, ...) {
   m <- object$model
-  if (is.null(m)) stop("fitted : l'ajustement ne porte pas son modele.", call. = FALSE)
+  if (is.null(m)) stop("fitted: the fit does not carry its model.", call. = FALSE)
   f <- as.numeric(m$X %*% object$beta)
   for (tm in m$terms) {
     B <- object$blups[[tm$name]]
@@ -34,19 +34,19 @@ fitted.rx_fit <- function(object, ...) {
 # Residuals y - fitted. With a spatial lag the fitted values are those of
 # y* = (I - M) y (the model linear in beta and u), and the residuals y* - fitted.
 residuals.rx_fit <- function(object, ...) {
-  if (is.null(object$model$y)) stop("residuals : l'ajustement ne porte pas son modele.", call. = FALSE)
+  if (is.null(object$model$y)) stop("residuals: the fit does not carry its model.", call. = FALSE)
   as.numeric(object[["ystar"]] %||% object$model$y) - fitted.rx_fit(object)
 }
 
 # Names of the requested surfaces: NULL is the first, "all" all of them.
 .rx_surface_names <- function(fit, surface) {
   sf <- fit$spl2d$surfaces
-  if (!length(sf)) stop("aucune surface spl2d() dans cet ajustement.", call. = FALSE)
+  if (!length(sf)) stop("this fit has no spl2d() surface.", call. = FALSE)
   if (is.null(surface)) return(names(sf)[1])
   if (identical(surface, "all")) return(names(sf))
   unknown <- setdiff(surface, names(sf))
   if (length(unknown))
-    stop("surface '", unknown[1], "' inconnue ; disponibles : ", paste(names(sf), collapse = ", "),
+    stop("unknown surface '", unknown[1], "'. Available: ", paste(names(sf), collapse = ", "),
          call. = FALSE)
   surface
 }
@@ -54,10 +54,10 @@ residuals.rx_fit <- function(object, ...) {
 # One surface by name (the first when NULL).
 .rx_surface <- function(fit, surface) {
   sf <- fit$spl2d$surfaces
-  if (!length(sf)) stop("aucune surface spl2d() dans cet ajustement.", call. = FALSE)
+  if (!length(sf)) stop("this fit has no spl2d() surface.", call. = FALSE)
   if (is.null(surface)) surface <- names(sf)[1]
   if (!surface %in% names(sf))
-    stop("surface '", surface, "' inconnue ; disponibles : ", paste(names(sf), collapse = ", "),
+    stop("unknown surface '", surface, "'. Available: ", paste(names(sf), collapse = ", "),
          call. = FALSE)
   sf[[surface]]
 }
@@ -108,7 +108,7 @@ rx_spatial_trend <- function(fit, surface = NULL, grid = c(100L, 100L)) {
 # Table of dimensions, in the manner of summary.SpATS.
 rx_dimensions <- function(fit) {
   m <- fit$model
-  if (is.null(m)) stop("rx_dimensions : l'ajustement ne porte pas son modele.", call. = FALSE)
+  if (is.null(m)) stop("rx_dimensions: the fit does not carry its model.", call. = FALSE)
   X <- as.matrix(m$X); n <- nrow(X)
   rX <- qr(X, tol = 1e-7)$rank
   rows <- list()
@@ -150,11 +150,11 @@ rx_dimensions <- function(fit) {
 rx_heritability <- function(fit, genotype) {
   d <- rx_dimensions(fit)
   if (!genotype %in% rownames(d) || d[genotype, "Type"] != "random")
-    stop("rx_heritability : '", genotype, "' n'est pas un terme aleatoire du modele.", call. = FALSE)
+    stop("rx_heritability: '", genotype, "' is not a random term of the model.", call. = FALSE)
   h <- d[genotype, "Ratio"]
-  if (is.na(h)) stop("rx_heritability : dimension effective non calculable pour '", genotype,
-                     "' (refaire l'ajustement avec pev = TRUE ; terme iid a un caractere sans ",
-                     "matrice de parente).", call. = FALSE)
+  if (is.na(h)) stop("rx_heritability: the effective dimension cannot be computed for '", genotype,
+                     "'. It needs a fit with pev = TRUE and an iid term with one trait and no ",
+                     "relationship matrix.", call. = FALSE)
   h
 }
 
@@ -201,7 +201,7 @@ plot.rx_fit <- function(x, genotype = NULL, surface = NULL, spaTrend = c("raw", 
   }
   ext <- if (!is.null(file)) tolower(tools::file_ext(file)) else ""
   if (!is.null(file) && !ext %in% c("png", "jpg", "jpeg", "tiff", "tif", "pdf", "svg"))
-    stop("plot : extension '", ext, "' non geree (png, jpeg, tiff, pdf, svg).", call. = FALSE)
+    stop("plot: unsupported extension '", ext, "' (png, jpeg, tiff, pdf, svg).", call. = FALSE)
   # Several surfaces in a one-page format: one file per surface, suffixed by
   # the name of the surface.
   if (length(surface_names) > 1L && !is.null(file) && ext != "pdf") {
@@ -254,15 +254,15 @@ plot.rx_fit <- function(x, genotype = NULL, surface = NULL, spaTrend = c("raw", 
   zl <- range(c(obs, aj), na.rm = TRUE)
   sym <- function(v) { a <- max(abs(v), na.rm = TRUE); c(-a, a) }
   xl <- s$x_name; yl <- s$y_name
-  level_label <- if (!is.null(s$at)) paste0(" : ", s$at$name, " = ", s$at$level) else ""
-  .rx_map(s$x, s$y, obs, paste0("Donnees", level_label), seqp, zl, xl, yl)
-  .rx_map(s$x, s$y, aj, "Valeurs ajustees", seqp, zl, xl, yl)
-  .rx_map(s$x, s$y, rs, "Residus", divp, sym(rs), xl, yl)
+  level_label <- if (!is.null(s$at)) paste0(": ", s$at$name, " = ", s$at$level) else ""
+  .rx_map(s$x, s$y, obs, paste0("Data", level_label), seqp, zl, xl, yl)
+  .rx_map(s$x, s$y, aj, "Fitted values", seqp, zl, xl, yl)
+  .rx_map(s$x, s$y, rs, "Residuals", divp, sym(rs), xl, yl)
   graphics::par(mar = c(3.2, 3.2, 2, 0.4), mgp = c(2, 0.6, 0))
   M <- matrix(vt, length(unique(tg[[1]])))
   zt <- sym(vt)
   graphics::image(unique(tg[[1]]), unique(tg[[2]]), M, col = divp, zlim = zt,
-                  main = if (spaTrend == "raw") "Tendance spatiale" else "Tendance spatiale (%)",
+                  main = if (spaTrend == "raw") "Spatial trend" else "Spatial trend (%)",
                   xlab = xl, ylab = yl, useRaster = TRUE)
   graphics::box()
   graphics::par(mar = c(3.2, 0.3, 2, 2.6))
@@ -272,10 +272,10 @@ plot.rx_fit <- function(x, genotype = NULL, surface = NULL, spaTrend = c("raw", 
   graphics::par(mar = c(3.2, 3.2, 2, 1))
   if (!is.na(genotype) && !is.null(fit$blups[[genotype]])) {
     graphics::hist(as.numeric(fit$blups[[genotype]]), breaks = 20, col = "grey75", border = "white",
-                   main = paste0("BLUP : ", genotype), xlab = genotype, ylab = "Effectif")
+                   main = paste0("BLUP: ", genotype), xlab = genotype, ylab = "Count")
   } else graphics::plot.new()
   graphics::plot(aj, rs, pch = 16, cex = 0.6, col = grDevices::adjustcolor("grey20", 0.6),
-                 main = "Residus contre valeurs ajustees", xlab = "Valeurs ajustees", ylab = "Residus")
+                 main = "Residuals against fitted values", xlab = "Fitted values", ylab = "Residuals")
   graphics::abline(h = 0, lty = 2, col = "grey50")
   list(plots = stats::setNames(data.frame(s$x, s$y, obs, aj, rs, tp),
                                c(xl, yl, "observed", "fitted", "residual", "trend")),

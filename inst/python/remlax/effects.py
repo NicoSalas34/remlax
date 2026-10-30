@@ -90,7 +90,7 @@ def _pev_names(pev, terms):
              else ([] if not pev else list(pev)))
     unknown = set(names) - {tm["name"] for tm in terms}
     if unknown:
-        raise ValueError("pev : terme(s) inconnu(s) %s ; termes du modele : %s"
+        raise ValueError("pev: unknown term(s) %s. Terms of the model: %s"
                          % (sorted(unknown), [tm["name"] for tm in terms]))
     return names
 

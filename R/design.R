@@ -32,7 +32,7 @@
 .rx_per_pair <- function(x, pairs, groups, what) {
   if (is.matrix(x)) {
     if (is.null(dimnames(x)) || !all(groups %in% rownames(x)) || !all(groups %in% colnames(x)))
-      stop("rx_neighbourhood : `", what, "` est une matrice sans les dimnames des groupes (",
+      stop("rx_neighbourhood: `", what, "` is a matrix without the dimnames of the groups (",
            paste(groups, collapse = ", "), ").", call. = FALSE)
     a <- sub("<-.*$", "", pairs); b <- sub("^.*<-", "", pairs)
     out <- as.numeric(x[cbind(match(a, rownames(x)), match(b, colnames(x)))])
@@ -41,17 +41,17 @@
   if (is.list(x) || (length(x) > 1L || !is.null(names(x)))) {
     x <- unlist(x)
     if (is.null(names(x)))
-      stop("rx_neighbourhood : `", what, "` a plusieurs valeurs mais aucun nom de paire.",
+      stop("rx_neighbourhood: `", what, "` has several values but no pair names.",
            call. = FALSE)
     missing_pairs <- setdiff(pairs, names(x))
     if (length(missing_pairs))
-      stop("rx_neighbourhood : `", what, "` ne donne rien pour la ou les paires ",
+      stop("rx_neighbourhood: `", what, "` gives nothing for the pair(s) ",
            paste(missing_pairs, collapse = ", "), ".", call. = FALSE)
     return(stats::setNames(as.numeric(x[pairs]), pairs))
   }
   if (length(x) != 1L || !is.numeric(x) || !is.finite(x))
-    stop("rx_neighbourhood : `", what, "` doit etre un scalaire fini, une matrice nommee ",
-         "ou une liste nommee par paire.", call. = FALSE)
+    stop("rx_neighbourhood: `", what, "` must be a finite scalar, a named matrix ",
+         "or a list named by pair.", call. = FALSE)
   stats::setNames(rep(as.numeric(x), length(pairs)), pairs)
 }
 
@@ -83,9 +83,9 @@ rx_neighbourhood <- function(coord, group, block = NULL, level = NULL, id = NULL
   l_p <- .rx_per_pair(reach, pairs, u$groups, "reach")
   d_p <- .rx_per_pair(dilution, pairs, u$groups, "dilution")
   if (any(r_p < 0) || any(r_p != round(r_p)))
-    stop("rx_neighbourhood : `rank` doit etre un entier >= 0 pour chaque paire.", call. = FALSE)
+    stop("rx_neighbourhood: `rank` must be an integer >= 0 for each pair.", call. = FALSE)
   if (any(l_p < 0) || any(d_p < 0))
-    stop("rx_neighbourhood : `reach` et `dilution` doivent etre >= 0.", call. = FALSE)
+    stop("rx_neighbourhood: `reach` and `dilution` must be >= 0.", call. = FALSE)
   # Levels of each emitting group, in the order sort(unique(level)).
   u$levels_of <- if (output != "unit")
     lapply(stats::setNames(u$groups, u$groups), function(g) sort(unique(u$level[u$group == g]))) else NULL
@@ -114,33 +114,33 @@ rx_neighbourhood <- function(coord, group, block = NULL, level = NULL, id = NULL
 # (needed for the output by level) and the physical spacing.
 .rx_nb_units <- function(coord, group, block, id, level, spacing, output) {
   coord <- as.matrix(coord)
-  if (ncol(coord) != 2L) stop("rx_neighbourhood : `coord` doit avoir deux colonnes (ligne, colonne).",
+  if (ncol(coord) != 2L) stop("rx_neighbourhood: `coord` must have two columns (row, column).",
                               call. = FALSE)
   n <- nrow(coord)
   storage.mode(coord) <- "double"
-  if (any(!is.finite(coord))) stop("rx_neighbourhood : `coord` porte des valeurs non finies.", call. = FALSE)
+  if (any(!is.finite(coord))) stop("rx_neighbourhood: `coord` has non-finite values.", call. = FALSE)
   if (any(coord != round(coord)))
-    stop("rx_neighbourhood : `coord` doit porter des positions ENTIERES sur la grille ; ",
-         "les positions physiques sont coord * spacing.", call. = FALSE)
-  if (length(group) != n) stop("rx_neighbourhood : `group` n'a pas ", n, " elements.", call. = FALSE)
+    stop("rx_neighbourhood: `coord` must hold INTEGER positions on the grid. ",
+         "The physical positions are coord * spacing.", call. = FALSE)
+  if (length(group) != n) stop("rx_neighbourhood: `group` does not have ", n, " elements.", call. = FALSE)
   group <- factor(group)
-  if (anyNA(group)) stop("rx_neighbourhood : `group` porte des NA.", call. = FALSE)
+  if (anyNA(group)) stop("rx_neighbourhood: `group` has NAs.", call. = FALSE)
   block <- if (is.null(block)) factor(rep(1L, n)) else factor(block)
-  if (length(block) != n) stop("rx_neighbourhood : `block` n'a pas ", n, " elements.", call. = FALSE)
+  if (length(block) != n) stop("rx_neighbourhood: `block` does not have ", n, " elements.", call. = FALSE)
   id <- if (is.null(id)) as.character(seq_len(n)) else as.character(id)
-  if (length(id) != n) stop("rx_neighbourhood : `id` n'a pas ", n, " elements.", call. = FALSE)
-  if (anyDuplicated(id)) stop("rx_neighbourhood : `id` porte des doublons.", call. = FALSE)
+  if (length(id) != n) stop("rx_neighbourhood: `id` does not have ", n, " elements.", call. = FALSE)
+  if (anyDuplicated(id)) stop("rx_neighbourhood: `id` has duplicates.", call. = FALSE)
   if (output != "unit") {
-    if (is.null(level)) stop("rx_neighbourhood : `level` est requis pour la sortie par niveau.",
+    if (is.null(level)) stop("rx_neighbourhood: `level` is required for the output by level.",
                              call. = FALSE)
     level <- as.character(level)
     if (length(level) != n || anyNA(level))
-      stop("rx_neighbourhood : `level` doit avoir ", n, " elements sans NA.", call. = FALSE)
+      stop("rx_neighbourhood: `level` must have ", n, " elements without NA.", call. = FALSE)
   }
   spacing <- as.numeric(spacing)
   if (length(spacing) == 1L) spacing <- rep(spacing, 2L)
   if (length(spacing) != 2L || any(!is.finite(spacing)) || any(spacing <= 0))
-    stop("rx_neighbourhood : `spacing` doit etre deux pas strictement positifs.", call. = FALSE)
+    stop("rx_neighbourhood: `spacing` must be two strictly positive steps.", call. = FALSE)
   list(coord = coord, group = group, groups = levels(group), block = block, id = id,
        level = level, spacing = spacing, delta0 = min(spacing))
 }
@@ -151,8 +151,8 @@ rx_neighbourhood <- function(coord, group, block = NULL, level = NULL, id = NULL
   if (is.null(pairs)) return(all_pairs)
   unknown <- setdiff(pairs, all_pairs)
   if (length(unknown))
-    stop("rx_neighbourhood : paire(s) inconnue(s) : ", paste(unknown, collapse = ", "),
-         ". Forme attendue \"recevant<-emettant\" avec les groupes ",
+    stop("rx_neighbourhood: unknown pair(s): ", paste(unknown, collapse = ", "),
+         ". Expected form \"receiver<-emitter\" with the groups ",
          paste(groups, collapse = ", "), ".", call. = FALSE)
   pairs
 }
@@ -221,14 +221,14 @@ rx_neighbourhood <- function(coord, group, block = NULL, level = NULL, id = NULL
 
 print.rx_neighbourhood <- function(x, ...) {
   p <- x$params
-  cat(sprintf("Voisinage : %d paire(s), noyau %s, fenetre %s, pas (%g, %g)%s\n",
+  cat(sprintf("Neighbourhood: %d pair(s), kernel %s, window %s, spacing (%g, %g)%s\n",
               nrow(p), p$kernel[1], p$window[1], p$spacing_row[1], p$spacing_col[1],
-              if (isTRUE(p$normalise[1])) ", normalise L2" else ""))
+              if (isTRUE(p$normalise[1])) ", L2-normalised" else ""))
   for (i in seq_len(nrow(p))) {
     nn <- x$n_neighbours[[p$pair[i]]]
     dimtxt <- if (!is.null(x$level)) paste0("level ", paste(dim(x$level[[p$pair[i]]]), collapse = "x"))
               else paste0("unit ", paste(dim(x$unit[[p$pair[i]]]), collapse = "x"))
-    cat(sprintf("  %-20s rank %2g  reach %g  dilution %g  | %s | voisins/unite %.2f (max %d)\n",
+    cat(sprintf("  %-20s rank %2g  reach %g  dilution %g  | %s | neighbours/unit %.2f (max %d)\n",
                 p$pair[i], p$rank[i], p$reach[i], p$dilution[i], dimtxt,
                 mean(nn), max(nn)))
   }
@@ -256,25 +256,25 @@ print.rx_neighbourhood <- function(x, ...) {
 .rx_column_ref <- function(model, ref, quoi) {
   tm_nom <- sub("[:\\[].*$", "", ref)
   tm <- model[["terms"]][[tm_nom]]
-  if (is.null(tm)) stop("rx_exposure : `", quoi, "` nomme le terme '", tm_nom,
-                        "', absent du modele.", call. = FALSE)
+  if (is.null(tm)) stop("rx_exposure: `", quoi, "` names the term '", tm_nom,
+                        "', which is not in the model.", call. = FALSE)
   if (grepl("\\[", ref)) {
     j <- as.integer(sub("^.*\\[(\\d+)\\]$", "\\1", ref))
   } else if (grepl(":", ref, fixed = TRUE)) {
     lab <- sub("^[^:]*:", "", ref)
     cn <- tm[["colnames"]]
-    if (is.null(cn)) stop("rx_exposure : le terme '", tm_nom, "' n'a pas de noms de colonnes ; ",
-                          "utiliser '", tm_nom, "[i]'.", call. = FALSE)
+    if (is.null(cn)) stop("rx_exposure: the term '", tm_nom, "' has no column names. ",
+                          "Use '", tm_nom, "[i]'.", call. = FALSE)
     j <- match(lab, cn)
-    if (is.na(j)) stop("rx_exposure : colonne '", lab, "' absente du terme '", tm_nom,
+    if (is.na(j)) stop("rx_exposure: column '", lab, "' is missing from the term '", tm_nom,
                        "' (", paste(cn, collapse = ", "), ").", call. = FALSE)
   } else {
-    if (tm[["t"]] != 1L) stop("rx_exposure : le terme '", tm_nom, "' a t = ", tm[["t"]],
-                              " colonnes ; en nommer une.", call. = FALSE)
+    if (tm[["t"]] != 1L) stop("rx_exposure: the term '", tm_nom, "' has t = ", tm[["t"]],
+                              " columns. Name one of them.", call. = FALSE)
     j <- 1L
   }
   if (is.na(j) || j < 1L || j > tm[["t"]])
-    stop("rx_exposure : colonne ", j, " hors de 1..", tm[["t"]], " pour '", tm_nom, "'.",
+    stop("rx_exposure: column ", j, " outside 1..", tm[["t"]], " for '", tm_nom, "'.",
          call. = FALSE)
   list(term = tm, j = j, Z = tm[["Zl"]][[j]],
        K = if (is.null(tm[["LK"]])) NULL else tm[["LK"]] %*% t(tm[["LK"]]))
@@ -293,9 +293,9 @@ rx_exposure <- function(Z_direct = NULL, Z_indirect = NULL, K = NULL, rows = NUL
   if (inherits(Z_direct, "rx_fit") || inherits(Z_direct, "rx_model")) {
     model <- if (inherits(Z_direct, "rx_fit")) Z_direct[["model"]] else Z_direct
     if (is.null(model) || is.null(model[["terms"]]))
-      stop("rx_exposure : l'ajustement ne porte pas de modele ; passer le rx_model.",
+      stop("rx_exposure: the fit carries no model. Pass the rx_model.",
            call. = FALSE)
-    if (is.null(indirect)) stop("rx_exposure : `indirect` est requis dans la forme modele.",
+    if (is.null(indirect)) stop("rx_exposure: `indirect` is required in the model form.",
                                 call. = FALSE)
     ri <- .rx_column_ref(model, indirect, "indirect")
     Z_indirect <- ri$Z
@@ -307,29 +307,29 @@ rx_exposure <- function(Z_direct = NULL, Z_indirect = NULL, K = NULL, rows = NUL
       meme_groupe <- identical(rd$term[["name"]], ri$term[["name"]])
     } else Z_direct <- NULL
     if (identical(rows, "auto")) {
-      if (is.null(Z_direct)) stop("rx_exposure : rows = \"auto\" exige `direct`.", call. = FALSE)
+      if (is.null(Z_direct)) stop("rx_exposure: rows = \"auto\" requires `direct`.", call. = FALSE)
       rows <- which(as.numeric(Matrix::rowSums(Z_direct != 0)) > 0)
     }
   }
-  if (is.null(Z_indirect)) stop("rx_exposure : `Z_indirect` est requis.", call. = FALSE)
+  if (is.null(Z_indirect)) stop("rx_exposure: `Z_indirect` is required.", call. = FALSE)
   n <- nrow(Z_indirect)
   if (!is.null(Z_direct) && nrow(Z_direct) != n)
-    stop("rx_exposure : Z_direct a ", nrow(Z_direct), " lignes, Z_indirect ", n, ".", call. = FALSE)
+    stop("rx_exposure: Z_direct has ", nrow(Z_direct), " rows, Z_indirect ", n, ".", call. = FALSE)
   if (is.null(rows)) rows <- seq_len(n)
   if (is.logical(rows)) rows <- which(rows)
   rows <- as.integer(rows)
-  if (!length(rows)) stop("rx_exposure : aucune ligne a moyenner.", call. = FALSE)
-  if (any(rows < 1L | rows > n)) stop("rx_exposure : `rows` hors de 1..", n, ".", call. = FALSE)
+  if (!length(rows)) stop("rx_exposure: no rows to average.", call. = FALSE)
+  if (any(rows < 1L | rows > n)) stop("rx_exposure: `rows` outside 1..", n, ".", call. = FALSE)
   if (!is.null(K)) {
     K <- as.matrix(K)
     if (nrow(K) != ncol(Z_indirect) || ncol(K) != ncol(Z_indirect))
-      stop("rx_exposure : K est ", nrow(K), "x", ncol(K), " pour ", ncol(Z_indirect),
-           " colonnes de Z_indirect.", call. = FALSE)
+      stop("rx_exposure: K is ", nrow(K), "x", ncol(K), " for ", ncol(Z_indirect),
+           " columns of Z_indirect.", call. = FALSE)
     # alignment by name when both sides carry names
     if (!is.null(colnames(Z_indirect)) && !is.null(rownames(K))) {
       manque <- setdiff(colnames(Z_indirect), rownames(K))
-      if (length(manque)) stop("rx_exposure : ", length(manque), " colonne(s) de Z_indirect ",
-                               "absente(s) de K (ex. ", paste(utils::head(manque, 3), collapse = ", "),
+      if (length(manque)) stop("rx_exposure: ", length(manque), " column(s) of Z_indirect ",
+                               "missing from K (e.g. ", paste(utils::head(manque, 3), collapse = ", "),
                                ").", call. = FALSE)
       K <- K[colnames(Z_indirect), colnames(Z_indirect), drop = FALSE]
     }
@@ -337,12 +337,12 @@ rx_exposure <- function(Z_direct = NULL, Z_indirect = NULL, K = NULL, rows = NUL
   if (!is.null(Z_direct) && !is.null(K_direct)) {
     K_direct <- as.matrix(K_direct)
     if (nrow(K_direct) != ncol(Z_direct))
-      stop("rx_exposure : K_direct est ", nrow(K_direct), "x", ncol(K_direct), " pour ",
-           ncol(Z_direct), " colonnes de Z_direct.", call. = FALSE)
+      stop("rx_exposure: K_direct is ", nrow(K_direct), "x", ncol(K_direct), " for ",
+           ncol(Z_direct), " columns of Z_direct.", call. = FALSE)
     if (!is.null(colnames(Z_direct)) && !is.null(rownames(K_direct))) {
       manque <- setdiff(colnames(Z_direct), rownames(K_direct))
-      if (length(manque)) stop("rx_exposure : ", length(manque), " colonne(s) de Z_direct ",
-                               "absente(s) de K_direct.", call. = FALSE)
+      if (length(manque)) stop("rx_exposure: ", length(manque), " column(s) of Z_direct ",
+                               "missing from K_direct.", call. = FALSE)
       K_direct <- K_direct[colnames(Z_direct), colnames(Z_direct), drop = FALSE]
     }
   }
@@ -374,15 +374,15 @@ rx_exposure <- function(Z_direct = NULL, Z_indirect = NULL, K = NULL, rows = NUL
 rx_grm <- function(M, ploidy = 2, blend = 0, coding = c("fraction", "count")) {
   coding <- match.arg(coding)
   M <- as.matrix(M)
-  if (anyNA(M)) stop("rx_grm : M porte des NA ; imputer avant.", call. = FALSE)
+  if (anyNA(M)) stop("rx_grm: M has NAs. Impute them first.", call. = FALSE)
   D <- if (coding == "fraction") M * ploidy else M
   if (any(D < 0) || any(D > ploidy))
-    stop("rx_grm : des doses sortent de 0..", ploidy, " ; verifier `coding` et `ploidy`.",
+    stop("rx_grm: some doses fall outside 0..", ploidy, ". Check `coding` and `ploidy`.",
          call. = FALSE)
   p <- colMeans(D) / ploidy
   Z <- sweep(D, 2L, ploidy * p, "-")
   cst <- ploidy * sum(p * (1 - p))
-  if (cst <= 0) stop("rx_grm : tous les marqueurs sont monomorphes.", call. = FALSE)
+  if (cst <= 0) stop("rx_grm: all markers are monomorphic.", call. = FALSE)
   G <- tcrossprod(Z) / cst
   if (blend > 0) G <- (1 - blend) * G + blend * diag(nrow(G))
   dimnames(G) <- list(rownames(M), rownames(M))

@@ -68,11 +68,11 @@ print(fit)
 ```
 
 ```
-Ajustement REML (cpu) : logLik -388.088838 | 3 parametres | 240 obs | 1.6 s
-  max|grad| 3.42e-14 | decrement de Newton 1.43e-28 | 0 valeur(s) propre(s) negative(s)
-  Sigma[gid] 1x1, diagonale : 1.401
-  Sigma[bloc] 1x1, diagonale : 0.00722
-  residuelle : 0.8988
+REML fit (cpu): logLik -388.088838 | 3 parameters | 240 obs | 1.6 s
+  max|grad| 3.42e-14 | Newton decrement 1.43e-28 | 0 negative eigenvalue(s)
+  Sigma[gid] 1x1, diagonal: 1.401
+  Sigma[bloc] 1x1, diagonal: 0.00722
+  residual: 0.8988
 ```
 
 A bare name in `random` means `iid()`; `~ gid` and `~ iid(gid)` are the same
@@ -257,7 +257,7 @@ var(u[, 1])
 dim(BLUP gid) = 60 x 1
 [1] -0.1065 -0.9229  0.0301  0.0813 -0.4069 -2.6160 -0.5659 -0.4012
 
-var(BLUP) = 1.20772   (retrecissement attendu vs sigma2_g = 1.40136)
+var(BLUP) = 1.20772   (expected shrinkage vs sigma2_g = 1.40136)
 ```
 
 `blups` is a named list of `q x t` matrices: levels in rows, columns of
@@ -301,13 +301,13 @@ print(f)
 ```
 
 ```
-Ajustement REML (cpu) : logLik -39.216376 | 2 parametres | 27 obs | 0.7 s
-  max|grad| 8.95e-09 | decrement de Newton 1.37e-18 | 0 valeur(s) propre(s) negative(s)
-  Sigma[bloc] 1x1, diagonale : 0.3947
-  residuelle : 0.9669
-  Wald (conditionnel, chi2/ddl) :
-    (Intercept)    ddl  1   F   139.794   p 2.953e-32
-    trt            ddl  2   F     5.091   p 0.006149
+REML fit (cpu): logLik -39.216376 | 2 parameters | 27 obs | 0.7 s
+  max|grad| 8.95e-09 | Newton decrement 1.37e-18 | 0 negative eigenvalue(s)
+  Sigma[bloc] 1x1, diagonal: 0.3947
+  residual: 0.9669
+  Wald (conditional, chi2/df):
+    (Intercept)    df  1   F   139.794   p 2.953e-32
+    trt            df  2   F     5.091   p 0.006149
 ```
 
 ```r
@@ -384,7 +384,7 @@ Predictions
    B         6.36507  0.433628      TRUE
    C         6.45335  0.436859      TRUE
 
-  erreur-type moyenne des differences : 0.465645
+  mean standard error of differences: 0.465645
 
           A         B         C
 A        NA 0.4635461 0.4666903

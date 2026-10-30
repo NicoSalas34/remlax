@@ -99,7 +99,7 @@ def _fit_weighted(terms, res, y, X, weights, args, kwargs):
     back to the original scale (see fit_reml)."""
     w = np.asarray(weights, dtype=np.float64).ravel()
     if w.shape[0] != len(y) or not np.all(np.isfinite(w)) or np.any(w <= 0):
-        raise ValueError("poids : %d valeurs finies et > 0 attendues" % len(y))
+        raise ValueError("weights: %d finite values > 0 expected" % len(y))
     sw = np.sqrt(w)
     y2 = np.asarray(y, dtype=np.float64) * sw
     X2 = np.asarray(X, dtype=np.float64) * sw[:, None]
@@ -256,7 +256,7 @@ def _fit_with_restarts(terms, res, y, X, n_restarts, restart_sd, seed, kw):
     best["restart_gain"] = float(base["neg2_reml"] - best["neg2_reml"])
     best["restart_better"] = n_better
     if verbose and n_better:
-        print("  [restarts] %d redemarrage(s) ont trouve mieux : gain %.4g en -2logL"
+        print("  [restarts] %d restart(s) found better: gain %.4g in -2logL"
               % (n_better, best["restart_gain"]), flush=True)
     return best
 
@@ -301,11 +301,11 @@ def _build_engine(terms, res, y, X, lag, engine, inversion, memory, optimizer, f
             return v_ / _sc, g_ / _sc
         eng.fun_sc = fun_sc
     elif eng.engine == "blocks":
-        require_K(terms, "moteur par blocs")
+        require_K(terms, "blocks engine")
         from .blocs import make_objective_blocks
         eng.fun_sc, eng.fun_jac, eng.sc = make_objective_blocks(eng.plan_blocs)
     else:
-        require_K(terms, "moteur dense")
+        require_K(terms, "dense engine")
         _dense_objective(eng, terms, res, y, X, lag, verbose)
     return eng
 
@@ -318,11 +318,11 @@ def _mme_fallback(eng, terms, res, lag, verbose):
     if not reason:
         return
     if any(tm.get("Kinv") is not None and tm.get("LK") is None for tm in terms):
-        raise ValueError("moteur MME hors perimetre (%s), et le moteur dense ne sait pas "
-                         "utiliser une precision Kinv sans facteur de K : il ignorerait la "
-                         "parente. Fournir K." % reason)
+        raise ValueError("model outside the scope of the MME engine (%s). The dense engine cannot "
+                         "use a precision Kinv without a factor of K. It would ignore the "
+                         "relationships. Supply K." % reason)
     if verbose:
-        print("  [moteur] MME hors perimetre (%s) -> moteur dense" % reason, flush=True)
+        print("  [engine] MME out of scope (%s) -> dense engine" % reason, flush=True)
     eng.engine = "dense"
 
 
@@ -334,12 +334,12 @@ def _blocs_fallback(eng, terms, res, y, X, lag, optimizer, verbose):
     if reason is None:
         eng.plan_blocs = BlockPlan(terms, res, y, X, verbose=verbose)
         if eng.plan_blocs.n_blocks < 2:
-            reason = "aucun decoupage en blocs (un seul bloc)"
+            reason = "no split into blocks (a single block)"
     if reason is None and optimizer == "ai":
-        reason = "optimiseur AI non pris en charge par le moteur par blocs"
+        reason = "AI optimiser not supported by the blocks engine"
     if reason:
         if verbose:
-            print("  [moteur] blocs : %s -> moteur dense econome" % reason, flush=True)
+            print("  [engine] blocks: %s -> low-memory dense engine" % reason, flush=True)
         eng.engine, eng.memory = "dense", "low"
 
 
@@ -348,7 +348,7 @@ def _dense_objective(eng, terms, res, y, X, lag, verbose):
     available with a spatial lag)."""
     if eng.memory == "low" and lag is not None:
         if verbose:
-            print("  [memoire] mode econome sans decalage spatial -> mode standard",
+            print("  [memory] low-memory mode without spatial lag -> standard mode",
                   flush=True)
         eng.memory = "standard"
     if eng.memory == "low":
@@ -356,11 +356,11 @@ def _dense_objective(eng, terms, res, y, X, lag, verbose):
         eng.plan_eco = LowMemoryPlan(terms, res, y, X)
         eng.fun_sc, eng.fun_jac, eng.sc = make_objective_low_memory(eng.plan_eco)
         if verbose:
-            print("  [memoire] econome : %s" % eng.plan_eco.summary(), flush=True)
+            print("  [memory] low: %s" % eng.plan_eco.summary(), flush=True)
     elif eng.memory == "standard":
         eng.fun_sc, eng.fun_jac, eng.sc, eng.Zs = make_objective(terms, res, y, X, lag=lag)
     else:
-        raise ValueError("memory : 'standard' ou 'low', pas %r" % (eng.memory,))
+        raise ValueError("memory: 'standard' or 'low', not %r" % (eng.memory,))
 
 
 # ------------------------------------------------------------------------------
@@ -390,7 +390,7 @@ def _start_theta(theta_init, terms, res, y, X, lag):
             th0 = np.concatenate([th0, theta_from_psi(ini, lag)])
     p = p_cov + lag_n_params(lag)
     if th0.shape[0] != p:
-        raise ValueError("theta initial de longueur %d, attendu %d" % (th0.shape[0], p))
+        raise ValueError("initial theta of length %d, expected %d" % (th0.shape[0], p))
     return th0, p_cov, p
 
 
@@ -402,9 +402,9 @@ def _check_start(th0, terms, res, X, n, lag, p_cov, eng):
         _ok = bool(lag_terms(jnp.asarray(th0[p_cov:]), lag, X)[2])
         if not _ok:
             raise ValueError(
-                "Psi initial hors de la region admissible : I - M est singuliere ou de "
-                "determinant negatif (pas d'equilibre). Partir de Psi = 0 ou d'une valeur "
-                "plus petite.")
+                "initial Psi outside the admissible region: I - M is singular or has a "
+                "negative determinant (no equilibrium). Start from Psi = 0 or from a smaller "
+                "value.")
     if res.get("struct") == "none" and eng.engine == "dense":
         if eng.memory == "low":
             from .econome import V_on_host
@@ -416,12 +416,12 @@ def _check_start(th0, terms, res, X, n, lag, p_cov, eng):
         except np.linalg.LinAlgError:
             w = np.linalg.eigvalsh(0.5 * (V0 + V0.T))
             raise ValueError(
-                "residuelle 'none' : V n'est pas definie positive au point de depart "
-                "(plus petite valeur propre %.3g, %d valeur(s) propre(s) <= 0 sur %d). "
-                "Sans residuelle, les termes doivent donner a CHAQUE observation une "
-                "variance propre : par exemple un terme de plante dont les incidences "
-                "sont [I place sur le caractere t, W_t place sur le caractere t], "
-                "structure us sur 2q colonnes." % (w.min(), int((w <= 0).sum()), n))
+                "residual 'none': V is not positive definite at the starting point "
+                "(smallest eigenvalue %.3g, %d eigenvalue(s) <= 0 out of %d). "
+                "Without a residual, the terms must give EACH observation its own "
+                "variance. For example, a plant term whose incidences "
+                "are [I placed on trait t, W_t placed on trait t], "
+                "with a us structure on 2q columns." % (w.min(), int((w <= 0).sum()), n))
 
 
 def _bounds(th0, p, floor, ceil, terms, res, y, fixed_idx):
@@ -476,7 +476,7 @@ class _Objective:
         # First sign of life of the solver: compilation can be long on a large
         # model, and a silent log cannot tell compiling from stuck.
         if verbose:
-            print("  [compilation] premier appel (compilation + une evaluation) %.1f s | %d parametres"
+            print("  [compile] first call (compilation + one evaluation) %.1f s | %d parameters"
                   % (self.t_first, p), flush=True)
         # hist: iterations, evaluations, last value seen (printed by the
         # callback at no cost), durations of the evaluations after the first.
@@ -561,9 +561,9 @@ def _optimise(obj, th0, bornes, theta_init, terms, res, y, X, n, lag, eng, optim
     _v0, _g0 = obj.fun_jac(th0)
     if not np.isfinite(float(_v0)) or not np.all(np.isfinite(np.asarray(_g0))):
         raise ValueError(
-            "-2logL ou son gradient n'est pas fini au point de depart "
-            "(valeur %r, %d composante(s) du gradient non finie(s)) : "
-            "l'optimiseur ne peut pas demarrer. Verifier le noyau ou fournir "
+            "-2logL or its gradient is not finite at the starting point "
+            "(value %r, %d non-finite gradient component(s)). "
+            "The optimiser cannot start. Check the kernel or supply "
             "theta_init." % (float(_v0), int(np.sum(~np.isfinite(np.asarray(_g0))))))
     if optimizer == "ai":
         r = _optimise_ai(obj, th0, bornes, terms, res, y, X, lag, eng, maxiter, tol, floor,
@@ -572,7 +572,7 @@ def _optimise(obj, th0, bornes, theta_init, terms, res, y, X, n, lag, eng, optim
         r = _optimise_lbfgsb(obj, th0, bornes, terms, res, y, X, maxiter, tol, floor,
                              slow_stop, verbose)
     else:
-        raise ValueError("optimizer inconnu : %r (lbfgsb, ai)" % (optimizer,))
+        raise ValueError("unknown optimizer: %r (lbfgsb, ai)" % (optimizer,))
     return np.asarray(r.x, dtype=np.float64), r
 
 
@@ -592,7 +592,7 @@ def _optimise_lbfgsb(obj, th0, bornes, terms, res, y, X, maxiter, tol, floor, sl
     there (_floor_escape)."""
     r = obj.lbfgsb(th0, bornes, maxiter, tol)
     if obj.hist.get("slow_stop") and verbose:
-        print("  [finition] L-BFGS-B arrete a l'iteration %d : gain < %g sur %d iterations"
+        print("  [finish] L-BFGS-B stopped at iteration %d: gain < %g over %d iterations"
               % (obj.hist["n"], slow_stop[1], slow_stop[0]), flush=True)
     th_ref = _floor_reference(th0, terms, res, y, X)
     for _tour in range(3):
@@ -614,7 +614,7 @@ def _optimise_ai(obj, th0, bornes, terms, res, y, X, lag, eng, maxiter, tol, flo
     from types import SimpleNamespace
     from .ai import ai_reml_var
     if lag is not None:
-        raise ValueError("optimizer='ai' : modele structurel (lag) non pris en charge.")
+        raise ValueError("optimizer='ai': structural model (lag) not supported.")
     fga, f_only = _ai_functions(obj, eng, terms, res, y, X)
     floor_us = 1e-8 if eng.engine == "mme" else 1e-10
     th_ai, info = ai_reml_var(fga, th0, bornes, terms, res, maxiter=maxiter,
@@ -622,11 +622,11 @@ def _optimise_ai(obj, th0, bornes, terms, res, y, X, lag, eng, maxiter, tol, flo
                               fun_sc=obj.fun_sc, f_only=f_only)
     if not info["success"]:
         if verbose:
-            print("  [ai] %s -> L-BFGS-B depuis ce point" % info["message"], flush=True)
+            print("  [ai] %s -> L-BFGS-B from this point" % info["message"], flush=True)
         r2 = obj.lbfgsb(th_ai, bornes, maxiter, tol)
         th_ai = np.asarray(r2.x, dtype=np.float64)
         info = dict(nit=info["nit"] + int(r2.nit), success=False,
-                    message="%s ; repli L-BFGS-B : %s" % (info["message"], r2.message))
+                    message="%s. L-BFGS-B fallback: %s" % (info["message"], r2.message))
     r = SimpleNamespace(x=th_ai, **info)
     th_ref = _floor_reference(th0, terms, res, y, X)
     for _tour in range(2):
@@ -639,7 +639,7 @@ def _optimise_ai(obj, th0, bornes, terms, res, y, X, lag, eng, maxiter, tol, flo
                                    fun_sc=obj.fun_sc, f_only=f_only)
         r = SimpleNamespace(x=th_ai, nit=int(getattr(r, "nit", 0)) + int(info2["nit"]),
                             success=info2["success"],
-                            message="%s ; apres sortie du plancher : %s"
+                            message="%s. After the floor escape: %s"
                             % (getattr(r, "message", ""), info2["message"]))
     return r
 
@@ -683,12 +683,12 @@ def _check_ai_saddle(obj, theta, r, bornes, floor, ceil, hessian, maxiter, tol, 
         w_ai = np.linalg.eigvalsh(H_ai[np.ix_(libre_, libre_)])
         if w_ai.min() < -1e-6 * max(1.0, np.abs(w_ai).max()):
             if verbose:
-                print("  [ai] point selle (valeur propre du Hessien %.2e) -> L-BFGS-B depuis ce point"
+                print("  [ai] saddle point (Hessian eigenvalue %.2e) -> L-BFGS-B from this point"
                       % w_ai.min(), flush=True)
             r2 = obj.lbfgsb(theta, bornes, maxiter, tol)
             theta = np.asarray(r2.x, dtype=np.float64)
             r = SimpleNamespace(x=theta, nit=int(getattr(r, "nit", 0)) + int(r2.nit), success=False,
-                                message="%s ; point selle, repli L-BFGS-B : %s"
+                                message="%s. Saddle point, L-BFGS-B fallback: %s"
                                 % (getattr(r, "message", ""), r2.message))
             polish_eff = int(polish)
     return theta, r, polish_eff, H_cache
@@ -722,7 +722,7 @@ def _newton_polish(obj, theta, n_steps, p, floor, ceil, fixed_idx, verbose):
     if n_steps <= 0:
         return theta, n_polish
     if verbose:
-        print("  polissage de Newton : jusqu'a %d pas, %d gradients par pas"
+        print("  Newton polishing: up to %d steps, %d gradients per step"
               % (n_steps, 2 * p), flush=True)
     for _ in range(n_steps):
         t_pas = time.time()
@@ -730,7 +730,7 @@ def _newton_polish(obj, theta, n_steps, p, floor, ceil, fixed_idx, verbose):
         H = hessian_fd(obj.fun_jac, theta, floor=floor, ceil=ceil)
         if not np.all(np.isfinite(H)) or not np.all(np.isfinite(g_cur)):
             if verbose:
-                print("  polissage arrete : Hessien ou gradient non fini", flush=True)
+                print("  polishing stopped: Hessian or gradient not finite", flush=True)
             break
         try:
             w, Vv = np.linalg.eigh(0.5 * (H + H.T))
@@ -753,7 +753,7 @@ def _newton_polish(obj, theta, n_steps, p, floor, ceil, fixed_idx, verbose):
                 break
         if not done:
             if verbose:
-                print("  polissage arrete : aucun pas n'ameliore -2logL (deja au sommet)",
+                print("  polishing stopped: no step improves -2logL (already at the top)",
                       flush=True)
             break
         n_polish += 1
@@ -797,7 +797,7 @@ def _result_core(obj, eng, theta, r, f_end, g_end, X, y, n, p, maxiter, floor, c
                 n_par=int(p), n_obs=int(n),
                 max_grad=float(np.max(np.abs(g_end))),
                 scipy_success=(True if no_optim else bool(r.success)),
-                scipy_message=("evaluation seule (maxiter = 0), aucune optimisation"
+                scipy_message=("evaluation only (maxiter = 0), no optimisation"
                                if no_optim else str(r.message)),
                 n_iter=(0 if no_optim else int(r.nit)),
                 seconds=time.time() - hist["t0"],
@@ -820,7 +820,7 @@ def _add_identification(out, terms, n, p, verbose):
     out["n_flat_expected"] = n_plat
     out["n_par_identified"] = int(p - n_plat)
     if n_plat and verbose:
-        print("  [identification] %d direction(s) plate(s) par construction : %s"
+        print("  [identification] %d flat direction(s) by construction: %s"
               % (n_plat, "; ".join("%s %s" % (g["term"], " = ".join(
                   "[%d,%d]" % (i + 1, j + 1) for i, j in g["entries"])) for g in alias)),
               flush=True)
@@ -838,7 +838,7 @@ def _add_lag_report(out, theta, lag, p_cov, X, y, f_end, verbose):
         out["ystar"] = y_fit
         if verbose:
             Lr = out["lag"]
-            print("  [decalage] critere %s | chemin %s | log|det A| %.6f | rayon spectral de M %.4f"
+            print("  [lag] criterion %s | path %s | log|det A| %.6f | spectral radius of M %.4f"
                   % (Lr["criterion"], Lr["path"], Lr["logdet_A"], Lr["spectral_radius"]),
                   flush=True)
     return y_fit
@@ -861,7 +861,7 @@ def _add_degenerate(out, theta, terms, p_cov, floor, fixed_idx, verbose):
     out["degenerate_components"] = degen
     out["n_fixed"] = 0 if not fixed_idx else len(fixed_idx)
     if degen and verbose:
-        print("  [attention] composante(s) au plancher (non identifiee(s)) : %s"
+        print("  [warning] component(s) at the floor (not identified): %s"
               % ", ".join(degen), flush=True)
 
 
@@ -977,13 +977,13 @@ def _dense_restart_if_needed(out, terms, res, y, X, engine, maxiter, verbose, kw
     grad_ok = gr_ is not None and gr_ <= GRAD_REL_DENSE_RESTART
     if (engine == "mme" and int(maxiter) > 0 and kinv_only and verbose and failed
             and not grad_ok):
-        print("  [moteur] MME non converge (gradient relatif %s), sans reprise dense : un terme "
-              "n'a que sa precision K^-1" % ("%.2e" % gr_ if gr_ is not None else "n.d."), flush=True)
+        print("  [engine] MME not converged (relative gradient %s), no dense restart: a term "
+              "has only its precision K^-1" % ("%.2e" % gr_ if gr_ is not None else "n/a"), flush=True)
     if (engine == "mme" and int(maxiter) > 0 and not kinv_only and failed
             and len(y) <= N_MAX_DENSE_RESTART and not grad_ok):
         if verbose:
-            print("  [moteur] MME non converge (gradient relatif %s) : fin par le moteur dense "
-                  "depuis ce point" % ("%.2e" % gr_ if gr_ is not None else "n.d."), flush=True)
+            print("  [engine] MME not converged (relative gradient %s): finished by the dense engine "
+                  "from this point" % ("%.2e" % gr_ if gr_ is not None else "n/a"), flush=True)
         out_d = fit_reml(terms, res, y, X, theta_init=out["theta"], **kw)
         out_d["engine"] = "mme+dense"
         out_d["inversion"] = out.get("inversion")
@@ -1042,7 +1042,7 @@ def _floor_escape(fun_jac, theta, th0, bornes, terms, res, floor, marge=3.0,
         f1, _ = fun_jac(th)
         if np.isfinite(float(f1)) and float(f1) < float(f0) - 1e-8 * max(1.0, abs(float(f0))):
             if verbose:
-                print("  [plancher] %d variance(s) remontee(s) (log psi0 - %g) : -2logL %.6f -> %.6f"
+                print("  [floor] %d variance(s) lifted (log psi0 - %g): -2logL %.6f -> %.6f"
                       % (int(cand.sum()), recul, float(f0), float(f1)), flush=True)
             return th
     return None

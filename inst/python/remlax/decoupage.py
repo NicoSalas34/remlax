@@ -27,8 +27,8 @@ has full rank and cannot go into U.
 Organisation. The helper functions turn each term and each residual section
 into edges between observations and local nodes, then contract them to one
 edge per observation. BlockSplit keeps these contracted couplings and offers
-blocs (labels for a given set of global terms), cout and level_cost (cost
-models of the V and MME forms) and chercher (greedy search of the global
+block_labels (labels for a given set of global terms), cost and level_cost
+(cost models of the V and MME forms) and search (greedy search of the global
 terms).
 """
 
@@ -90,7 +90,7 @@ def _contract(obs, node, n_nodes, n):
 
 
 class BlockSplit:
-    """Precomputed couplings. blocs(globaux) and cout(globaux) on demand."""
+    """Precomputed couplings. block_labels(globaux) and cost(globaux) on demand."""
 
     def __init__(self, terms, res, n):
         self.terms, self.n = terms, int(n)
@@ -197,7 +197,7 @@ class BlockSplit:
                 ck, k = min(cands, key=lambda x: x[0][critere])
                 G, c = G + [k], ck
                 if verbose:
-                    print("  [decoupage] + %s : %d blocs (max %d), w = %d, %.3g ops"
+                    print("  [split] + %s: %d blocks (max %d), w = %d, %.3g ops"
                           % (self.terms[k]["name"], c["n_blocs"], c["plus_grand"], c["w"], c["ops"]),
                           flush=True)
 
@@ -218,7 +218,7 @@ class BlockSplit:
                     if c2[critere] < c[critere]:
                         G, c, changed = G2, c2, True
                         if verbose:
-                            print("  [decoupage] - %s : %d blocs (max %d), w = %d, %.3g ops"
+                            print("  [split] - %s: %d blocks (max %d), w = %d, %.3g ops"
                                   % (self.terms[k]["name"], c["n_blocs"], c["plus_grand"], c["w"],
                                      c["ops"]), flush=True)
                 if not changed:

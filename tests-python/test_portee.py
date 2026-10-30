@@ -170,5 +170,5 @@ def test_depart_non_fini_est_refuse(monkeypatch):
             return v, jnp.asarray(g) * jnp.nan
         return fun_sc, fun_jac_nan, sc, Zs
     monkeypatch.setattr(F, "make_objective", casse)
-    with pytest.raises(ValueError, match="pas fini au point de depart"):
+    with pytest.raises(ValueError, match="not finite at the starting point"):
         F.fit_reml([], res, y, X, verbose=False, hessian=False, blups=False)

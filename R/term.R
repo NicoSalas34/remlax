@@ -21,7 +21,7 @@
   s <- trimws(as.character(x))
   code <- toupper(sub("^[-0-9.eE+]*\\s*", "", s))
   v <- suppressWarnings(as.numeric(sub("\\s*[A-Za-z]*$", "", s)))
-  if (is.na(v)) stop("valeur de parametre illisible : '", s, "'")
+  if (is.na(v)) stop("unreadable parameter value: '", s, "'")
   list(est = !identical(code, "F"), val = v)
 }
 
@@ -33,7 +33,7 @@
   defaults <- list(phi = NA, nu = 0.5, delta = 1.0, alpha = 0.0)
   o <- c(lambda = as.numeric(ev(opt$lambda) %||% 2))
   if (!o[["lambda"]] %in% c(1, 2))
-    stop("mtrn : lambda vaut 1 (city-block) ou 2 (euclidienne), pas ", o[["lambda"]], ".")
+    stop("mtrn: lambda is 1 (city-block) or 2 (Euclidean), not ", o[["lambda"]], ".")
   for (p in c("phi", "nu", "delta", "alpha")) {
     a <- .rx_arg_vs(ev(opt[[p]]), defaults[[p]], estimated_if_absent = (p == "phi"))
     o[paste0("est_", p)] <- as.numeric(isTRUE(a$est))
@@ -59,8 +59,8 @@ rx_term <- function(name, Z, K = NULL, struct = "iid", rank = 0L,
   if (is.null(colnames) && is.list(Z) && !is.null(names(Z)) && all(nzchar(names(Z))))
     colnames <- names(Z)
   if (!is.null(Kinv) && !is.null(K))
-    stop("terme '", name, "' : fournir K OU Kinv, pas les deux. K sert au moteur ",
-         "dense (facteur de Cholesky), Kinv au moteur creux (precision).")
+    stop("term '", name, "': give K or Kinv, not both. K serves the dense ",
+         "engine (Cholesky factor), Kinv the sparse engine (precision).")
   struct <- match.arg(struct, RX_STRUCTURES)
   level  <- match.arg(level, c("auto", RX_LEVEL_STRUCTURES))
 
@@ -101,12 +101,12 @@ rx_term <- function(name, Z, K = NULL, struct = "iid", rank = 0L,
     t <- length(Z); Zl <- lapply(Z, .rx_dgc)
     q <- ncol(Zl[[1]])
     if (any(vapply(Zl, ncol, 1L) != q))
-      stop("terme '", name, "' : les incidences n'ont pas toutes ", q, " colonnes.")
+      stop("term '", name, "': the incidences do not all have ", q, " columns.")
   } else {
-    if (is.null(t)) stop("terme '", name, "' : fournir `t` avec une matrice empilee.")
+    if (is.null(t)) stop("term '", name, "': give `t` with a stacked matrix.")
     Zm <- .rx_dgc(Z)
     q <- ncol(Zm) / t
-    if (q != round(q)) stop("terme '", name, "' : ncol(Z) n'est pas un multiple de t.")
+    if (q != round(q)) stop("term '", name, "': ncol(Z) is not a multiple of t.")
     q <- as.integer(q)
     Zl <- lapply(seq_len(t), function(a) Zm[, ((a - 1) * q + 1):(a * q), drop = FALSE])
   }
@@ -123,20 +123,20 @@ rx_term <- function(name, Z, K = NULL, struct = "iid", rank = 0L,
   if (is.null(colnames)) return(NULL)
   colnames <- as.character(colnames)
   if (length(colnames) != t || anyDuplicated(colnames) || anyNA(colnames))
-    stop("terme '", name, "' : `colnames` doit donner ", t, " noms distincts (recu ",
+    stop("term '", name, "': `colnames` must give ", t, " distinct names (got ",
          length(colnames), ").")
   colnames
 }
 
 .rx_term_check_struct <- function(name, struct, rank, t) {
   if (struct == "iid" && t > 1L)
-    message("terme '", name, "' : struct='iid' avec t=", t,
-            " -> une seule variance partagee par les ", t, " colonnes.")
+    message("term '", name, "': struct='iid' with t=", t,
+            " -> one variance shared by the ", t, " columns.")
   if (struct %in% c("fa", "rr") && (rank < 1L || rank > t))
-    stop("terme '", name, "' : rank doit etre dans 1..", t, " pour une structure ", struct, ".")
+    stop("term '", name, "': rank must be in 1..", t, " for a structure ", struct, ".")
   if (struct %in% c("chol", "ante") && (rank < 1L || rank > t - 1L))
-    stop("terme '", name, "' : pour ", struct, ", rank (l'ordre de la bande) doit ",
-         "etre dans 1..", t - 1L, ".")
+    stop("term '", name, "': for ", struct, ", rank (the order of the band) must ",
+         "be in 1..", t - 1L, ".")
 }
 
 # Lower Cholesky factor LK of a relationship matrix K (K = LK LK'), aligned on
@@ -150,22 +150,22 @@ rx_term <- function(name, Z, K = NULL, struct = "iid", rank = 0L,
   if (!is.null(levels) && !is.null(rownames(K))) {
     missing_levels <- setdiff(levels, rownames(K))
     if (length(missing_levels))
-      stop("terme '", name, "' : ", length(missing_levels),
-           " niveau(x) absent(s) de K (ex. ", paste(head(missing_levels, 3), collapse = ", "), ").")
+      stop("term '", name, "': ", length(missing_levels),
+           " level(s) missing from K (e.g. ", paste(head(missing_levels, 3), collapse = ", "), ").")
     K <- K[levels, levels, drop = FALSE]
   }
-  if (nrow(K) != q) stop("terme '", name, "' : K est ", nrow(K), "x", ncol(K),
-                         " mais il y a ", q, " niveaux.")
+  if (nrow(K) != q) stop("term '", name, "': K is ", nrow(K), "x", ncol(K),
+                         " but there are ", q, " levels.")
   ch <- tryCatch(chol(K), error = function(e) NULL)
   if (is.null(ch)) {
     eps <- 1e-8 * mean(diag(K))
     for (i in 1:8) {
       ch <- tryCatch(chol(K + diag(eps, q)), error = function(e) NULL)
-      if (!is.null(ch)) { message("terme '", name, "' : K non definie positive, ",
-                                  "bending +", format(eps, digits = 2), " applique."); break }
+      if (!is.null(ch)) { message("term '", name, "': K is not positive definite, ",
+                                  "bending +", format(eps, digits = 2), " applied."); break }
       eps <- eps * 10
     }
-    if (is.null(ch)) stop("terme '", name, "' : K reste non factorisable apres bending.")
+    if (is.null(ch)) stop("term '", name, "': K still cannot be factorised after bending.")
   }
   t(ch)
 }
@@ -174,29 +174,29 @@ rx_term <- function(name, Z, K = NULL, struct = "iid", rank = 0L,
 .rx_term_check_level <- function(name, level, LK, dims, q, coord, expr) {
   if (level == "ar1ar1") {
     if (is.null(dims) || length(dims) != 2L)
-      stop("terme '", name, "' : level='ar1ar1' exige dims = c(n_lignes, n_colonnes).")
+      stop("term '", name, "': level='ar1ar1' requires dims = c(n_rows, n_columns).")
     if (prod(dims) != q)
-      stop("terme '", name, "' : dims = ", paste(dims, collapse = "x"),
-           " ne fait pas ", q, " niveaux.")
+      stop("term '", name, "': dims = ", paste(dims, collapse = "x"),
+           " does not give ", q, " levels.")
   }
   if (!level %in% c("id", "fixed") && !is.null(LK))
-    stop("terme '", name, "' : une structure '", level, "' et une matrice K ",
-         "fournie sont exclusives (la structure EST la covariance entre niveaux).")
+    stop("term '", name, "': a structure '", level, "' and a given matrix K ",
+         "are exclusive (the structure IS the covariance between levels).")
   if (level %in% RX_METRIC) {
     if (is.null(coord))
-      stop("terme '", name, "' : level='", level, "' exige `coord` ",
-           "(coordonnees des ", q, " niveaux, vecteur ou matrice a 2 colonnes).")
+      stop("term '", name, "': level='", level, "' requires `coord` ",
+           "(coordinates of the ", q, " levels, a vector or a 2-column matrix).")
     coord <- as.matrix(coord)
     if (nrow(coord) != q)
-      stop("terme '", name, "' : `coord` a ", nrow(coord), " lignes pour ", q, " niveaux.")
+      stop("term '", name, "': `coord` has ", nrow(coord), " rows for ", q, " levels.")
     if (level %in% RX_METRIC_2D && ncol(coord) != 2L)
-      stop("terme '", name, "' : '", level, "' est une structure a DEUX ",
-           "dimensions ; `coord` a ", ncol(coord), " colonne(s). Une coordonnee ",
-           "1D serait acceptee en silence et donnerait un autre modele.")
+      stop("term '", name, "': '", level, "' is a structure in TWO ",
+           "dimensions, and `coord` has ", ncol(coord), " column(s). A 1D ",
+           "coordinate would be silently accepted and would give another model.")
   }
   if (level == "own" && (is.null(expr) || !nzchar(expr)))
-    stop("terme '", name, "' : level='own' exige `expr`, l'expression de la ",
-         "correlation (variables : d, dx, dy, lag, I, J, p1..pk).")
+    stop("term '", name, "': level='own' requires `expr`, the expression of the ",
+         "correlation (variables: d, dx, dy, lag, I, J, p1..pk).")
   coord
 }
 
@@ -212,13 +212,13 @@ rx_term <- function(name, Z, K = NULL, struct = "iid", rank = 0L,
   if (is.null(Kinv)) return(NULL)
   Kinv <- methods::as(methods::as(Kinv, "CsparseMatrix"), "generalMatrix")
   if (nrow(Kinv) != q || ncol(Kinv) != q)
-    stop("terme '", name, "' : Kinv est ", nrow(Kinv), "x", ncol(Kinv),
-         " mais il y a ", q, " niveaux.")
+    stop("term '", name, "': Kinv is ", nrow(Kinv), "x", ncol(Kinv),
+         " but there are ", q, " levels.")
   density <- Kinv@x |> length() / (as.numeric(q) * q)
   if (density > 0.5)
-    message("terme '", name, "' : Kinv est remplie a ",
-            sprintf("%.0f %%", 100 * density), ". Le moteur creux n'y gagnera ",
-            "rien - c'est le cas d'une parente genomique, dont l'inverse est ",
-            "plein.")
+    message("term '", name, "': Kinv is ",
+            sprintf("%.0f %%", 100 * density), " full. The sparse engine gains ",
+            "nothing from it. This is the case of a genomic relationship, whose inverse is ",
+            "dense.")
   Kinv
 }

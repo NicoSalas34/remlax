@@ -51,7 +51,7 @@ test_that("structures de Sigma : compte de parametres par formule", {
   m <- .modele_gram(~ vm(gid, K = K[10:1, 10:1]), d)
   expect_equal(m$terms[[1]]$LK %*% t(m$terms[[1]]$LK), unname(K), tolerance = 1e-10,
                ignore_attr = TRUE)
-  expect_error(.modele_gram(~ vm(gid, K = K[-1, -1]), d), "absent")
+  expect_error(.modele_gram(~ vm(gid, K = K[-1, -1]), d), "missing from K")
   # bending d'une K semi-definie
   Ks <- K; Ks[1, ] <- Ks[, 1] <- Ks[2, ]; Ks[1, 1] <- Ks[2, 2]
   expect_message(rx_term("g", d$gid, K = Ks), "bending")
@@ -143,22 +143,22 @@ test_that("grammaire de la residuelle : formes, comptes et refus", {
   expect_equal(cnt(~ diag(trait):ar1(rowf):ar1(colf), dd = dl), c(3 + 2, 3 + 2))
   # refus
   # meme cellule repetee SANS caractere : refus ; avec us(trait) : accepte (plus haut)
-  expect_error(.rx_parse_residual(~ ar1(rowf):ar1(colf), dl, trait = NULL), "en double")
-  expect_error(.rx_parse_residual(~ iexp(coln, rown), dl, trait = NULL), "en double")
-  expect_error(.rx_parse_residual(~ ar1(colf):ma1(rowf), dA, trait = NULL), "deux structures")
-  expect_error(.rx_parse_residual(~ toto(colf), dA, trait = NULL), "non reconnu")
+  expect_error(.rx_parse_residual(~ ar1(rowf):ar1(colf), dl, trait = NULL), "duplicated")
+  expect_error(.rx_parse_residual(~ iexp(coln, rown), dl, trait = NULL), "duplicated")
+  expect_error(.rx_parse_residual(~ ar1(colf):ma1(rowf), dA, trait = NULL), "two structures")
+  expect_error(.rx_parse_residual(~ toto(colf), dA, trait = NULL), "unrecognised")
   dA$lettre <- factor(letters[dA$coln])
-  expect_error(.rx_parse_residual(~ exp(lettre), dA, trait = NULL), "numeriques")
-  expect_error(.rx_parse_residual(~ ar1(colf):ar1(zzz), dA, trait = NULL), "introuvable")
+  expect_error(.rx_parse_residual(~ exp(lettre), dA, trait = NULL), "numeric")
+  expect_error(.rx_parse_residual(~ ar1(colf):ar1(zzz), dA, trait = NULL), "not found")
   expect_error(.rx_parse_residual(~ dsum(~ units), d, trait = "trait"), "dsum")
-  expect_error(.rx_parse_residual(~ dsum(~ units | zzz), d, trait = "trait"), "absente")
+  expect_error(.rx_parse_residual(~ dsum(~ units | zzz), d, trait = "trait"), "missing from `data`")
   expect_error(.rx_parse_residual(~ dsum(~ ar1(colf) + units | trait), d, trait = "trait"),
                "levels")
   expect_error(.rx_parse_residual(~ dsum(~ ar1(colf) + units | trait, levels = list("A", "B")),
-                                  d, trait = "trait"), "partitionnent")
-  expect_error(.rx_parse_residual(3, d), "formule")
+                                  d, trait = "trait"), "do not partition")
+  expect_error(.rx_parse_residual(3, d), "formula")
   expect_error(rx_model(d$y, matrix(1, 90, 1), list(rx_term("gid", d$gid)),
-                        rx_residual("us", trait = NULL)), "caractere multiple")
+                        rx_residual("us", trait = NULL)), "several traits")
 })
 
 test_that("rx_term : trois formes de Z, et chaque refus", {
@@ -172,24 +172,24 @@ test_that("rx_term : trois formes de Z, et chaque refus", {
   expect_equal(t1$t, 1L); expect_equal(t2$t, 2L); expect_equal(t3$t, 2L)
   expect_equal(as.matrix(t2$Zl[[2]]), as.matrix(t3$Zl[[2]]), ignore_attr = TRUE)
   expect_equal(t2$n_par, 3L)
-  expect_message(rx_term("g", list(Zm, Zm), struct = "iid"), "une seule variance")
-  expect_error(rx_term("g", list(Zm, Zm[, 1:5])), "colonnes")
-  expect_error(rx_term("g", cbind(Zm, Zm)), "fournir `t`")
+  expect_message(rx_term("g", list(Zm, Zm), struct = "iid"), "one variance shared")
+  expect_error(rx_term("g", list(Zm, Zm[, 1:5])), "columns")
+  expect_error(rx_term("g", cbind(Zm, Zm)), "give `t`")
   expect_error(rx_term("g", cbind(Zm, Zm[, 1:3]), t = 2L), "multiple")
   expect_error(rx_term("g", d$gid, struct = "fa", rank = 0L), "rank")
   expect_error(rx_term("g", list(Zm, Zm), struct = "chol", rank = 2L), "rank")
   K <- diag(10); dimnames(K) <- list(levels(d$gid), levels(d$gid))
-  expect_error(rx_term("g", d$gid, K = K, level = "ar1"), "exclusives")
-  expect_error(rx_term("g", d$gid, K = K[1:5, 1:5]), "absent")
-  expect_error(rx_term("g", d$gid, K = unname(K)[1:5, 1:5]), "niveaux")
+  expect_error(rx_term("g", d$gid, K = K, level = "ar1"), "exclusive")
+  expect_error(rx_term("g", d$gid, K = K[1:5, 1:5]), "missing from K")
+  expect_error(rx_term("g", d$gid, K = unname(K)[1:5, 1:5]), "levels")
   expect_error(rx_term("g", d$gid, level = "exp"), "coord")
-  expect_error(rx_term("g", d$gid, level = "iexp", coord = 1:10), "DEUX")
-  expect_error(rx_term("g", d$gid, level = "exp", coord = 1:4), "lignes")
+  expect_error(rx_term("g", d$gid, level = "iexp", coord = 1:10), "TWO")
+  expect_error(rx_term("g", d$gid, level = "exp", coord = 1:4), "rows")
   expect_error(rx_term("g", d$gid, level = "own"), "expr")
   expect_error(rx_term("g", d$gid, level = "ar1ar1"), "dims")
-  expect_error(rx_term("g", d$gid, level = "ar1ar1", dims = c(3, 3)), "niveaux")
-  expect_error(rx_term("g", d$gid, K = K, Kinv = Matrix::Diagonal(10)), "pas les deux")
-  expect_error(rx_term("g", d$gid, Kinv = Matrix::Diagonal(4)), "niveaux")
+  expect_error(rx_term("g", d$gid, level = "ar1ar1", dims = c(3, 3)), "levels")
+  expect_error(rx_term("g", d$gid, K = K, Kinv = Matrix::Diagonal(10)), "not both")
+  expect_error(rx_term("g", d$gid, Kinv = Matrix::Diagonal(4)), "levels")
   expect_error(rx_term("g", d$gid, level = "sep"), "parts")
   expect_error(rx_term("g", d$gid, level = "sep", parts = list(list("corb", 2), list("ar1", 5))),
                "sep")
@@ -198,16 +198,16 @@ test_that("rx_term : trois formes de Z, et chaque refus", {
   expect_error(rx_term("g", d$gid, struct = "zzz"))
   expect_error(rx_term("g", d$gid, level = "zzz"))
   # rx_model : incidence de mauvaise hauteur, objets non rx_term
-  expect_error(rx_model(d$y[1:50], matrix(1, 50, 1), list(t1)), "lignes")
+  expect_error(rx_model(d$y[1:50], matrix(1, 50, 1), list(t1)), "rows")
   expect_error(rx_model(d$y, matrix(1, n, 1), list(1)), "rx_term")
-  expect_error(rx_model(d$y, matrix(1, 40, 1), list(t1)), "lignes")
+  expect_error(rx_model(d$y, matrix(1, 40, 1), list(t1)), "rows")
   # termes non reconnus, colonne absente
-  expect_error(.rx_parse_random(~ toto(gid), d), "non reconnu")
-  expect_error(.rx_parse_random(~ iid(zzz), d), "absente")
-  expect_error(.rx_parse_random(~ us(gid), d, trait = NULL), "multi-caractere")
-  expect_error(.rx_parse_random(~ rr(gid, rank = 1), d, trait = NULL), "multi-caractere")
-  expect_error(.rx_parse_random(~ str(~ gid, struct = "us"), d), "deux termes")
-  expect_error(.rx_parse_random(~ str(~ gid + col, struct = "us"), d), "niveaux")
+  expect_error(.rx_parse_random(~ toto(gid), d), "unrecognised")
+  expect_error(.rx_parse_random(~ iid(zzz), d), "missing from `data`")
+  expect_error(.rx_parse_random(~ us(gid), d, trait = NULL), "multi-trait")
+  expect_error(.rx_parse_random(~ rr(gid, rank = 1), d, trait = NULL), "multi-trait")
+  expect_error(.rx_parse_random(~ str(~ gid, struct = "us"), d), "two terms")
+  expect_error(.rx_parse_random(~ str(~ gid + col, struct = "us"), d), "levels")
   expect_error(.rx_parse_random(~ mm(matrix(1, 90, 3), struct = "us"), d, trait = NULL),
                "trait")
   # sans terme aleatoire : residuelle structuree acceptee, iid refusee
@@ -215,7 +215,7 @@ test_that("rx_term : trois formes de Z, et chaque refus", {
   m0 <- rx_model(dA$y, matrix(1, 30, 1), list(),
                  .rx_parse_residual(~ ar1(rowf):ar1(colf), dA, trait = NULL))
   expect_equal(m0$n_par, 3L); expect_equal(rx_n_theta(m0), 3L)
-  expect_output(print(m0), "total : 3 parametres")
+  expect_output(print(m0), "total: 3 parameters")
 })
 
 test_that("rx_spl2d : partie nulle, cinq termes PS-ANOVA, tailles", {
@@ -239,8 +239,8 @@ test_that("rx_spl2d : partie nulle, cinq termes PS-ANOVA, tailles", {
   sp3 <- rx_spl2d(x, y, nseg = c(4, 6), nest.div = c(2, 3))
   expect_equal(vapply(sp3$terms, `[[`, 1L, "q"), c(5L, 7L, 5L, 7L, 3L * 3L))
   expect_error(rx_spl2d(x, y, nseg = c(5, 6), nest.div = 2), "multiple")
-  expect_error(rx_spl2d(x, y, pord = 3), "ordre 2")
-  expect_error(rx_spl2d(x, y[1:10]), "longueurs")
+  expect_error(rx_spl2d(x, y, pord = 3), "order 2")
+  expect_error(rx_spl2d(x, y[1:10]), "lengths")
 })
 
 test_that("rx_export ecrit chaque champ d'un terme structure et le relit", {

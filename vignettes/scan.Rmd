@@ -285,7 +285,7 @@ would be a silent error. The interface prevents it.
 Estimation needs no refit, but one evaluation of the model is required. The
 variance components are not re-estimated. `rx_scan` writes the theta of `fit` back into the bundle and
 runs the solver with `--theta-in --maxiter 0`. `fit_reml` explicitly
-short-circuits this case (message "evaluation seule (maxiter = 0), aucune optimisation",
+short-circuits this case (message "evaluation only (maxiter = 0), no optimisation",
 `n_iter = 0`).
 
 However, `Vi`, `vbeta` and `Py` are n x n objects that live in the fitting

@@ -26,7 +26,7 @@ test_that("summary : table des composantes, effets fixes, criteres", {
   expect_equal(s$aic, -2 * f$logLik + 2 * 2)
   expect_equal(s$bic, -2 * f$logLik + 2 * log(118))
   expect_true(s$converged)
-  expect_output(print(s), "Composantes de variance")
+  expect_output(print(s), "Variance components")
 })
 
 test_that("summary : une variance nulle est marquee B sans erreur-type, les autres gardent la leur", {

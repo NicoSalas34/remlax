@@ -42,9 +42,9 @@ def test_ai_conclut_seule_au_bord_du_cone():
     r_ai = fit_reml(terms, res, y, X, optimizer="ai", **kw)
     r_lb = fit_reml(terms, res, y, X, optimizer="lbfgsb", **kw)
     msg = r_ai["scipy_message"]
-    assert "repli L-BFGS-B" not in msg, msg
+    assert "L-BFGS-B fallback" not in msg, msg
     assert r_ai["scipy_success"], msg
-    assert "bord du cone" in msg, msg
+    assert "edge of the cone" in msg, msg
     assert r_ai["n_iter"] <= 60, r_ai["n_iter"]
     # meme optimum que L-BFGS-B, et l'AI au moins aussi haut
     assert r_ai["neg2_reml"] <= r_lb["neg2_reml"] + 1e-6

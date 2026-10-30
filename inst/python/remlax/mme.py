@@ -88,25 +88,25 @@ def _sigma_functions(st, t, rk):
 def out_of_scope(terms, res, lag=None):
     """Why the model belongs to the dense engine, or None."""
     if lag is not None:
-        return "decalage spatial (rx_lag) : y transforme par un parametre"
+        return "spatial lag (rx_lag): y transformed by a parameter"
     if res.get("struct") == "none":
-        return "residuelle 'none' : les equations du modele mixte exigent R^-1"
+        return "residual 'none': the mixed model equations require R^-1"
     for tm in terms:
         if tm["struct"] == "rr":
-            return "structure rr du terme '%s' : Sigma singuliere, sans inverse" % tm["name"]
+            return "rr structure of the term '%s': singular Sigma, no inverse" % tm["name"]
     for sec in res_sections(res, 0):
         if sec["struct"] == "rr":
-            return "structure rr de la residuelle : singuliere"
+            return "rr structure of the residual: singular"
     # Gaussian kernels: the dense engine needs only a factor (with a jitter),
     # the MME inverts K, whose inverse then loses its digits (dev/notes.md).
     gauss = ("gau", "igau", "agau")
     for tm in terms:
         lvl = tm.get("lvl")
         if lvl in gauss or (lvl == "sep" and any(k in gauss for k, _ in (tm.get("lvl_parts") or []))):
-            return "noyau gaussien du terme '%s' : K quasi singuliere, son inverse est inexploitable" % tm["name"]
+            return "Gaussian kernel of the term '%s': K nearly singular, its inverse is unusable" % tm["name"]
     for sec in res_sections(res, 0):
         if sec.get("lvl") in gauss:
-            return "noyau gaussien de la residuelle : R quasi singuliere"
+            return "Gaussian kernel of the residual: R nearly singular"
     return None
 
 
@@ -296,7 +296,7 @@ class MME:
         t0 = time.time()
         reason = out_of_scope(terms, res)
         if reason:
-            raise ValueError("moteur MME : " + reason)
+            raise ValueError("MME engine: " + reason)
         self.verbose = verbose
         self.y = y = np.asarray(y, dtype=np.float64)
         self.X = X = np.asarray(X, dtype=np.float64)
@@ -316,7 +316,7 @@ class MME:
         self._choose_inversion(inversion)
         if verbose:
             m = self.m
-            print("  [mme] m = %d | motif de C %.1f %% | inversion %s | %d composantes | preparation %.1f s"
+            print("  [mme] m = %d | pattern of C %.1f %% | inversion %s | %d components | preparation %.1f s"
                   % (m, 100.0 * min(1.0, (self.nU + self._n_block_entries) / (m * (m + 1) / 2)),
                      self.inversion, self.n_comp, time.time() - t0), flush=True)
 
@@ -386,7 +386,7 @@ class MME:
             elif fac is not None:
                 nc = _SparseLevels(fac)
                 if nc.q != q or nc.np != nlv:
-                    raise ValueError("moteur MME : niveaux '%s' du terme '%s' incoherents"
+                    raise ValueError("MME engine: levels '%s' of the term '%s' inconsistent"
                                      % (lvl, tm["name"]))
                 d.update(forme="creux", niv=nc, parts=nc.parts)
             else:
@@ -590,7 +590,7 @@ class MME:
                                               verbose=self.verbose)
             except OutOfScope as e:
                 if self.verbose:
-                    print("  [mme] hybride hors perimetre (%s) -> inversion automatique" % e, flush=True)
+                    print("  [mme] hybrid out of scope (%s) -> automatic inversion" % e, flush=True)
                 return self._choose_inversion("auto")
         self.inversion = inversion
         if inversion == "dense":
@@ -742,7 +742,7 @@ class MME:
             import scipy.linalg as _sl
             Ci, info = _sl.lapack.dpotri(et["L"], lower=1)
             if info != 0:
-                raise np.linalg.LinAlgError("dpotri : C singuliere")
+                raise np.linalg.LinAlgError("dpotri: C singular")
             # dpotri fills the lower triangle only.
             Ci = np.tril(Ci)
             Ci += np.tril(Ci, -1).T
@@ -1044,7 +1044,7 @@ class MME:
             import scipy.linalg as _sl
             Ci, info = _sl.lapack.dpotri(et["L"], lower=1)
             if info != 0:
-                raise np.linalg.LinAlgError("dpotri : C singuliere")
+                raise np.linalg.LinAlgError("dpotri: C singular")
             # dpotri fills only the lower triangle: (ci, cj) is the upper
             # triangle of C (ci <= cj), read at (cj, ci).
             return Ci[self.cj, self.ci]
@@ -1304,7 +1304,7 @@ class MME:
         if names:
             unknown = set(names) - {d["name"] for d in self.T}
             if unknown:
-                raise ValueError("pev : terme(s) inconnu(s) %s" % sorted(unknown))
+                raise ValueError("pev: unknown term(s) %s" % sorted(unknown))
             out["pev"] = self._pev(names)
         return out
 

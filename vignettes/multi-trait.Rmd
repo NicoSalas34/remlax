@@ -50,7 +50,7 @@ dimnames(K) <- list(seq_len(n_gen), seq_len(n_gen))
 ```
 
 ```
-K : 80 x 80, diagonale moyenne 0.9937
+K: 80 x 80, mean diagonal 0.9937
 ```
 
 `K` must carry `dimnames` matching the levels of the grouping factor. remlax
@@ -99,10 +99,10 @@ print(fit)
 ```
 
 ```
-Ajustement REML (cpu) : logLik -291.247351 | 6 parametres | 160 obs | 2.0 s
-  max|grad| 6.15e-07 | decrement de Newton 2.81e-15 | 0 valeur(s) propre(s) negative(s)
-  Sigma[gid] 2x2, diagonale : 2.1361 0.2002
-  residuelle : 0.563 1.967
+REML fit (cpu): logLik -291.247351 | 6 parameters | 160 obs | 2.0 s
+  max|grad| 6.15e-07 | Newton decrement 2.81e-15 | 0 negative eigenvalue(s)
+  Sigma[gid] 2x2, diagonal: 2.1361 0.2002
+  residual: 0.563 1.967
 ```
 
 `us(gid, K = K)` is a single term with `t = 2` columns, a free `2 x 2` covariance
@@ -125,8 +125,8 @@ round(Rhat, 4)
 [1,] 0.5630 0.3265
 [2,] 0.3265 1.9671
 
-correlation genetique   0.6368
-correlation residuelle  0.3102
+genetic correlation     0.6368
+residual correlation    0.3102
 ```
 
 The genetic correlation is recovered at 0.64 against a true 0.61; the
@@ -262,9 +262,9 @@ f_rr <- rx_reml(y ~ trait, random = ~ rr(gid, rank = 2), residual = ~ diag(trait
 ```
 
 ```
-us     : logLik  -457.8032, 14 parametres
-rr(2)  : logLik  -457.8032, 11 parametres
-LRT    : chi2 = -0.0000, 3 ddl, p = 1.0000
+us     : logLik  -457.8032, 14 parameters
+rr(2)  : logLik  -457.8032, 11 parameters
+LRT    : chi2 = -0.0000, 3 df, p = 1.0000
 ```
 
 The two likelihoods are equal to the last digit. That is not "the reduced-rank
@@ -299,7 +299,7 @@ The off-diagonals are identical; the difference is purely diagonal, exactly as
 the aliasing predicts.
 
 ```
-rang(Sigma rr) = 2 (valeurs propres : 3.49e+00 6.72e-01 1.07e-16 -1.63e-16)
+rank(Sigma rr) = 2 (eigenvalues: 3.49e+00 6.72e-01 1.07e-16 -1.63e-16)
 ```
 
 `rr(2)` delivers what it promises: a genetic covariance of rank 2, with two

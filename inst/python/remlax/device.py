@@ -34,11 +34,11 @@ def pick_device(prefer="auto"):
         cpus = []
     if prefer == "cpu":
         if not cpus:
-            raise RuntimeError("aucun peripherique CPU expose par JAX.")
+            raise RuntimeError("no CPU device exposed by JAX.")
         d = cpus[0]
     elif prefer == "gpu":
         if not gpus:
-            raise RuntimeError("GPU demande mais JAX n'en voit aucun (jaxlib sans CUDA ?).")
+            raise RuntimeError("GPU requested but JAX sees none (jaxlib without CUDA?).")
         d = gpus[0]
     else:
         d = gpus[0] if gpus else (cpus[0] if cpus else jax.devices()[0])

@@ -203,7 +203,7 @@ def test_psi_initial_hors_region_refuse():
     N = W.shape[0]
     L = lag_de([W], tr, un, 2, N, PLEIN, "reml_y")
     L["init"] = np.array([[2.0, 0.0], [0.0, 0.0]])
-    with pytest.raises(ValueError, match="region admissible"):
+    with pytest.raises(ValueError, match="admissible region"):
         fit_reml([term], res, y, X, verbose=False, hessian=False, blups=False, lag=L)
 
 
@@ -235,7 +235,7 @@ def test_residuelle_none_refusee_si_V_singuliere_et_vp_plus_ajuste():
     N, q = W.shape[0], 2
     aucune = dict(struct="none", t=q, rank=0, trait=tr, unit=un, lvl="id")
     # Seul le terme genetique : rang <= 2 x 6 < n, V singuliere.
-    with pytest.raises(ValueError, match="residuelle 'none'"):
+    with pytest.raises(ValueError, match="residual 'none'"):
         fit_reml([term], aucune, y, X, verbose=False, hessian=False, blups=False)
     g = np.asarray(term["zj"][:N]) % 6
     gen, plante = _vp_plus(W, tr, un, g, 6, q, N)

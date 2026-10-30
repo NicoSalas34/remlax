@@ -300,8 +300,8 @@ reporting the wrong scale:
 
 ```python
 >>> level_params_report(np.array([1.0]), "cor")
-ValueError: level_params_report(kind='cor') exige q : la correlation uniforme est
-remise a l'echelle sur (-1/(q-1), 1), donc tanh(theta) n'est pas la valeur du modele.
+ValueError: level_params_report(kind='cor') requires q. The uniform correlation is
+rescaled to (-1/(q-1), 1), so tanh(theta) is not the value of the model.
 ```
 
 Keys by family:
@@ -552,7 +552,7 @@ gain is reported in `restart_gain`.
 is not supplied, `-2 logL` is evaluated over the deciles of the pairwise
 distances of the design for each range parameter, the three best candidates
 receive a short L-BFGS-B descent, and the fit starts from the best point
-(`[portee]` line in the log). The likelihood in a range has a kink at every
+(`[range]` line in the log). The likelihood in a range has a kink at every
 distinct distance and often several hills; see `docs/structures.md`. A start
 whose value or gradient is not finite raises `ValueError`.
 
@@ -562,7 +562,7 @@ so the Newton decrement is computed on the directions the step can actually
 take. Measured on the model above, with and without the first parameter fixed:
 
 ```
-libre          n_par 3 | n_at_bound 0 | n_fixed 0 | n_fixed_out 0 | n_par_free 3
+free           n_par 3 | n_at_bound 0 | n_fixed 0 | n_fixed_out 0 | n_par_free 3
                max_grad 5.888076e-13 | newton_decrement 5.471e-28 | logLik -411.005314
 fixed_idx=[0]  n_par 3 | n_at_bound 0 | n_fixed 1 | n_fixed_out 1 | n_par_free 2
                max_grad 5.117183e+01 | newton_decrement 4.510e-14 | logLik -414.682675
@@ -885,11 +885,11 @@ depends on the optimiser landing on the same optimum twice.
 
 ```
 $ python3 inst/python/remlax_run.py cli bundle_demo --backend cpu --vpredict 'h2=V1/(V1+V2)'
-[remlax] peripheriques : [{'platform': 'cpu', 'kind': 'cpu'}, {'platform': 'gpu', 'kind': 'NVIDIA RTX A1000 6GB Laptop GPU'}]
-[remlax] backend retenu : cpu (cpu:0)
-[remlax] n=120, 1 effet(s) fixe(s), 1 terme(s) aleatoire(s)
+[remlax] devices: [{'platform': 'cpu', 'kind': 'cpu'}, {'platform': 'gpu', 'kind': 'NVIDIA RTX A1000 6GB Laptop GPU'}]
+[remlax] backend chosen: cpu (cpu:0)
+[remlax] n=120, 1 fixed effect(s), 1 random term(s)
           gid            iid   t=1   q=30    K=I
-[remlax] logLik = -199.430646551 | 2 parametres | 1.4 s
+[remlax] logLik = -199.430646551 | 2 parameters | 1.4 s
 ```
 
 Files written:

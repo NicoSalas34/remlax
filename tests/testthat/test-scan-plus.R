@@ -29,14 +29,14 @@ test_that("rx_scan_loco et rx_scan_exact refusent ce qui ne peut pas s'interpret
   j <- .jeu_loco()
   un_chr <- j$map; un_chr$chr <- 1
   expect_error(rx_scan_loco(j$build, j$K_of, j$M, un_chr, incidences = c(dir = "gen"),
-                            tests = "dir", verbose = FALSE), "deux chromosomes")
+                            tests = "dir", verbose = FALSE), "two chromosomes")
   res <- data.frame(snp = colnames(j$M), p_dir = runif(ncol(j$M)))
   expect_error(rx_scan_exact(res, "sim", j$build, j$K_of, j$M, j$map, c(dir = "gen"),
-                             verbose = FALSE), "test lineaire")
+                             verbose = FALSE), "linear test")
   expect_error(rx_scan_exact(res, "dir|ind", j$build, j$K_of, j$M, j$map, c(dir = "gen"),
-                             verbose = FALSE), "test lineaire")
+                             verbose = FALSE), "linear test")
   expect_error(rx_scan_exact(res, "ind", j$build, j$K_of, j$M, j$map, c(dir = "gen"),
-                             verbose = FALSE), "absente")
+                             verbose = FALSE), "is missing from `res`")
   expect_error(rx_scan_exact(res["p_dir"], "dir", j$build, j$K_of, j$M, j$map,
                              c(dir = "gen"), verbose = FALSE), "snp")
 })

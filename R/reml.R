@@ -70,11 +70,11 @@ rx_reml <- function(fixed, random = NULL, residual = "units", data,
   y <- fx$y; X <- fx$X
   ok <- stats::complete.cases(y, X)
   if (!all(ok) && !is.null(lag))
-    stop("rx_reml : ", sum(!ok), " ligne(s) incomplete(s) et un decalage spatial. Les ",
-         "lignes de rx_lag() decrivent celles de `data` ; retirer les lignes incompletes ",
-         "AVANT de construire rx_lag(), ou passer par rx_model().", call. = FALSE)
+    stop("rx_reml: ", sum(!ok), " incomplete row(s) and a spatial lag. The ",
+         "rows of rx_lag() describe those of `data`. Remove the incomplete rows ",
+         "BEFORE building rx_lag(), or go through rx_model().", call. = FALSE)
   if (!all(ok)) {
-    message("rx_reml : ", sum(!ok), " ligne(s) incompletes retirees.")
+    message("rx_reml: ", sum(!ok), " incomplete row(s) removed.")
     data <- data[ok, , drop = FALSE]
     y <- y[ok]; X <- X[ok, , drop = FALSE]
     attr(X, "assign") <- fx$assign
@@ -91,9 +91,9 @@ rx_reml <- function(fixed, random = NULL, residual = "units", data,
 .rx_check_spl2d_at <- function(spl, fixed, random) {
   for (a in unique(unlist(lapply(spl$surfaces, function(z) z$at$name))))
     if (!a %in% c(all.vars(fixed), if (!is.null(random)) all.vars(random)))
-      message("spl2d(at = ", a, ") : ", a, " n'est ni dans les effets fixes ni dans les ",
-              "effets aleatoires ; la moyenne de chaque surface n'est donc pas estimee. ",
-              "Ajouter ", a, " a la formule fixe, en general.")
+      message("spl2d(at = ", a, "): ", a, " is in neither the fixed nor the ",
+              "random effects. The mean of each surface is therefore not estimated. ",
+              "Add ", a, " to the fixed formula, as a rule.")
 }
 
 # Appends the null part of the surfaces to X, one fixed term per surface (one

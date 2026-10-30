@@ -204,9 +204,9 @@ class LowMemoryPlan:
         from collections import Counter
         s = Counter(d["mode"] for d in self.plan_secs)
         g = Counter(d["mode"] for d in self.plan_grp)
-        return ("residuelle %s ; groupes %s ; adjoint %s"
-                % (", ".join("%s %d" % kv for kv in sorted(s.items())) or "aucune",
-                   ", ".join("%s %d" % kv for kv in sorted(g.items())) or "aucun",
+        return ("residual %s | groups %s | adjoint %s"
+                % (", ".join("%s %d" % kv for kv in sorted(s.items())) or "none",
+                   ", ".join("%s %d" % kv for kv in sorted(g.items())) or "none",
                    chosen_adjoint()))
 
 

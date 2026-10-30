@@ -415,7 +415,7 @@ class _AIRemlVar:
         self.lo = np.array([b[0] for b in bornes], dtype=np.float64)
         self.hi = np.array([b[1] for b in bornes], dtype=np.float64)
         if p != len(self.lo):
-            raise ValueError("ai : %d parametres decoupes pour %d bornes" % (p, len(self.lo)))
+            raise ValueError("ai: %d parameters split for %d bounds" % (p, len(self.lo)))
         self.is_var = np.zeros(p, dtype=bool)
         self.is_level = np.zeros(p, dtype=bool)
         for (o, ln, kind, t) in blocks:
@@ -482,7 +482,7 @@ class _AIRemlVar:
         self.n_it += int(r.nit)
         gain_ = self.f - f_n
         if self.verbose:
-            print("  [ai] %s : salve L-BFGS-B %d/%d (%d iterations), gain %.3e"
+            print("  [ai] %s: L-BFGS-B salvo %d/%d (%d iterations), gain %.3e"
                   % (why, self.n_salvos, SALVOS_MAX, int(r.nit), gain_), flush=True)
         if not (np.isfinite(f_n) and gain_ > 1e-10 * max(1.0, abs(self.f))):
             return False
@@ -700,18 +700,18 @@ class _AIRemlVar:
         return acc, alpha, mu
 
     def run(self, maxiter):
-        msg, ok, small = "maxiter atteint", False, 0
+        msg, ok, small = "maxiter reached", False, 0
         t0 = time.time()
         for it in range(int(maxiter)):
             if not (np.isfinite(self.f) and np.all(np.isfinite(self.A_t))):
-                msg = "valeur ou matrice AI non finie"
+                msg = "value or AI matrix not finite"
                 break
             J = np.asarray(self.jac(jnp.asarray(self.phi)), dtype=np.float64)
             g = J.T @ self.g_t
             A = J.T @ self.A_t @ J
             free = self._free_set(g)
             if not free.any():
-                msg, ok = "tous les parametres sont a leur borne", True
+                msg, ok = "all parameters are at their bound", True
                 break
             T, Af, gf, faces, n_faces = self._reduced_system(g, A, free)
             w, Vv = np.linalg.eigh(0.5 * (Af + Af.T))
@@ -724,18 +724,18 @@ class _AIRemlVar:
                     # KKT point on the edge of the cone: stationary on the whole
                     # rank-r manifold (rotations included), gradient pushing
                     # outwards along the null directions.
-                    msg, ok = ("decrement AI sous le seuil, optimum au bord du cone "
-                               "(%d bloc(s) us de rang incomplet)" % n_faces), True
+                    msg, ok = ("AI decrement under the threshold, optimum on the edge of the cone "
+                               "(%d us block(s) of incomplete rank)" % n_faces), True
                 else:
-                    msg, ok = "decrement AI sous le seuil", True
+                    msg, ok = "AI decrement under the threshold", True
                 break
             step = self._dphi_of(step_l, T, faces)
             acc, alpha, mu = self._search(step_l, step, w, Vv, gf, T, faces, g, A)
             if acc is None:
-                if dec >= SUCCESS_DECREMENT and self._salvo("aucun pas admissible (decrement %.1e)" % dec):
+                if dec >= SUCCESS_DECREMENT and self._salvo("no admissible step (decrement %.1e)" % dec):
                     small = 0
                     continue
-                msg, ok = ("aucun pas admissible (decrement %.1e)" % dec,
+                msg, ok = ("no admissible step (decrement %.1e)" % dec,
                            dec < SUCCESS_DECREMENT)
                 break
             gain = self.f - acc[2]
@@ -744,9 +744,9 @@ class _AIRemlVar:
             self.n_clamped = np.where(self.last_clamped, self.n_clamped + 1, 0)
             if self.verbose:
                 print("  aiv  %4d | -2logL %14.6f | gain %.3e | decrement %.3e | %s | %6.1f s%s"
-                      % (it + 1, self.f, gain, dec, ("pas %.3g" % alpha) if mu is None else ("lm mu %.1e" % mu),
+                      % (it + 1, self.f, gain, dec, ("step %.3g" % alpha) if mu is None else ("lm mu %.1e" % mu),
                          time.time() - t0,
-                         "".join(" | face rang %d/%d" % (fc["r"], fc["r"] + fc["m0"]) for fc in faces)),
+                         "".join(" | face rank %d/%d" % (fc["r"], fc["r"] + fc["m0"]) for fc in faces)),
                       flush=True)
             small = small + 1 if abs(gain) < 1e-6 else 0
             if small >= 3 and dec >= SUCCESS_DECREMENT and self._salvo("stagnation (decrement %.1e)" % dec):
@@ -757,7 +757,7 @@ class _AIRemlVar:
                 # otherwise the loop crawls and failure is declared, so that
                 # fit_reml goes on to Newton polishing on the true Hessian.
                 ok = dec < SUCCESS_DECREMENT
-                msg = ("trois gains de suite sous 1e-6 (optimum a la frontiere)" if ok else
-                       "stagnation : trois gains sous 1e-6 pour un decrement de %.1e" % dec)
+                msg = ("three gains in a row under 1e-6 (optimum on the boundary)" if ok else
+                       "stagnation: three gains under 1e-6 for a decrement of %.1e" % dec)
                 break
-        return self.theta, dict(nit=self.n_it, success=ok, message="AI-REML (variances) : %s" % msg)
+        return self.theta, dict(nit=self.n_it, success=ok, message="AI-REML (variances): %s" % msg)

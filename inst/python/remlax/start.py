@@ -413,7 +413,7 @@ def _range_sweep(fun_jac, th0, terms, res, n, verbose=False, fixed_idx=None,
                 if np.isfinite(v) and v < best_v - 1e-10:
                     best_th, best_v = np.asarray(r.x, dtype=np.float64), v
         if verbose and best_v < vals[-1] - 1e-10:
-            print("  [portee] depart deplace de %.4g a %.4g (-2logL %.6f -> %.6f)"
+            print("  [range] start moved from %.4g to %.4g (-2logL %.6f -> %.6f)"
                   % (np.exp(th[k]), np.exp(best_th[k]), vals[-1], best_v), flush=True)
         th = best_th
     return th, n_eval

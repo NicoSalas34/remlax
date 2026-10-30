@@ -81,9 +81,9 @@ W    <- Matrix::Matrix(pds %*% Zd, sparse = TRUE)
 ```
 
 ```
-Z_DGE : 240 x 60, 240 non nuls
-W     : 240 x 60, 2388 non nuls, poids max 2.7071
-exposition moyenne sum_g W[i,g] = 7.9298
+Z_DGE: 240 x 60, 240 non-zeros
+W    : 240 x 60, 2388 non-zeros, max weight 2.7071
+mean exposure sum_g W[i,g] = 7.9298
 ```
 
 Mean exposure is 7.93: the neighbourhood component enters the phenotype as
@@ -127,11 +127,11 @@ print(mod)
 ```
 
 ```
-Modele REML 'model' : 240 observations, 1 effets fixes
-  terme dge_ige        us    t=2   q=60    K=I        (3 parametres)
-  terme champ          iid   t=1   q=240   AR1xAR1    (3 parametres)
-  residuelle     iid   t=1  (1 parametre)
-  total : 7 parametres de variance
+REML model 'model': 240 observations, 1 fixed effects
+  term  dge_ige        us    t=2   q=60    K=I        (3 parameters)
+  term  champ          iid   t=1   q=240   AR1xAR1    (3 parameters)
+  residual       iid   t=1  (1 parameter)
+  total: 7 parameters
 ```
 
 The whole idea is in the first line: **one** term with `t = 2` columns sharing
@@ -153,11 +153,11 @@ print(fit)
 ```
 
 ```
-Ajustement REML (cpu) : logLik -436.250563 | 7 parametres | 240 obs | 2.3 s
-  max|grad| 5.53e-07 | decrement de Newton 5.21e-15 | 0 valeur(s) propre(s) negative(s)
-  Sigma[dge_ige] 2x2, diagonale : 1.007 0.420
-  Sigma[champ] 1x1, diagonale : 0.2011
-  residuelle : 0.813
+REML fit (cpu): logLik -436.250563 | 7 parameters | 240 obs | 2.3 s
+  max|grad| 5.53e-07 | Newton decrement 5.21e-15 | 0 negative eigenvalue(s)
+  Sigma[dge_ige] 2x2, diagonal: 1.007 0.420
+  Sigma[champ] 1x1, diagonal: 0.2011
+  residual: 0.813
 ```
 
 ---
@@ -170,18 +170,18 @@ round(S, 4)
 ```
 
 ```
-Sigma(DGE, IGE) estimee :
+Sigma(DGE, IGE) estimated:
         [,1]    [,2]
 [1,]  1.0067 -0.3335
 [2,] -0.3335  0.4200
 
-valeurs simulees        :
+simulated values        :
       [,1]  [,2]
 [1,]  1.00 -0.45
 [2,] -0.45  0.35
 
-correlation DGE-IGE : estimee -0.5129, simulee -0.7606
-rho ligne 0.9081  rho colonne 0.1515  pepite 0.8130
+correlation DGE-IGE: estimated -0.5129, simulated -0.7606
+rho row 0.9081  rho column 0.1515  nugget 0.8130
 ```
 
 The direct variance is recovered almost exactly (1.007 against 1.00), the
@@ -224,13 +224,13 @@ fit_f <- rx_reml(y ~ 1,
 ```
 
 ```
-Ajustement REML (cpu) : logLik -436.250563 | 7 parametres | 240 obs | 2.4 s
-  Sigma[dge_ige] 2x2, diagonale : 1.007 0.420
-  Sigma[row_col] 1x1, diagonale : 0.2011
-  residuelle : 0.813
+REML fit (cpu): logLik -436.250563 | 7 parameters | 240 obs | 2.4 s
+  Sigma[dge_ige] 2x2, diagonal: 1.007 0.420
+  Sigma[row_col] 1x1, diagonal: 0.2011
+  residual: 0.813
 
-ecart de logLik formule vs explicite : 0.000e+00
-ecart max sur Sigma                  : 0.000e+00
+logLik gap formula vs explicit : 0.000e+00
+max gap on Sigma                  : 0.000e+00
 ```
 
 Exactly zero difference. The two paths build the same object; `rx_reml()` is
@@ -241,8 +241,8 @@ is what gives a covariance between them any meaning, and remlax refuses
 otherwise:
 
 ```
-str() : le terme '<x>' n'a pas les memes niveaux que '<y>'. Une covariance
-entre termes n'a de sens qu'a niveaux partages.
+str(): the term '<x>' does not have the same levels as '<y>'. A covariance
+between terms only makes sense on shared levels.
 ```
 
 Use the explicit path when the incidences are computed rather than looked up,
@@ -261,7 +261,7 @@ round(head(u, 5), 4)
 ```
 
 ```
-dim(blups) = 60 x 2  (q niveaux x t colonnes)
+dim(blups) = 60 x 2  (q levels x t columns)
         [,1]    [,2]
 [1,]  1.9972 -0.5476
 [2,] -0.2518 -0.5141
@@ -269,8 +269,8 @@ dim(blups) = 60 x 2  (q niveaux x t colonnes)
 [4,] -1.0092  0.1448
 [5,]  0.2021 -0.6163
 
-correlation des BLUPs DGE/IGE  : -0.6676
-correlation des vraies valeurs : -0.6984
+correlation of the DGE/IGE BLUPs : -0.6676
+correlation of the true values   : -0.6984
 ```
 
 Column 1 is the direct effect of each genotype, column 2 its effect on
@@ -335,9 +335,9 @@ fit0 <- rx_fit(mod0, backend = "cpu", verbose = FALSE)
 ```
 
 ```
-DGE seul       : logLik  -480.8700, 5 parametres
-DGE + IGE (us) : logLik  -436.2506, 7 parametres
-LRT : chi2 = 89.2389, 2 ddl, p = 4.188e-20
+DGE alone      : logLik  -480.8700, 5 parameters
+DGE + IGE (us) : logLik  -436.2506, 7 parameters
+LRT : chi2 = 89.2389, 2 df, p = 4.188e-20
 ```
 
 Two extra parameters (the indirect variance and its covariance with the direct

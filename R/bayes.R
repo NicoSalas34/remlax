@@ -59,19 +59,19 @@ rx_prior <- function(sd = c("half_t", "half_normal", "half_cauchy", "inv_gamma",
   stopifnot(is.numeric(df), df > 0, is.numeric(lkj), lkj > 0, is.numeric(theta_sd), theta_sd > 0)
   if (!is.null(scale)) stopifnot(is.numeric(scale), scale > 0)
   if (length(terms) && (is.null(names(terms)) || any(!nzchar(names(terms)))))
-    stop("rx_prior : `terms` doit etre une liste NOMMEE par terme", call. = FALSE)
+    stop("rx_prior: `terms` must be a list NAMED by term", call. = FALSE)
   structure(list(sd = sd, df = df, scale = scale, shape = shape, rate = rate, lkj = lkj,
                  loading_scale = loading_scale, level = level, theta_sd = theta_sd,
                  terms = terms), class = "rx_prior")
 }
 
 print.rx_prior <- function(x, ...) {
-  cat(sprintf("rx_prior : ecarts-types %s%s, echelle %s ; LKJ(%g) ; loadings N(0, %s) ; niveaux %s\n",
+  cat(sprintf("rx_prior: standard deviations %s%s, scale %s | LKJ(%g) | loadings N(0, %s) | levels %s\n",
               x$sd, if (x$sd == "half_t") sprintf("(df = %g)", x$df) else "",
-              if (is.null(x$scale)) "ecart-type residuel des MCO" else format(x$scale),
-              x$lkj, if (is.null(x$loading_scale)) "meme echelle" else format(x$loading_scale),
+              if (is.null(x$scale)) "OLS residual standard deviation" else format(x$scale),
+              x$lkj, if (is.null(x$loading_scale)) "same scale" else format(x$loading_scale),
               x$level))
-  if (length(x$terms)) cat("  surcharges :", paste(names(x$terms), collapse = ", "), "\n")
+  if (length(x$terms)) cat("  overrides:", paste(names(x$terms), collapse = ", "), "\n")
   invisible(x)
 }
 
@@ -150,7 +150,7 @@ rx_bayes <- function(start = c("map", "reml"), chains = NULL, superchains = 4L,
   stopifnot(superchains >= 1, warmup >= 1, draws >= 4, target_accept > 0, target_accept < 1,
             max_leapfrog >= 1, effects >= 0, inherits(prior, "rx_prior"))
   if (!is.null(chains) && (chains < superchains || chains %% superchains != 0))
-    stop("rx_bayes : `chains` doit etre un multiple de `superchains`", call. = FALSE)
+    stop("rx_bayes: `chains` must be a multiple of `superchains`", call. = FALSE)
   structure(list(start = start, chains = if (is.null(chains)) NULL else as.integer(chains),
                  superchains = as.integer(superchains), warmup = as.integer(warmup),
                  draws = as.integer(draws), seed = as.integer(seed),
@@ -207,7 +207,7 @@ rx_bayes_available <- function() {
 .rx_bayes_args <- function(bayes, dir) {
   if (is.null(bayes)) return(NULL)
   if (!inherits(bayes, "rx_bayes"))
-    stop("rx_fit : `bayes` doit venir de rx_bayes()", call. = FALSE)
+    stop("rx_fit: `bayes` must come from rx_bayes()", call. = FALSE)
   jsonlite::write_json(.rx_prior_json(bayes$prior), file.path(dir, "prior.json"),
                        auto_unbox = TRUE, digits = NA)
   c("--bayes", "--start", bayes$start %||% "map",
@@ -259,18 +259,18 @@ rx_bayes_available <- function() {
   b <- x[["bayes"]]
   if (is.null(b) || is.null(b$summary)) return(invisible())
   dg <- b$diagnostics
-  cat(sprintf(paste0("  Loi a posteriori (%s, %d chaines en %d super-chaines x %d tirages) : ",
-                     "%d divergence(s), acceptation %.2f, R-hat emboite max %.3f, ESS min %.0f, %.1f s\n"),
+  cat(sprintf(paste0("  Posterior (%s, %d chains in %d superchains x %d draws): ",
+                     "%d divergence(s), acceptance %.2f, max nested R-hat %.3f, min ESS %.0f, %.1f s\n"),
               dg$algorithm, as.integer(dg$chains), as.integer(dg$superchains),
               as.integer(dg$draws), as.integer(dg$divergences), dg$acceptance,
               dg$nested_rhat_max, dg$ess_min, dg$seconds))
   s <- b$summary
   for (i in seq_len(nrow(s)))
-    cat(sprintf("    %-22s moy %10.5g  med %10.5g  IC95 [%10.5g, %10.5g]  nR-hat %.3f  ESS %5.0f\n",
+    cat(sprintf("    %-22s mean %10.5g  median %10.5g  CI95 [%10.5g, %10.5g]  nR-hat %.3f  ESS %5.0f\n",
                 s$name[i], s$mean[i], s$median[i], s$q025[i], s$q975[i], s$nested_rhat[i], s$ess[i]))
   if (isTRUE(dg$divergences > 0))
-    cat("    ATTENTION : des divergences ; augmenter target_accept (rx_bayes) et verifier les a priori\n")
+    cat("    WARNING: divergences occurred. Increase target_accept (rx_bayes) and check the priors.\n")
   if (isTRUE(dg$nested_rhat_max > 1.01))
-    cat("    ATTENTION : R-hat emboite > 1,01 ; les super-chaines ne s'accordent pas, allonger la chauffe\n")
+    cat("    WARNING: nested R-hat > 1.01. The superchains disagree. Lengthen the warmup.\n")
   invisible()
 }

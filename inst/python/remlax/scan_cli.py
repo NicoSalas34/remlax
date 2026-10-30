@@ -70,19 +70,19 @@ def main(argv=None):
 
     ap = argparse.ArgumentParser(
         prog="remlax-scan",
-        description="GWAS a V figee sur un paquet remlax (voir docs/scan.md).")
+        description="GWAS at fixed V on a remlax bundle (see docs/scan.md).")
     ap.add_argument("bundle")
     ap.add_argument("--tests", default="dir,ind,sim,dir+ind+sim",
-                    help="specifications separees par des virgules ; barre pour "
-                         "un test conditionnel, par exemple 'ind|dir+sim'")
+                    help="comma-separated specifications. A bar marks "
+                         "a conditional test, for example 'ind|dir+sim'")
     ap.add_argument("--backend", default="auto", choices=["auto", "gpu", "cpu"])
     ap.add_argument("--theta-in", action="store_true",
-                    help="relit in_theta.bin ; avec --maxiter 0 le theta est "
-                         "seulement EVALUE, sans reoptimisation")
+                    help="rereads in_theta.bin. With --maxiter 0 theta is "
+                         "only EVALUATED, without reoptimisation")
     ap.add_argument("--maxiter", type=int, default=0)
     ap.add_argument("--polish", type=int, default=0)
     ap.add_argument("--block", type=int, default=1024,
-                    help="largeur des blocs de SNP pour la famille 'sim'")
+                    help="width of the SNP blocks for the family 'sim'")
     ap.add_argument("--output", default="scan_results.csv")
     ap.add_argument("--quiet", action="store_true")
     a = ap.parse_args(argv)
@@ -92,7 +92,7 @@ def main(argv=None):
     ctx = jax.default_device(dev)
     ctx.__enter__()
     if not a.quiet:
-        print("[scan] backend retenu : %s (%s)" % (plat, dev), flush=True)
+        print("[scan] backend chosen: %s (%s)" % (plat, dev), flush=True)
 
     tests = [t.strip() for t in a.tests.split(",") if t.strip()]
     needed = required_families(tests)
@@ -126,25 +126,25 @@ def main(argv=None):
         missing += [f for f in ("dir", "ind") if f not in incid]
     if missing:
         raise SystemExit(
-            "[scan] tests %s demandes mais incidence(s) absente(s) du paquet : %s. "
-            "Cote R, `incidences=` doit nommer les termes du modele qui les "
-            "portent." % (tests, sorted(set(missing))))
+            "[scan] tests %s requested but incidence(s) missing from the bundle: %s. "
+            "On the R side, `incidences=` must name the terms of the model that "
+            "carry them." % (tests, sorted(set(missing))))
 
     # ---- fit (or plain evaluation of the supplied theta) ------------------
     th0 = None
     if a.theta_in:
         th0 = np.fromfile(os.path.join(a.bundle, "in_theta.bin"), dtype=np.float64)
     elif a.maxiter == 0:
-        raise SystemExit("[scan] --maxiter 0 sans --theta-in : il n'y a alors "
-                         "aucun theta a evaluer. Fournir in_theta.bin, ou "
-                         "demander un vrai ajustement avec --maxiter > 0.")
+        raise SystemExit("[scan] --maxiter 0 without --theta-in leaves "
+                         "no theta to evaluate. Supply in_theta.bin, or "
+                         "request a real fit with --maxiter > 0.")
     t0 = time.time()
     fit = fit_reml(terms, res, y, X, theta_init=th0, maxiter=a.maxiter,
                    polish=a.polish, verbose=not a.quiet,
                    hessian=False, blups=True, pev=False)
     t_fit = time.time() - t0
     if not a.quiet:
-        print("[scan] modele nul : -2logL = %.6f en %.1f s"
+        print("[scan] null model: -2logL = %.6f in %.1f s"
               % (fit["neg2_reml"], t_fit), flush=True)
 
     # ---- projection, then scan --------------------------------------------
@@ -157,7 +157,7 @@ def main(argv=None):
                      if "scan_keep" in man else None))
     t_scan = time.time() - t0
     if not a.quiet:
-        print("[scan] projection %.2f s | scan de %d SNP %.2f s"
+        print("[scan] projection %.2f s | scan of %d SNP %.2f s"
               % (t_proj, int(meta["p"]), t_scan), flush=True)
         for t in tests:
             print("        lambda(%s) = %.3f"
@@ -192,7 +192,7 @@ def main(argv=None):
                                                int(r["df_" + t][0]))
                                   for t in tests}), f, indent=1)
     if not a.quiet:
-        print("[scan] ecrit : %s" % out_path, flush=True)
+        print("[scan] written: %s" % out_path, flush=True)
     return 0
 
 

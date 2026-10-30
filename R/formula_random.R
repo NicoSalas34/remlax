@@ -28,7 +28,7 @@
   env <- environment(random)
   if (is.null(env)) env <- parent.frame()
   labels <- attr(terms(random, keep.order = TRUE, specials = NULL), "term.labels")
-  if (!length(labels)) stop("`random` ne contient aucun terme.")
+  if (!length(labels)) stop("`random` contains no term.")
   ctx <- list(data = data, env = env, trait = trait, n = nrow(data),
               trait_levels = if (is.null(trait)) NULL else levels(factor(trait)))
   lapply(labels, .rx_random_term, ctx = ctx)
@@ -43,11 +43,11 @@
     return(.rx_random_level(e, fn, txt, ctx))
   if (fn %in% c("rr", "chol", "ante", "corh")) return(.rx_random_multitrait(e, fn, txt, ctx))
   if (!fn %in% c("iid", "vm", "diag", "us", "fa", "mm"))
-    stop("terme aleatoire non reconnu : '", txt, "'.\n  Structures de Sigma : ",
+    stop("unrecognised random term: '", txt, "'.\n  Structures of Sigma: ",
          paste(RX_STRUCTURES, collapse = "/"), " (via iid/vm/diag/us/fa/mm)\n",
-         "  Structures entre niveaux : ",
+         "  Structures between levels: ",
          paste(setdiff(RX_LEVEL_STRUCTURES, c("id", "fixed", "ar1ar1")), collapse = "/"),
-         "\n  Groupement : str(~ a + b, struct=)   Incidence fournie : mm(Z)")
+         "\n  Grouping: str(~ a + b, struct=)   Given incidence: mm(Z)")
   .rx_random_simple(e, fn, txt, ctx)
 }
 
@@ -56,7 +56,7 @@
 .rx_incidence <- function(e, data, env) {
   if (is.name(e) || is.character(e)) {
     nm <- as.character(e)
-    if (!nm %in% names(data)) stop("colonne '", nm, "' absente de `data`.")
+    if (!nm %in% names(data)) stop("column '", nm, "' is missing from `data`.")
     f <- factor(data[[nm]])
     return(list(f = f, Z = NULL, levels = levels(f), q = nlevels(f), nom = nm))
   }
@@ -67,8 +67,8 @@
     nm <- if (!is.null(e$name)) as.character(e$name) else deparse(e[[2]])[1]
     return(list(f = NULL, Z = Z, levels = lv, q = ncol(Z), nom = make.names(nm)))
   }
-  stop("expression d'incidence non reconnue : ", deparse(e),
-       "\n  attendu : un nom de colonne, ou mm(<matrice>).")
+  stop("unrecognised incidence expression: ", deparse(e),
+       "\n  expected: a column name, or mm(<matrix>).")
 }
 
 # One indicator incidence per trait: the rows of trait k point to their level
@@ -89,10 +89,10 @@
 .rx_random_str <- function(e, ctx) {
   inner <- e[[2]]
   if (!is.call(inner) || !identical(as.character(inner[[1]]), "~"))
-    stop("str() : premier argument attendu sous forme ~ a + b")
+    stop("str(): the first argument must have the form ~ a + b")
   labels <- attr(terms(stats::as.formula(inner), keep.order = TRUE), "term.labels")
   if (length(labels) < 2L)
-    stop("str() : au moins deux termes attendus, recu ", length(labels), ".")
+    stop("str(): at least two terms expected, got ", length(labels), ".")
   args <- as.list(e)[-(1:2)]
   st <- if (!is.null(args$struct)) as.character(eval(args$struct, ctx$env)) else "us"
   K  <- if (!is.null(args$K)) eval(args$K, envir = ctx$data, enclos = ctx$env) else NULL
@@ -103,8 +103,8 @@
         paste(vapply(inc, `[[`, "", "nom"), collapse = "_")
   lv0 <- inc[[1]]$levels
   for (k in seq_along(inc)) if (!identical(inc[[k]]$levels, lv0))
-    stop("str() : le terme '", labels[k], "' n'a pas les memes niveaux que '", labels[1],
-         "'. Une covariance entre termes n'a de sens qu'a niveaux partages.")
+    stop("str(): the term '", labels[k], "' does not have the same levels as '", labels[1],
+         "'. A covariance between terms only makes sense on shared levels.")
   Zl <- lapply(inc, function(z) if (is.null(z$Z))
     Matrix::sparseMatrix(i = seq_len(ctx$n), j = as.integer(z$f), x = 1,
                          dims = c(ctx$n, z$q)) else methods::as(as.matrix(z$Z), "dgCMatrix"))
@@ -130,8 +130,8 @@
   by_trait <- function(codes, q) {
     if (identical(st, "iid")) return(NULL)
     if (is.null(ctx$trait))
-      stop("terme '", txt, "' : struct='", st, "' multi-caractere, mais ",
-           "aucun `trait` n'a ete fourni a rx_reml().")
+      stop("term '", txt, "': struct='", st, "' is multi-trait, but ",
+           "no `trait` was given to rx_reml().")
     .rx_split_by_trait(codes, q, ctx)
   }
 
@@ -164,7 +164,7 @@
     fz <- factor(key, levels = lev)
     co <- cbind(as.numeric(xv[u][ord_u]), as.numeric(yv[u][ord_u]))
     if (any(!is.finite(co)))
-      stop("terme '", txt, "' : coordonnees non numeriques.")
+      stop("term '", txt, "': non-numeric coordinates.")
     nm <- paste0(deparse(pos[[1]])[1], "_", deparse(pos[[2]])[1])
     opts <- if (fn == "mtrn") .rx_mtrn_opts(opt, env) else NULL
     Zl <- by_trait(as.integer(fz), length(lev))
@@ -172,15 +172,15 @@
                    rank = rk, level = fn, levels = lev, coord = co, opts = opts))
   }
   if (!length(pos))
-    stop(fn, "() : aucun facteur de groupement.")
+    stop(fn, "(): no grouping factor.")
   z <- .rx_incidence(pos[[1]], data, env)
   # A 1D metric without `coord` takes the levels as positions; they must then
   # be numeric, otherwise the distance has no meaning.
   if (fn %in% RX_METRIC_1D && is.null(co)) {
     co <- suppressWarnings(as.numeric(z$levels))
     if (any(!is.finite(co)))
-      stop("terme '", txt, "' : les niveaux ne sont pas numeriques ; ",
-           "fournir coord = <positions des ", z$q, " niveaux>.")
+      stop("term '", txt, "': the levels are not numeric. ",
+           "Give coord = <positions of the ", z$q, " levels>.")
     co <- as.matrix(co)
   }
   opts <- NULL; expr <- NULL
@@ -206,8 +206,8 @@
   K  <- if (!is.null(args$K)) eval(args$K, envir = ctx$data, enclos = ctx$env) else NULL
   z <- .rx_incidence(e[[2]], ctx$data, ctx$env)
   if (is.null(ctx$trait))
-    stop("terme '", txt, "' : structure '", fn, "' multi-caractere, mais ",
-         "aucun `trait` n'a ete fourni a rx_reml().")
+    stop("term '", txt, "': structure '", fn, "' is multi-trait, but ",
+         "no `trait` was given to rx_reml().")
   rx_term(z$nom, .rx_split_by_trait(as.integer(z$f), z$q, ctx), K = K, struct = fn,
           rank = rk, levels = z$levels)
 }
@@ -230,9 +230,9 @@
     if (struct == "iid")
       return(rx_term(z$nom, list(z$Z), K = K, struct = "iid", levels = z$levels))
     if (is.null(ctx$trait))
-      stop("mm(..., struct='", struct, "') : structure multi-caractere sans `trait`.")
-    stop("mm() multi-caractere : passer une LISTE d'incidences a rx_term(), ",
-         "une seule matrice ne peut pas porter ", length(ctx$trait_levels), " colonnes.")
+      stop("mm(..., struct='", struct, "'): multi-trait structure without `trait`.")
+    stop("multi-trait mm(): pass a LIST of incidences to rx_term(). ",
+         "A single matrix cannot carry ", length(ctx$trait_levels), " columns.")
   }
 
   # A bare name (~ g) has no e[[2]].
@@ -240,8 +240,8 @@
   if (struct == "iid")
     return(rx_term(z$nom, z$f, K = K, struct = "iid", levels = z$levels))
   if (is.null(ctx$trait))
-    stop("terme '", txt, "' : structure '", struct,
-         "' multi-caractere, mais aucun `trait` n'a ete fourni a rx_reml().")
+    stop("term '", txt, "': structure '", struct,
+         "' is multi-trait, but no `trait` was given to rx_reml().")
   rx_term(z$nom, .rx_split_by_trait(as.integer(z$f), z$q, ctx), K = K, struct = struct,
           rank = rank, levels = z$levels)
 }

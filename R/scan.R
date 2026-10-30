@@ -30,8 +30,8 @@ rx_scan <- function(fit, model, markers, map = NULL,
   coding  <- match.arg(coding)
   stopifnot(is.list(fit), !is.null(fit$theta), is.list(model))
   if (!is.null(model$lag))
-    stop("rx_scan : non disponible avec un decalage spatial (rx_lag) ; le balayage suppose ",
-         "y lineaire a V donnee.", call. = FALSE)
+    stop("rx_scan: not available with a spatial lag (rx_lag). The scan assumes ",
+         "y linear at given V.", call. = FALSE)
   Z <- .rx_scan_incidences(model, incidences)
   markers <- .rx_scan_doses(markers, Z, incidences)
   p <- ncol(markers[[names(Z)[1]]])
@@ -62,9 +62,9 @@ rx_scan <- function(fit, model, markers, map = NULL,
   code <- .rx_system2(rx_python_cmd(), args, stdout = "", stderr = "", env = sol$env)
   if (!identical(as.integer(code), 0L)) {
     keep_bundle <- TRUE
-    stop("rx_scan : le solveur a rendu le code ", code,
-         ". Paquet conserve pour diagnostic dans ", dir,
-         "\n  relancer a la main : ", paste(c(rx_python_cmd(), args), collapse = " "),
+    stop("rx_scan: the solver returned the code ", code,
+         ". Bundle kept for diagnosis in ", dir,
+         "\n  rerun by hand: ", paste(c(rx_python_cmd(), args), collapse = " "),
          call. = FALSE)
   }
   # check.names = FALSE keeps the test names (`p_dir+ind+sim`, `p_sim|dir+ind`)
@@ -104,29 +104,29 @@ rx_scan <- function(fit, model, markers, map = NULL,
   Z <- list()
   for (fam in names(incidences)) {
     if (!fam %in% c("dir", "ind"))
-      stop("incidences : nom '", fam, "' inconnu ; attendu 'dir' et/ou 'ind'.",
+      stop("incidences: unknown name '", fam, "'. Expected 'dir' and/or 'ind'.",
            call. = FALSE)
     ref <- .rx_parse_term_ref(incidences[[fam]])
     spec <- ref$name; a <- ref$index
-    if (is.na(a)) stop("incidences['", fam, "'] : apres ':' il faut un entier, ",
-                       "l'indice de la colonne du terme.", call. = FALSE)
+    if (is.na(a)) stop("incidences['", fam, "']: after ':' an integer is needed, ",
+                       "the index of the column of the term.", call. = FALSE)
     k <- match(spec, term_names)
     if (is.na(k))
       stop("incidences['", fam, "'] = '", spec,
-           "' : ce terme n'est pas dans le modele. Termes disponibles : ",
+           "': this term is not in the model. Available terms: ",
            paste(term_names, collapse = ", "), call. = FALSE)
     tm <- model$terms[[k]]
     if (tm$t > 1L && !ref$indexed)
-      stop("terme '", tm$name, "' porte t = ", tm$t, " incidences. Preciser ",
-           "laquelle : incidences['", fam, "'] = \"", spec, ":1\" pour la ",
-           "premiere. Deviner l'indice attribuerait l'effet direct a ",
-           "l'incidence de voisinage en silence.", call. = FALSE)
+      stop("term '", tm$name, "' carries t = ", tm$t, " incidences. Say ",
+           "which one: incidences['", fam, "'] = \"", spec, ":1\" for the ",
+           "first. Guessing the index would silently give the direct effect ",
+           "the neighbour incidence.", call. = FALSE)
     if (a < 1L || a > tm$t)
-      stop("incidences['", fam, "'] : indice ", a, " hors de 1..", tm$t,
-           " pour le terme '", tm$name, "'.", call. = FALSE)
+      stop("incidences['", fam, "']: index ", a, " outside 1..", tm$t,
+           " for the term '", tm$name, "'.", call. = FALSE)
     Z[[fam]] <- tm$Zl[[a]]
   }
-  if (!length(Z)) stop("incidences vide.", call. = FALSE)
+  if (!length(Z)) stop("incidences is empty.", call. = FALSE)
   Z
 }
 
@@ -137,17 +137,17 @@ rx_scan <- function(fit, model, markers, map = NULL,
   if (!is.list(markers)) markers <- list(dir = markers, ind = markers)
   for (fam in names(Z)) {
     if (is.null(markers[[fam]]))
-      stop("markers : matrice absente pour la famille '", fam, "'.", call. = FALSE)
+      stop("markers: no matrix for the family '", fam, "'.", call. = FALSE)
     M <- as.matrix(markers[[fam]])
     if (nrow(M) != ncol(Z[[fam]]))
-      stop("markers[['", fam, "']] a ", nrow(M), " lignes mais l'incidence '",
-           incidences[[fam]], "' a ", ncol(Z[[fam]]), " colonnes. Les doses sont ",
-           "indexees par GENOTYPE, dans l'ordre des niveaux du terme.",
+      stop("markers[['", fam, "']] has ", nrow(M), " rows but the incidence '",
+           incidences[[fam]], "' has ", ncol(Z[[fam]]), " columns. The doses are ",
+           "indexed by GENOTYPE, in the order of the levels of the term.",
            call. = FALSE)
     markers[[fam]] <- M
   }
   if (length(unique(vapply(markers[names(Z)], ncol, 1L))) > 1L)
-    stop("les matrices de doses n'ont pas le meme nombre de SNP.", call. = FALSE)
+    stop("the dose matrices do not have the same number of SNPs.", call. = FALSE)
   markers
 }
 
@@ -160,7 +160,7 @@ rx_scan <- function(fit, model, markers, map = NULL,
   f <- if (coding == "pm1") (colMeans(Md) + 1) / 2 else colMeans(Md) / 2
   keep <- pmin(f, 1 - f) >= maf & apply(Md, 2, stats::sd) > 0
   if (verbose)
-    message(sprintf("  rx_scan : %d SNP sur %d passent MAF >= %.3g",
+    message(sprintf("  rx_scan: %d SNPs out of %d pass MAF >= %.3g",
                     sum(keep), p, maf))
   keep
 }
@@ -204,7 +204,7 @@ rx_scan <- function(fit, model, markers, map = NULL,
 rx_scan_threshold <- function(res, test, alpha = 0.05) {
   col <- paste0("p_", test)
   if (is.null(res[[col]]))
-    stop("colonne '", col, "' absente ; tests disponibles : ",
+    stop("column '", col, "' is missing. Available tests: ",
          paste(sub("^p_", "", grep("^p_", names(res), value = TRUE)),
                collapse = ", "), call. = FALSE)
   m <- sum(is.finite(res[[col]]))
@@ -226,11 +226,11 @@ rx_scan_seuil <- function(res, test, alpha = 0.05) {
   if (is.null(nm)) nm <- rep("", length(dots))
   old <- nm %in% names(renamed)
   if (!forward && any(!old))
-    stop(fun, " : argument(s) inconnu(s) : ",
-         paste(ifelse(nzchar(nm[!old]), nm[!old], "<sans nom>"), collapse = ", "), call. = FALSE)
+    stop(fun, ": unknown argument(s): ",
+         paste(ifelse(nzchar(nm[!old]), nm[!old], "<unnamed>"), collapse = ", "), call. = FALSE)
   for (o in nm[old]) {
     new <- renamed[[o]]
-    warning(sprintf("%s : l'argument `%s` est renomme `%s` ; l'ancien nom sera retire.",
+    warning(sprintf("%s: the argument `%s` is renamed `%s`. The former name will be removed.",
                     fun, o, new), call. = FALSE)
     assign(new, dots[[o]], envir = env)
   }

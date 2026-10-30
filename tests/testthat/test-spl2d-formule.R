@@ -33,8 +33,8 @@ test_that("spl2d() : nom, arguments nommes, coordonnees en facteur, erreurs", {
   expect_identical(names(f$sigmas), paste0("champ_", c("fx", "fy", "fx_y", "x_fy", "fx_fy")))
   g$lettre <- factor(letters[g$r])
   expect_error(rx_reml(y ~ 1, random = ~ spl2d(lettre, c), data = g, backend = "cpu"),
-               "non numeriques")
-  expect_error(rx_reml(y ~ 1, random = ~ spl2d(r), data = g, backend = "cpu"), "y manquante")
+               "non-numeric")
+  expect_error(rx_reml(y ~ 1, random = ~ spl2d(r), data = g, backend = "cpu"), "y coordinate is missing")
 })
 
 test_that("spl2d() : predictions, Wald et summary tiennent compte de la partie nulle", {
@@ -118,12 +118,12 @@ test_that("spl2d(at = ) : at.levels, at.var, message et erreurs", {
   expect_true(all(f$model$X[g$bloc == "B2", f$spl2d$columns] == 0))
   expect_message(rx_reml(y ~ 1, random = ~ gid + spl2d(col, row, nseg = c(3, 5), at = bloc),
                          data = g, backend = "cpu", verbose = FALSE, hessian = FALSE),
-                 "ni dans les effets fixes")
+                 "neither the fixed")
   expect_error(rx_reml(y ~ bloc, random = ~ spl2d(col, row, at = bloc, at.levels = "B9"),
-                       data = g, backend = "cpu"), "absents")
+                       data = g, backend = "cpu"), "missing from")
   g$col[g$bloc == "B3"] <- 1
   expect_error(rx_reml(y ~ bloc, random = ~ spl2d(col, row, at = bloc), data = g, backend = "cpu"),
-               "une valeur de x")
+               "one value of x")
 })
 
 test_that("spl2d(at = ) : tendance et cartes de toutes les surfaces", {

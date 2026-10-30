@@ -12,7 +12,7 @@ test_that("un Python sans jax est refuse avant le lancement, avec un message act
   set.seed(1)
   gid <- factor(rep(1:5, 4)); y <- rnorm(20); X <- matrix(1, 20, 1)
   m <- rx_model(y, X, terms = list(rx_term("gid", gid)))
-  expect_error(rx_fit(m, backend = "cpu", verbose = FALSE), "ne porte pas jax")
+  expect_error(rx_fit(m, backend = "cpu", verbose = FALSE), "does not have jax")
 })
 
 test_that("rx_python_check rend les versions quand jax est present", {
@@ -54,7 +54,7 @@ test_that("une expression vpredict fautive est refusee avant l'ajustement, avec 
     expect_error(suppressMessages(capture.output(
       rx_reml(y ~ 1, random = ~ gid, data = d, vpredict = c(h2 = "V1/(V1+V2+V3)"),
               backend = "cpu", verbose = v))),
-      "V3 inconnu.*V1 = gid, V2 = residual")
+      "unknown V3.*V1 = gid, V2 = residual")
 })
 
 test_that("rx_python_check() confirme l'interpreteur quand il convient", {
@@ -72,6 +72,6 @@ test_that("dsum : sections nommees d'apres la variable, toutes imprimees, V nume
                vpredict = c(h2 = "V1/(V1+V2)"), backend = "cpu", verbose = FALSE)
   expect_identical(names(f$sigmas_res), c("bloc_1", "bloc_2", "bloc_3"))
   out <- capture.output(print(f))
-  expect_length(grep("^  residuelle\\[bloc_", out), 3L)
+  expect_length(grep("^  residual\\[bloc_", out), 3L)
   expect_true(any(grepl("V1 = gid, V2 = bloc_1, V3 = bloc_2, V4 = bloc_3", out, fixed = TRUE)))
 })

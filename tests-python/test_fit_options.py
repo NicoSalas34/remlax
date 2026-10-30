@@ -67,7 +67,7 @@ def test_theta_init_maxiter_0_polish_0_est_une_evaluation_exacte():
     # machine (test_deux_appels_identiques_meme_resultat_et_polish_0).
     assert np.isclose(f["neg2_reml"], _n2(terms, res, y, X, th), rtol=1e-12, atol=0)
     assert f["n_iter"] == 0 and f["n_polish"] == 0
-    assert "evaluation seule" in f["scipy_message"]
+    assert "evaluation only" in f["scipy_message"]
     assert f["logLik"] == pytest.approx(-0.5 * f["neg2_reml"])
 
 
@@ -139,7 +139,7 @@ def test_pev_liste_true_inconnu_et_formule():
     f_g = fit_reml(terms, res, y, X, pev=["g"], verbose=False)
     assert set(f_g["pev"]) == {"g"}
     assert f_g["pev"]["g"].shape == (20, 1)
-    with pytest.raises(ValueError, match="inconnu"):
+    with pytest.raises(ValueError, match="unknown"):
         fit_reml(terms, res, y, X, pev=["zzz"], verbose=False)
     # formule : diag(G - G Z' P Z G), P = V^-1 - V^-1 X (X'V^-1X)^-1 X'V^-1
     n = len(y)
@@ -218,7 +218,7 @@ def test_verbose_imprime_la_compilation(capsys):
     terms, res, y, X = plan()
     fit_reml(terms, res, y, X, verbose=True, hessian=False, blups=False, maxiter=5, polish=1)
     out = capsys.readouterr().out
-    assert "[compilation]" in out and "iter" in out
+    assert "[compile]" in out and "iter" in out
 
 
 def test_rho_cles_nues_prefixees_et_pacf():

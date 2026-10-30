@@ -29,12 +29,12 @@ def check_vpredict(expressions, terms, res, lag=None):
         try:
             tree = ast.parse(expr, mode="eval")
         except SyntaxError as e:
-            raise ValueError("vpredict '%s' : expression illisible \"%s\" (%s). "
-                             "Composantes du modele : %s." % (name, expr, e.msg, listing))
+            raise ValueError("vpredict '%s': unreadable expression \"%s\" (%s). "
+                             "Components of the model: %s." % (name, expr, e.msg, listing))
         unknown = sorted({n.id for n in ast.walk(tree) if isinstance(n, ast.Name)} - allowed)
         if unknown:
-            raise ValueError("vpredict '%s' : %s inconnu(s) dans \"%s\". Ce modele a %d "
-                             "composante(s) : %s. Fonctions admises : %s."
+            raise ValueError("vpredict '%s': unknown %s in \"%s\". This model has %d "
+                             "component(s): %s. Allowed functions: %s."
                              % (name, ", ".join(unknown), expr, len(names), listing,
                                 ", ".join(VPREDICT_FONCTIONS)))
 

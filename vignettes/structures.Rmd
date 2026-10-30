@@ -96,11 +96,11 @@ standard error derived from it change. The same constraint is applied to `fa`.
 represent the same set of matrices as `us`:
 
 ```
-us       10 parametres
-chol(3)  10 parametres
-ante(3)  10 parametres
-rr(4)    10 parametres
-fa(4)    14 parametres
+us       10 parameters
+chol(3)  10 parameters
+ante(3)  10 parameters
+rr(4)    10 parameters
+fa(4)    14 parameters
 ```
 
 `fa(w)` also spans every PD matrix but carries `w` redundant parameters
@@ -115,9 +115,9 @@ absorbed, and the two models reach the **same** likelihood with different
 parameter counts. Measured on a four-trait design with 70 genotypes:
 
 ```
-us     : logLik  -457.8032, 14 parametres
-rr(2)  : logLik  -457.8032, 11 parametres
-LRT    : chi2 = -0.0000, 3 ddl, p = 1.0000
+us     : logLik  -457.8032, 14 parameters
+rr(2)  : logLik  -457.8032, 11 parameters
+LRT    : chi2 = -0.0000, 3 df, p = 1.0000
 ```
 
 A likelihood-ratio test between them is meaningless: the three extra
@@ -132,7 +132,7 @@ uniform correlation matrix `(1-r) I + r J` is positive definite only for
 `(-1, 1)`:
 
 ```
-theta  -5.0  r = -0.333273  min eig 1.8159e-04  (borne -1/3 = -0.333333)
+theta  -5.0  r = -0.333273  min eig 1.8159e-04  (bound -1/3 = -0.333333)
 theta   0.0  r =  0.333333  min eig 6.6667e-01
 theta   5.0  r =  0.999939  min eig 6.0530e-05
 ```
@@ -229,8 +229,8 @@ The reported `phi` of `cor` is now the entry of `C`, to the digit. `q` is a
 without it the rescaling cannot be applied:
 
 ```
-ValueError: level_params_report(kind='cor') exige q : la correlation uniforme est
-remise a l'echelle sur (-1/(q-1), 1), donc tanh(theta) n'est pas la valeur du modele.
+ValueError: level_params_report(kind='cor') requires q. The uniform correlation is
+rescaled to (-1/(q-1), 1), so tanh(theta) is not the value of the model.
 ```
 
 Note again that `theta = 0` gives `1/3` and not `0`: the mapping sends the
@@ -437,7 +437,7 @@ asreml has an `ilv`; its formula could not be recovered. None of nine
 candidate families reproduces its log-likelihood curve. The natural
 candidate is a Euclidean tent. It is not positive definite in two dimensions
 and returns NaN. An absent structure is preferable to a wrong one carrying an
-asreml name. `ilv(x, y)` raises "terme aleatoire non reconnu".
+asreml name. `ilv(x, y)` raises "unrecognised random term".
 
 ### Separable products
 
@@ -481,9 +481,9 @@ units (the check used to cover `us`/`diag`/`fa` only, and a
 returned NaN in silence):
 
 ```
-ValueError: structure 'own' entre unites : 180 couple(s) (unite, caractere) en
-double. Chaque unite ne peut etre observee qu'une fois par caractere ; sinon la
-matrice residuelle est singuliere et la vraisemblance vaut NaN.
+ValueError: structure 'own' between units: 180 duplicated (unit, trait) pair(s).
+Each unit can be observed only once per trait. Otherwise the residual matrix
+is singular and the likelihood is NaN.
 ```
 
 The unit of the constraint is the **(unit, trait) pair**, not the unit. On
@@ -493,9 +493,8 @@ there: `Sigma_trait` carries the correlation within a cell. The R-side parser
 enforces the same pair, so `us(trait):ar1(row):ar1(col)` is a legal formula:
 
 ```
-residual = ~ ar1(row):ar1(col) : 1 couple(s) (cellule, caractere) en double. Un
-champ residuel structure exige au plus une observation par cellule et par
-caractere.
+residual = ~ ar1(row):ar1(col): 1 duplicated (cell, trait) pair(s). A structured
+residual field allows at most one observation per cell and per trait.
 ```
 
 ---
@@ -542,7 +541,7 @@ optimum not reached where it was. Measured on a two-component model with the
 first parameter fixed:
 
 ```
-libre          n_par 3 | n_at_bound 0 | n_fixed 0 | n_fixed_out 0 | n_par_free 3
+free           n_par 3 | n_at_bound 0 | n_fixed 0 | n_fixed_out 0 | n_par_free 3
                max_grad 5.888076e-13 | newton_decrement 5.471e-28
 fixed_idx=[0]  n_par 3 | n_at_bound 0 | n_fixed 1 | n_fixed_out 1 | n_par_free 2
                max_grad 5.117183e+01 | newton_decrement 4.510e-14

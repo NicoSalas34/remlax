@@ -80,7 +80,7 @@ test_that("le produit separable est refuse pour la residuelle", {
 test_that("un ajustement REML non converge est signale", {
   res <- list(conv_grad_rel = FALSE, conv_decrement = FALSE, grad_rel = 0.02,
               newton_decrement = 3.1, n_neg_eig = 0L)
-  expect_warning(remlax:::.rx_warn_fit(res, maxiter = 3000), "n'a pas converge")
+  expect_warning(remlax:::.rx_warn_fit(res, maxiter = 3000), "did not converge")
   res$conv_grad_rel <- TRUE
   expect_silent(remlax:::.rx_warn_fit(res, maxiter = 3000))
   # Evaluation seule (maxiter = 0) : rien a dire.
@@ -89,14 +89,14 @@ test_that("un ajustement REML non converge est signale", {
   # Criteres indisponibles : pas d'avertissement.
   expect_silent(remlax:::.rx_warn_fit(list(conv_grad_rel = NA, conv_decrement = NULL), 3000))
   expect_warning(remlax:::.rx_warn_fit(list(conv_grad_rel = TRUE, n_neg_eig = 2L), 3000),
-                 "valeur\\(s\\) propre\\(s\\) negative")
+                 "negative eigenvalue\\(s\\)")
 })
 
 test_that("un echantillon a posteriori immobile est declare inexploitable", {
   res <- list(bayes_start = "map", posterior_mode = list(success = FALSE),
               bayes = list(diagnostics = list(step_size = 2.5e-11, nested_rhat_max = 41.6,
                                               ess_min = 2.01, divergences = 0)))
-  expect_warning(remlax:::.rx_warn_fit(res, maxiter = 0), "inexploitable")
+  expect_warning(remlax:::.rx_warn_fit(res, maxiter = 0), "cannot be used")
   pb <- remlax:::.rx_bayes_problems(res)
   expect_length(pb, 4L)
   bon <- list(bayes = list(diagnostics = list(step_size = 0.3, nested_rhat_max = 1.003,
@@ -110,9 +110,9 @@ test_that("les anciens noms des arguments du scan restent acceptes, avec un aver
   M <- matrix(1, 4, 2, dimnames = list(1:4, c("a", "b")))
   # L'ancien nom est reconnu : l'erreur vient ensuite de l'incidence absente.
   expect_warning(expect_error(rx_scan(faux, m, marqueurs = M, incidences = c(dir = "absent"),
-                                      verbose = FALSE), "pas dans le modele"),
-                 "renomme `markers`")
-  expect_error(rx_scan(faux, m, M, incidences = c(dir = "gen"), zzz = 1), "inconnu")
+                                      verbose = FALSE), "not in the model"),
+                 "renamed `markers`")
+  expect_error(rx_scan(faux, m, M, incidences = c(dir = "gen"), zzz = 1), "unknown")
   res <- data.frame(snp = c("a", "b"), p_dir = c(0.01, 0.5))
   expect_equal(rx_scan_threshold(res, "dir"), 0.025)
   expect_warning(expect_equal(rx_scan_seuil(res, "dir"), 0.025), "rx_scan_threshold")

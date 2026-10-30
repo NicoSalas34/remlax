@@ -124,7 +124,7 @@ def finish(fun_jac, theta, lo, hi, hessian, maxit=300, tol_dec=1e-6, tol_gain=1e
     H = hessian(theta); n_hess = 1; fresh = True
     delta = delta0
     poor, small = 0, 0
-    msg, ok = "maxit atteint", False
+    msg, ok = "maxit reached", False
 
     def to_floor(theta, f, g):
         """Sets to the floor the free variances that the gradient pushes down."""
@@ -139,7 +139,7 @@ def finish(fun_jac, theta, lo, hi, hessian, maxit=300, tol_dec=1e-6, tol_gain=1e
 
     theta, f, g, n_fl = to_floor(theta, f, g)
     if verbose:
-        print("  [finition] depart -2logL %.6f | %d parametre(s) plaque(s) au plancher | Hessien %d gradients"
+        print("  [finish] start -2logL %.6f | %d parameter(s) set to the floor | Hessian %d gradients"
               % (f, n_fl, 2 * len(theta)), flush=True)
     for it in range(maxit):
         L = _free(theta, g, lo, hi)
@@ -151,7 +151,7 @@ def finish(fun_jac, theta, lo, hi, hessian, maxit=300, tol_dec=1e-6, tol_gain=1e
             theta, f, g, n_fl = to_floor(theta, f, g)
             if n_fl:
                 if verbose:
-                    print("  [finition] %d parametre(s) plaque(s) au plancher" % n_fl, flush=True)
+                    print("  [finish] %d parameter(s) set to the floor" % n_fl, flush=True)
                 small = 0
                 continue
             if fresh:
@@ -184,7 +184,7 @@ def finish(fun_jac, theta, lo, hi, hessian, maxit=300, tol_dec=1e-6, tol_gain=1e
         else:
             poor += 1
         if verbose:
-            print("  [finition] %3d | -2logL %.8f | gain %.2e | rho %6.2f | Delta %.2e | decrement %.2e | %d libres | %.0f s"
+            print("  [finish] %3d | -2logL %.8f | gain %.2e | rho %6.2f | Delta %.2e | decrement %.2e | %d free | %.0f s"
                   % (it + 1, f, gain, rho, delta, dec, int(L.sum()), time.time() - t0), flush=True)
         if poor >= 2:
             # The quadratic model no longer predicts: fresh Hessian, and floor.
@@ -192,14 +192,14 @@ def finish(fun_jac, theta, lo, hi, hessian, maxit=300, tol_dec=1e-6, tol_gain=1e
             H = hessian(theta); n_hess += 1; fresh = True; poor = 0
             delta = max(delta, 1e-3)
             if verbose and n_fl:
-                print("  [finition] %d parametre(s) plaque(s) au plancher" % n_fl, flush=True)
+                print("  [finish] %d parameter(s) set to the floor" % n_fl, flush=True)
         if delta <= 1e-8 and fresh:
-            msg, ok = "region de confiance effondree (Delta %.1e)" % delta, dec < 1e-3
+            msg, ok = "trust region collapsed (Delta %.1e)" % delta, dec < 1e-3
             break
-    info = dict(success=ok, message="finition : %s" % msg, n_eval=n_eval[0], n_hessians=n_hess,
+    info = dict(success=ok, message="finish: %s" % msg, n_eval=n_eval[0], n_hessians=n_hess,
                 decrement=decrement(g[_free(theta, g, lo, hi)], H[np.ix_(*(2 * [_free(theta, g, lo, hi)]))]),
                 seconds=time.time() - t0)
     if verbose:
-        print("  [finition] fin : %s | -2logL %.8f | %d evaluations, %d Hessiens | %.0f s"
+        print("  [finish] end: %s | -2logL %.8f | %d evaluations, %d Hessians | %.0f s"
               % (msg, f, n_eval[0], n_hess, info["seconds"]), flush=True)
     return theta, info

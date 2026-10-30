@@ -18,8 +18,8 @@ rx_solver_args <- function() {
 .rx_launcher <- function() {
   f <- system.file("python", "remlax_run.py", package = "remlax")
   if (!nzchar(f))
-    stop("solveur Python introuvable dans le paquet installe (inst/python). ",
-         "Reinstaller remlax, ou definir RX_CLI.", call. = FALSE)
+    stop("Python solver not found in the installed package (inst/python). ",
+         "Reinstall remlax, or set RX_CLI.", call. = FALSE)
   f
 }
 
@@ -55,7 +55,7 @@ rx_python_check <- function(py = rx_python_cmd(), quiet = FALSE) {
   res <- .rx_python_cache[[key]]
   if (is.null(res)) res <- .rx_python_probe(py, key)
   if (!quiet) {
-    if (res$ok) message("remlax : ", res$versions[["executable"]], " : jax ", res$versions[["jax"]],
+    if (res$ok) message("remlax: ", res$versions[["executable"]], " : jax ", res$versions[["jax"]],
                         ", numpy ", res$versions[["numpy"]], ", scipy ", res$versions[["scipy"]])
     else message(res$message)
   }
@@ -66,7 +66,7 @@ rx_python_check <- function(py = rx_python_cmd(), quiet = FALSE) {
 .rx_python_probe <- function(py, key) {
   code <- paste0("import sys\n",
                  "try:\n    import jax, numpy, scipy\n",
-                 "except Exception as e:\n    print('MANQUE', type(e).__name__, e); sys.exit(3)\n",
+                 "except Exception as e:\n    print('MISSING', type(e).__name__, e); sys.exit(3)\n",
                  "print('OK', jax.__version__, numpy.__version__, scipy.__version__, sys.executable)\n")
   out <- suppressWarnings(tryCatch(
     .rx_system2(py[1], shQuote(c(py[-1], "-c", code)), stdout = TRUE, stderr = TRUE),
@@ -80,11 +80,11 @@ rx_python_check <- function(py = rx_python_cmd(), quiet = FALSE) {
     res$versions <- c(jax = v[2], numpy = v[3], scipy = v[4], executable = v[5])
   } else {
     res$message <- paste0(
-      "remlax : l'interpreteur Python \"", key, "\" ne porte pas jax, numpy et scipy",
+      "remlax: the Python interpreter \"", key, "\" does not have jax, numpy and scipy",
       if (nzchar(last)) paste0(" (", last, ")") else "", ".\n",
-      "  Designer un Python qui les a : Sys.setenv(RX_PY = \"/chemin/vers/python\")\n",
-      "  ou dans ~/.Renviron : RX_PY=/chemin/vers/python\n",
-      "  Pour en creer un : remlax::rx_install_python() (ou pip install jax numpy scipy).")
+      "  Point to a Python that has them: Sys.setenv(RX_PY = \"/path/to/python\")\n",
+      "  or in ~/.Renviron: RX_PY=/path/to/python\n",
+      "  To create one: remlax::rx_install_python() (or pip install jax numpy scipy).")
   }
   .rx_python_cache[[key]] <- res
   res
@@ -113,33 +113,33 @@ rx_install_python <- function(dir = file.path(tools::R_user_dir("remlax", "data"
     # several hundred MB need a confirmation in an interactive session.
     if (isTRUE(ask)) {
       ok <- utils::askYesNo(paste0(
-        "remlax : creer un environnement Python dans ", dir,
-        " et y telecharger jax, numpy et scipy depuis PyPI (plusieurs centaines de Mo) ?"))
-      if (!isTRUE(ok)) stop("remlax : installation annulee.", call. = FALSE)
+        "remlax: create a Python environment in ", dir,
+        " and download jax, numpy and scipy into it from PyPI (several hundred MB)?"))
+      if (!isTRUE(ok)) stop("remlax: installation cancelled.", call. = FALSE)
     }
     if (!file.exists(exe)) {
-      message("remlax : creation du venv ", dir)
+      message("remlax: creating the venv ", dir)
       st <- system2(python, c("-m", "venv", shQuote(dir)))
       if (!identical(as.integer(st), 0L))
-        stop("remlax : `", python, " -m venv` a echoue (code ", st, "). Python >= 3.10 requis.",
+        stop("remlax: `", python, " -m venv` failed (code ", st, "). Python >= 3.10 is required.",
              call. = FALSE)
     }
     packages <- c(if (cuda) "jax[cuda12]>=0.4.30" else "jax>=0.4.30", "numpy>=1.24", "scipy>=1.10",
                   if (bayes) "blackjax>=1.7")
-    message("remlax : pip install ", paste(packages, collapse = " "))
+    message("remlax: pip install ", paste(packages, collapse = " "))
     st <- system2(exe, c("-m", "pip", "install", "--upgrade", "--quiet", shQuote(packages)))
     if (!identical(as.integer(st), 0L))
-      stop("remlax : pip install a echoue (code ", st, ").", call. = FALSE)
+      stop("remlax: pip install failed (code ", st, ").", call. = FALSE)
   }
   rm(list = ls(.rx_python_cache), envir = .rx_python_cache)
   r <- rx_python_check(exe, quiet = TRUE)
   if (!r$ok) stop(r$message, call. = FALSE)
-  message("remlax : interpreteur pret : ", exe, "\n",
+  message("remlax: interpreter ready: ", exe, "\n",
           "  jax ", r$versions[["jax"]], ", numpy ", r$versions[["numpy"]],
           ", scipy ", r$versions[["scipy"]], "\n",
-          "  Pour cette session : Sys.setenv(RX_PY = \"", exe, "\")\n",
-          "  Pour toujours, dans ~/.Renviron : RX_PY=", exe, "\n",
-          "  Pour le supprimer : remlax::rx_remove_python()")
+          "  For this session: Sys.setenv(RX_PY = \"", exe, "\")\n",
+          "  For good, in ~/.Renviron: RX_PY=", exe, "\n",
+          "  To remove it: remlax::rx_remove_python()")
   invisible(exe)
 }
 
@@ -150,10 +150,10 @@ rx_remove_python <- function(dir = file.path(tools::R_user_dir("remlax", "data")
                              ask = interactive()) {
   dir <- normalizePath(dir, mustWork = FALSE)
   if (!dir.exists(dir)) {
-    message("remlax : rien a supprimer, ", dir, " n'existe pas.")
+    message("remlax: nothing to remove, ", dir, " does not exist.")
     return(invisible(FALSE))
   }
-  if (isTRUE(ask) && !isTRUE(utils::askYesNo(paste0("remlax : supprimer ", dir, " ?"))))
+  if (isTRUE(ask) && !isTRUE(utils::askYesNo(paste0("remlax: remove ", dir, "?"))))
     return(invisible(FALSE))
   unlink(dir, recursive = TRUE)
   parent <- dirname(dir)
@@ -161,6 +161,6 @@ rx_remove_python <- function(dir = file.path(tools::R_user_dir("remlax", "data")
       dir.exists(parent) && !length(list.files(parent, all.files = TRUE, no.. = TRUE)))
     unlink(parent, recursive = TRUE)
   rm(list = ls(.rx_python_cache), envir = .rx_python_cache)
-  message("remlax : ", dir, " supprime.")
+  message("remlax: ", dir, " supprime.")
   invisible(!dir.exists(dir))
 }

@@ -124,13 +124,13 @@ def diagnostic(H, g, theta, floor, ceil, tol_bound=1e-7, fixed_idx=None, f_obj=N
     if not np.all(np.isfinite(Hf)) or not np.all(np.isfinite(gf)):
         return dict(out, newton_decrement=np.nan, leak=np.nan, n_neg_eig=-1,
                     n_null_dir=-1, cond=np.nan,
-                    diag_note="Hessien ou gradient non fini : diagnostic indisponible")
+                    diag_note="Hessian or gradient not finite: diagnostic unavailable")
     try:
         w, Vv = np.linalg.eigh(Hf)
     except np.linalg.LinAlgError as e:
         return dict(out, newton_decrement=np.nan, leak=np.nan, n_neg_eig=-1,
                     n_null_dir=-1, cond=np.nan,
-                    diag_note="decomposition spectrale echouee (%s)" % e)
+                    diag_note="spectral decomposition failed (%s)" % e)
     tol = 1e-8 * max(abs(w).max(), 1.0)
     expected = np.zeros(len(w), dtype=bool)
     if n_flat_expected:

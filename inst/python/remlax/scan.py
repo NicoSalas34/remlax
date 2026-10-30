@@ -131,16 +131,16 @@ def project(fit, X, incidences):
     for key in ("Vi", "vbeta", "Py"):
         if key not in fit:
             raise KeyError(
-                "fit['%s'] absent : `scan` lit la sortie de fit_reml et a besoin "
-                "de Vi, vbeta et Py. Ils sont produits des que blups=True ou "
-                "hessian=True (le defaut) ; un ajustement lance avec "
-                "--no-blups --no-hessian ne les contient pas." % key)
+                "fit['%s'] missing. `scan` reads the output of fit_reml and needs "
+                "Vi, vbeta and Py. They are produced as soon as blups=True or "
+                "hessian=True (the default). A fit run with "
+                "--no-blups --no-hessian does not contain them." % key)
     unknown = set(incidences) - set(LINEAR)
     if unknown:
-        raise ValueError("incidences : cle(s) inconnue(s) %s ; attendu parmi %s"
+        raise ValueError("incidences: unknown key(s) %s. Expected among %s"
                          % (sorted(unknown), list(LINEAR)))
     if not incidences:
-        raise ValueError("incidences vide : fournir au moins 'dir' ou 'ind'.")
+        raise ValueError("incidences empty: supply at least 'dir' or 'ind'.")
 
     Vi = np.asarray(fit["Vi"], dtype=np.float64)
     vbeta = np.asarray(fit["vbeta"], dtype=np.float64)
@@ -148,12 +148,12 @@ def project(fit, X, incidences):
     X = _dense(X)
     n = len(Py)
     if Vi.shape != (n, n):
-        raise ValueError("Vi est %s mais Py a %d elements." % (Vi.shape, n))
+        raise ValueError("Vi is %s but Py has %d elements." % (Vi.shape, n))
 
     Z = {f: _dense(Zf) for f, Zf in incidences.items()}
     for f, Zf in Z.items():
         if Zf.shape[0] != n:
-            raise ValueError("incidence '%s' a %d lignes, attendu %d."
+            raise ValueError("incidence '%s' has %d rows, expected %d."
                              % (f, Zf.shape[0], n))
 
     ViX = Vi @ X
@@ -192,10 +192,10 @@ def _parse_test(spec):
     model = list(dict.fromkeys(tested + cond))
     bad = [f for f in model if f not in FAMILIES]
     if bad:
-        raise ValueError("test '%s' : famille(s) inconnue(s) %s ; attendu parmi %s"
+        raise ValueError("test '%s': unknown family(ies) %s. Expected among %s"
                          % (spec, bad, list(FAMILIES)))
     if not tested:
-        raise ValueError("test '%s' : rien de teste a gauche de la barre." % spec)
+        raise ValueError("test '%s': nothing tested left of the bar." % spec)
     return model, tested
 
 
@@ -224,14 +224,14 @@ def _markers(M, families):
     if isinstance(M, dict):
         missing = [f for f in families if f not in M and f in LINEAR]
         if missing:
-            raise ValueError("M : matrice de doses absente pour %s" % missing)
+            raise ValueError("M: dose matrix missing for %s" % missing)
         out = {f: np.asarray(M[f], dtype=np.float64) for f in M}
     else:
         Ma = np.asarray(M, dtype=np.float64)
         out = {f: Ma for f in LINEAR}
     ps = {f: Mat.shape[1] for f, Mat in out.items()}
     if len(set(ps.values())) > 1:
-        raise ValueError("M : nombres de SNP incompatibles entre familles : %s" % ps)
+        raise ValueError("M: SNP counts inconsistent between families: %s" % ps)
     return out, next(iter(ps.values()))
 
 
@@ -304,37 +304,37 @@ def scan(proj, M, tests=("dir", "ind", "sim"), keep=None, block=1024,
     joint = [t for t in tests if len(_parse_test(t)[0]) > 1]
     if joint and not _same_snps(Mf, needed):
         raise ValueError(
-            "tests conjoints %s demandes avec des jeux de marqueurs DIFFERENTS "
-            "d'une famille a l'autre : la colonne j ne designe alors pas le meme "
-            "SNP des deux cotes (cas inter-especes). Lancer les familles "
-            "separement." % joint)
+            "joint tests %s requested with DIFFERENT marker sets "
+            "from one family to the other. Column j then does not denote the same "
+            "SNP on both sides (between-species case). Run the families "
+            "separately." % joint)
 
     for f in needed:
         if f in LINEAR and f not in proj.q:
-            raise ValueError("famille '%s' demandee mais l'incidence correspondante "
-                             "n'a pas ete projetee (incidences fournies : %s)"
+            raise ValueError("family '%s' requested but the matching incidence "
+                             "was not projected (incidences given: %s)"
                              % (f, sorted(proj.q)))
     if "sim" in needed:
         for f in LINEAR:
             if f not in proj.q:
-                raise ValueError("la famille 'sim' est le produit des covariables "
-                                 "directe et indirecte : les DEUX incidences sont "
-                                 "necessaires (fournies : %s)" % sorted(proj.q))
+                raise ValueError("the family 'sim' is the product of the direct "
+                                 "and indirect covariates. BOTH incidences are "
+                                 "needed (given: %s)" % sorted(proj.q))
         for f in LINEAR:
             mu = float(np.abs(Mf[f].mean()))
             sd = float(Mf[f].std())
             if sd > 0 and mu > 0.25 * sd:
                 raise ValueError(
-                    "famille 'sim' : les doses de '%s' ne sont pas centrees "
-                    "(moyenne %.3g pour un ecart-type %.3g). Le produit des doses "
-                    "n'est une similarite allelique qu'en codage centre (+/-1). "
-                    "Centrer les doses, ou ne pas demander 'sim'." % (f, mu, sd))
+                    "family 'sim': the doses of '%s' are not centred "
+                    "(mean %.3g for a standard deviation %.3g). The product of the doses "
+                    "is an allelic similarity only under centred coding (+/-1). "
+                    "Centre the doses, or do not request 'sim'." % (f, mu, sd))
 
     if keep is None:
         keep = np.ones(p, dtype=bool)
     keep = np.asarray(keep, dtype=bool)
     if keep.shape != (p,):
-        raise ValueError("keep a %s elements, attendu (%d,)" % (keep.shape, p))
+        raise ValueError("keep has %s elements, expected (%d,)" % (keep.shape, p))
     idx = np.flatnonzero(keep)
 
     nan = lambda: np.full(p, np.nan)

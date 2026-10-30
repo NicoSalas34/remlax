@@ -43,20 +43,20 @@
   if (is.call(inner) && identical(as.character(inner[[1]]), "~"))
     inner <- inner[[length(inner)]]
   if (!is.call(inner) || !identical(as.character(inner[[1]]), "|"))
-    stop("dsum : ecrire dsum(~ <structure> | <facteur de section>) ; recu ",
+    stop("dsum: write dsum(~ <structure> | <section factor>). Got ",
          deparse(inner)[1])
   structures <- .rx_dsum_terms(inner[[2]]); section_var <- as.character(inner[[3]])
   if (!section_var %in% names(data))
-    stop("dsum : colonne de section '", section_var, "' absente de `data`.")
+    stop("dsum: section column '", section_var, "' is missing from `data`.")
   section_factor <- factor(data[[section_var]])
   # Several structures separated by `+` need one group of levels each;
   # otherwise the same structure applies to every level.
   groups <- if (!is.null(args$levels)) eval(args$levels, envir = data, enclos = env) else NULL
   if (length(structures) > 1L) {
     if (is.null(groups) || length(groups) != length(structures))
-      stop("dsum : ", length(structures), " structures separees par '+' mais ",
-           if (is.null(groups)) "aucun" else length(groups),
-           " groupe(s) dans `levels`. Donner levels = list(...) de meme longueur.")
+      stop("dsum: ", length(structures), " structures separated by '+' but ",
+           if (is.null(groups)) "no" else length(groups),
+           " group(s) in `levels`. Give levels = list(...) of the same length.")
   } else {
     groups <- as.list(levels(section_factor)); structures <- rep(structures, length(groups))
   }
@@ -65,8 +65,8 @@
     group <- as.character(groups[[k]])
     idx <- which(as.character(section_factor) %in% group)
     if (!length(idx))
-      stop("dsum : le groupe ", k, " (", paste(group, collapse = ", "),
-           ") ne couvre aucune observation.")
+      stop("dsum: group ", k, " (", paste(group, collapse = ", "),
+           ") covers no observation.")
     s <- .rx_parse_residual_section(
       stats::as.formula(call("~", structures[[k]]), env = env),
       data[idx, , drop = FALSE],
@@ -78,10 +78,10 @@
   }
   covered <- unlist(lapply(sections, `[[`, "rows"))
   if (length(covered) != nrow(data) || anyDuplicated(covered))
-    stop("dsum : les sections ne partitionnent pas les ", nrow(data),
-         " observations (", length(covered), " lignes citees, ",
-         length(unique(covered)), " distinctes). Une ligne oubliee sortirait de V ",
-         "avec une variance nulle ; une ligne doublee la compterait deux fois.")
+    stop("dsum: the sections do not partition the ", nrow(data),
+         " observations (", length(covered), " rows listed, ",
+         length(unique(covered)), " distinct). A missing row would leave V ",
+         "with a zero variance. A duplicated row would count twice.")
   r <- sections[[1]]; r$sections <- sections; r$rows <- NULL; r$name <- NULL
   r
 }
@@ -135,10 +135,10 @@
     return(rx_residual(r, trait = .rx_column_vector(trait, data),
                        unit = .rx_column_vector(unit, data)))
   }
-  if (!inherits(residual, "formula")) stop("`residual` : chaine ou formule attendue.")
+  if (!inherits(residual, "formula")) stop("`residual`: a string or a formula is expected.")
   env <- environment(residual); if (is.null(env)) env <- parent.frame()
   labels <- attr(terms(residual, keep.order = TRUE), "term.labels")
-  if (!length(labels)) stop("`residual` ne contient aucun facteur.")
+  if (!length(labels)) stop("`residual` contains no factor.")
   factors <- trimws(unlist(strsplit(labels, ":", fixed = TRUE)))
   trait_name <- .rx_column_name(trait, data)
   unit_name  <- .rx_column_name(unit, data)
@@ -151,7 +151,7 @@
   p <- .rx_residual_factors(factors, data, trait_name, env)
   unit_factors <- setdiff(p$unit_factors, trait_name)
   if (length(unit_factors) > 1L)
-    stop("residual : plusieurs facteurs d'unite (", paste(unit_factors, collapse = ", "), ").")
+    stop("residual: several unit factors (", paste(unit_factors, collapse = ", "), ").")
   unit_vec <- if (!is.null(p$cell_unit)) p$cell_unit else
               if (length(unit_factors)) data[[unit_factors[1]]] else
               if (!is.null(unit_name)) data[[unit_name]] else .rx_column_vector(unit, data)
@@ -174,17 +174,17 @@
   is_ar1 <- grepl("^ar1\\(", factors)
   cols <- vapply(factors[is_ar1], function(z) as.character(str2lang(z)[[2]]), "")
   if (!all(cols %in% names(data)))
-    stop("residual : colonne(s) introuvable(s) : ",
+    stop("residual: column(s) not found: ",
          paste(setdiff(cols, names(data)), collapse = ", "))
   fr <- factor(data[[cols[1]]]); fc <- factor(data[[cols[2]]])
   unit <- (as.integer(fr) - 1L) * nlevels(fc) + as.integer(fc)
   key <- if (!is.null(trait_name)) paste(unit, as.integer(factor(data[[trait_name]])),
                                          sep = "\r") else unit
   if (anyDuplicated(key))
-    stop("residual = ~ ar1(", cols[1], "):ar1(", cols[2], ") : ",
-         sum(duplicated(key)), " couple(s) (cellule, caractere) en double. ",
-         "Un champ residuel structure exige au plus une observation par cellule ",
-         "et par caractere.")
+    stop("residual = ~ ar1(", cols[1], "):ar1(", cols[2], "): ",
+         sum(duplicated(key)), " duplicated (cell, trait) pair(s). ",
+         "A structured residual field allows at most one observation per cell ",
+         "and per trait.")
   struct <- "iid"
   for (fx in factors[!is_ar1]) {
     if (fx %in% c("units", "id(units)")) next
@@ -229,8 +229,8 @@
       p <- .rx_residual_level(p, f, e, fx, a1, args, data, env)
       next
     }
-    stop("residual : facteur non reconnu '", fx, "'.\n  Attendu : units, ",
-         "id/iid/diag/us/fa(<caractere>), ou une structure entre niveaux (",
+    stop("residual: unrecognised factor '", fx, "'.\n  Expected: units, ",
+         "id/iid/diag/us/fa(<trait>), or a structure between levels (",
          paste(setdiff(RX_LEVEL_STRUCTURES, c("id", "fixed")), collapse = "/"), ").")
   }
   p
@@ -242,9 +242,9 @@
 # and its coordinates from the data.
 .rx_residual_level <- function(p, f, e, fx, a1, args, data, env) {
   if (p$level != "id")
-    stop("residual : deux structures entre unites ('", p$level, "' et '", f,
-         "'). Un seul facteur structure les unites, sauf ar1(r):ar1(c), ",
-         "ecrit ar1(", a1, ", <colonne>).")
+    stop("residual: two structures between units ('", p$level, "' and '", f,
+         "'). Only one factor structures the units, except ar1(r):ar1(c), ",
+         "written ar1(", a1, ", <column>).")
   p$level <- f
   positional <- as.list(e)[-1]
   pos_names <- names(positional); if (is.null(pos_names)) pos_names <- rep("", length(positional))
@@ -264,9 +264,9 @@
     u <- !duplicated(key); ord_u <- order(key[u]); cell_levels <- key[u][ord_u]
     cell <- as.integer(factor(key, levels = cell_levels))
     if (anyDuplicated(cell))
-      stop("residual = ~ ", fx, " : ", sum(duplicated(cell)),
-           " cellule(s) en double. Un champ residuel structure exige au plus ",
-           "une observation par cellule.")
+      stop("residual = ~ ", fx, ": ", sum(duplicated(cell)),
+           " duplicated cell(s). A structured residual field allows at most ",
+           "one observation per cell.")
     p$coord <- cbind(as.numeric(xv[u][ord_u]), as.numeric(yv[u][ord_u]))
     p$cell_unit <- cell
     return(p)
@@ -281,8 +281,8 @@
 .rx_unit_positions <- function(unit_vec, level, unit_factors) {
   co <- suppressWarnings(as.numeric(levels(factor(unit_vec))))
   if (any(!is.finite(co)))
-    stop("residual : '", level, "' exige des positions numeriques ; les niveaux ",
-         "de '", if (length(unit_factors)) unit_factors[1] else "unit", "' ne le sont pas. ",
-         "Fournir coord = <positions>.")
+    stop("residual: '", level, "' requires numeric positions. The levels ",
+         "of '", if (length(unit_factors)) unit_factors[1] else "unit", "' are not numeric. ",
+         "Give coord = <positions>.")
   as.matrix(co)
 }

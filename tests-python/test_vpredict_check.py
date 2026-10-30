@@ -20,7 +20,7 @@ def test_composante_absente_nommee_avec_la_liste():
     with pytest.raises(ValueError) as e:
         check_vpredict([("h2", "V1/(V1+V2+V3)")], TERMES, RES)
     msg = str(e.value)
-    assert "V3" in msg and "V1 = gid" in msg and "2 composante" in msg
+    assert "V3" in msg and "V1 = gid" in msg and "2 component" in msg
 
 
 def test_fonction_non_admise_refusee():
@@ -29,5 +29,5 @@ def test_fonction_non_admise_refusee():
 
 
 def test_syntaxe_illisible():
-    with pytest.raises(ValueError, match="illisible"):
+    with pytest.raises(ValueError, match="unreadable"):
         check_vpredict([("h2", "V1/(V1+")], TERMES, RES)

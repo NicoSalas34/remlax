@@ -145,12 +145,12 @@ def _resolve_prior(prior, terms, res, y, X):
     if p["loading"].get("scale") is None:
         p["loading"]["scale"] = s_ref
     if p["sd"]["family"] not in SD_FAMILIES:
-        raise ValueError("prior : famille d'ecart-type inconnue %r (attendu %s)"
+        raise ValueError("prior: unknown standard deviation family %r (expected %s)"
                          % (p["sd"]["family"], ", ".join(SD_FAMILIES)))
     names = [tm["name"] for tm in terms] + ["residual"]
     unknown = set(p.get("terms") or {}) - set(names)
     if unknown:
-        raise ValueError("prior : terme(s) inconnu(s) %s ; termes du modele : %s"
+        raise ValueError("prior: unknown term(s) %s. Terms of the model: %s"
                          % (sorted(unknown), names))
     return p
 
@@ -331,7 +331,7 @@ def run_sampler(logdens, z_init, warmup, draws, seed=0, target_accept=0.651,
     t_warmup = time.time() - t1
     step_size = float(np.asarray(params["step_size"]))
     if verbose:
-        print("  [bayes] chauffe ChEES : %.1f s (compilation comprise) | pas %.3g"
+        print("  [bayes] ChEES warm-up: %.1f s (compilation included) | step %.3g"
               % (t_warmup, step_size), flush=True)
     kernel = blackjax.dynamic_hmc(logdens, **params)
     n_slices = max(1, min(10, draws // 10))
@@ -356,7 +356,7 @@ def run_sampler(logdens, z_init, warmup, draws, seed=0, target_accept=0.651,
         done += take
         if verbose:
             elapsed = time.time() - t1
-            print("  [bayes] tirages %5d / %d (%3.0f %%) | %.1f s, reste ~%.0f s | %d divergence(s)"
+            print("  [bayes] draws %5d / %d (%3.0f %%) | %.1f s, ~%.0f s left | %d divergence(s)"
                   % (done, draws, 100.0 * done / draws, elapsed, elapsed / done * (draws - done),
                      int(sum(x.sum() for x in div))), flush=True)
     t_draws = time.time() - t1
@@ -374,7 +374,7 @@ def prepare(terms, res, y, X, prior=None):
     """Resolved prior, with log p(theta) and -2 logL as JAX functions. The
     posterior is evaluated by the dense engine, which needs K."""
     from .checks import require_K
-    require_K(terms, "voie bayesienne")
+    require_K(terms, "Bayesian route")
     y = np.asarray(y, dtype=np.float64)
     X = np.asarray(X, dtype=np.float64)
     p = _resolve_prior(prior, terms, res, y, X)
@@ -437,7 +437,7 @@ def posterior_mode(prep, theta0, fixed_idx=None, floor=-12.0, ceil=12.0, maxiter
     info = dict(iterations=int(r.nit), message=str(r.message), success=bool(r.success),
                 log_posterior=-float(r.fun) * n, seconds=time.time() - t1)
     if verbose:
-        print("  [bayes] mode a posteriori : %d iteration(s), %.1f s (%s)"
+        print("  [bayes] posterior mode: %d iteration(s), %.1f s (%s)"
               % (info["iterations"], info["seconds"], info["message"]), flush=True)
     return th, Hu, info
 
@@ -463,20 +463,20 @@ def sample_posterior(terms, res, y, X, theta_hat, H=None, Hu=None, prior=None, c
     pev       : terms whose effects get a posterior standard deviation.
     """
     if not available():
-        raise RuntimeError("la voie bayesienne exige blackjax : pip install blackjax "
-                           "(ou rx_install_python(bayes = TRUE) depuis R)")
+        raise RuntimeError("the Bayesian route requires blackjax: pip install blackjax "
+                           "(or rx_install_python(bayes = TRUE) from R)")
     if lag is not None:
-        raise ValueError("la voie bayesienne n'accepte pas encore de decalage spatial (rx_lag)")
+        raise ValueError("the Bayesian route does not yet accept a spatial lag (rx_lag)")
     K = max(1, int(superchains))
     if chains % K:
-        raise ValueError("chains (%d) doit etre un multiple de superchains (%d)" % (chains, K))
+        raise ValueError("chains (%d) must be a multiple of superchains (%d)" % (chains, K))
 
     t0 = time.time()
     prep = prepare(terms, res, y, X, prior)
     y, X, p = prep["y"], prep["X"], prep["p"]
     log_prior, rare, f, Zs = prep["log_prior"], prep["rare"], prep["f"], prep["Zs"]
     if rare and verbose:
-        print("  [bayes] loi normale sur theta (echelle interne) pour : %s" % ", ".join(rare),
+        print("  [bayes] normal prior on theta (internal scale) for: %s" % ", ".join(rare),
               flush=True)
     th_hat = np.asarray(theta_hat, dtype=np.float64)
     ntot = len(th_hat)
@@ -506,14 +506,14 @@ def sample_posterior(terms, res, y, X, theta_hat, H=None, Hu=None, prior=None, c
         Lw = laplace_factor(np.asarray(H)[np.ix_(idx, idx)], 2.0)
     if Lw is None:
         if verbose:
-            print("  [bayes] Hessien absent ou non defini positif : recherche du mode a posteriori",
+            print("  [bayes] Hessian missing or not positive definite: searching for the posterior mode",
                   flush=True)
         th_hat, Hm, _ = posterior_mode(prep, th_hat, fixed_idx=fixed_idx, verbose=verbose)
         Lw = laplace_factor(Hm, 1.0)
     if Lw is None:
         Lw = 0.1 * np.eye(d)
         if verbose:
-            print("  [bayes] Hessien du mode non defini positif : blanchiment par 0,1 I", flush=True)
+            print("  [bayes] Hessian at the mode not positive definite: whitening by 0.1 I", flush=True)
     base = jnp.asarray(th_hat)
     jidx = jnp.asarray(idx)
     center = jnp.asarray(th_hat[idx])
@@ -534,8 +534,8 @@ def sample_posterior(terms, res, y, X, theta_hat, H=None, Hu=None, prior=None, c
     z_sc = 2.0 * rng.standard_normal((K, d))
     z_init = np.repeat(z_sc, M, axis=0)
     if verbose:
-        print("  [bayes] ChEES-HMC : %d chaines (%d super-chaines x %d), %d chauffe + %d tirages, "
-              "%d parametre(s) libre(s) | preparation %.1f s"
+        print("  [bayes] ChEES-HMC: %d chains (%d superchains x %d), %d warm-up + %d draws, "
+              "%d free parameter(s) | preparation %.1f s"
               % (chains, K, M, warmup, draws, d, time.time() - t0), flush=True)
     z, diag = run_sampler(logdens, z_init, warmup, draws, seed=seed,
                              target_accept=target_accept, max_leapfrog=max_leapfrog,
@@ -568,7 +568,7 @@ def sample_posterior(terms, res, y, X, theta_hat, H=None, Hu=None, prior=None, c
     for j, (name, expr) in enumerate(expressions):
         summary.append(dict(name=name, expression=expr, **_summarise(vp[:, j].reshape(C, D), K)))
     if verbose:
-        print("  [bayes] composantes et expressions sur %d tirages : %.1f s"
+        print("  [bayes] components and expressions on %d draws: %.1f s"
               % (C * D, time.time() - t1), flush=True)
 
     def max_finite(key):
@@ -601,7 +601,7 @@ def sample_posterior(terms, res, y, X, theta_hat, H=None, Hu=None, prior=None, c
                                 for nm in pev_draws},
                        seconds=time.time() - t1)
         if verbose:
-            print("  [bayes] moments de beta et des BLUP sur %d tirages : %.1f s"
+            print("  [bayes] moments of beta and the BLUPs on %d draws: %.1f s"
                   % (len(picks), effects["seconds"]), flush=True)
 
     diag.update(chains=C, superchains=K, warmup=int(warmup), draws=D,

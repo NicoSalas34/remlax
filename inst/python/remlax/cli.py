@@ -68,7 +68,7 @@ class _Refusal(Exception):
 
 
 def _error(msg):
-    print("[remlax] ERREUR : %s" % msg, file=sys.stderr, flush=True)
+    print("[remlax] ERROR: %s" % msg, file=sys.stderr, flush=True)
 
 
 def main(argv=None):
@@ -93,7 +93,7 @@ def _run(a, plat):
     chrono.mark("inference")
     _write_outputs(a, r, bayes, plat)
     if not a.quiet and not a.only_predict:
-        print("[remlax] logLik = %.9f | %d parametres | %.1f s"
+        print("[remlax] logLik = %.9f | %d parameters | %.1f s"
               % (r["logLik"], r["n_par"], r["seconds"]), flush=True)
     return 0
 
@@ -103,7 +103,7 @@ def _run(a, plat):
 # ------------------------------------------------------------------------------
 
 def _parser():
-    ap = argparse.ArgumentParser(description="solveur REML generique")
+    ap = argparse.ArgumentParser(description="generic REML solver")
     ap.add_argument("bundle")
     ap.add_argument("--backend", default="auto", choices=["auto", "gpu", "cpu"])
     ap.add_argument("--maxiter", type=int, default=3000)
@@ -112,53 +112,53 @@ def _parser():
     ap.add_argument("--engine", default="dense", choices=["dense", "mme", "blocks", "auto"])
     ap.add_argument("--inversion", default="auto", choices=["auto", "dense", "sparse", "hybrid"])
     ap.add_argument("--finish", default="newton", choices=["newton", "trust"],
-                    help="fin d'ajustement : polissage de Newton apres L-BFGS-B (defaut), ou "
-                         "arret sur progres lent et Newton a region de confiance (finition.py)")
+                    help="end of the fit: Newton polishing after L-BFGS-B (default), or "
+                         "stop on slow progress and trust-region Newton (finition.py)")
     ap.add_argument("--slow-stop", default="100,0.05",
-                    help="finish trust : fenetre (iterations) et gain minimal de -2logL")
+                    help="finish trust: window (iterations) and minimal gain of -2logL")
     ap.add_argument("--memory", default="standard", choices=["standard", "low"],
-                    help="moteur dense : 'low' garde moins de matrices n x n sur le "
-                         "peripherique (econome.py) ; meme vraisemblance")
+                    help="dense engine: 'low' keeps fewer n x n matrices on the "
+                         "device (econome.py). Same likelihood.")
     ap.add_argument("--restarts", type=int, default=0,
-                    help="redemarrages perturbes : seul moyen de detecter un optimum local")
+                    help="perturbed restarts, the only way to detect a local optimum")
     ap.add_argument("--restart-sd", type=float, default=0.5)
     ap.add_argument("--floor", type=float, default=-12.0)
     ap.add_argument("--ceil", type=float, default=12.0)
     ap.add_argument("--no-hessian", action="store_true")
     ap.add_argument("--no-blups", action="store_true")
     ap.add_argument("--pev-terms", dest="pev_terms", default=None,
-                    help="liste de termes, separes par des virgules, pour "
-                         "lesquels calculer la PEV. Preferable a --pev sur un "
-                         "modele a nombreuses nuisances.")
+                    help="comma-separated list of the terms for "
+                         "which to compute the PEV. Preferable to --pev on a "
+                         "model with many nuisance terms.")
     ap.add_argument("--pev", action="store_true",
-                    help="variance d'erreur de prediction des BLUP (diagonale). "
-                         "Necessaire a une heritabilite de Cullis ou a une "
-                         "fiabilite ; coute une matrice (t*q) x n par terme.")
+                    help="prediction error variance of the BLUPs (diagonal). "
+                         "Needed for a Cullis heritability or a "
+                         "reliability. Costs one (t*q) x n matrix per term.")
     ap.add_argument("--quiet", action="store_true")
     ap.add_argument("--vpredict", default=None,
-                    help="expressions 'nom=formule' separees par ';', ex. "
+                    help="'name=formula' expressions separated by ';', e.g. "
                          "\"h2=V1/(V1+V2);rg=V2/sqrt(V1*V3)\"")
     ap.add_argument("--wald", action="store_true",
-                    help="tests de Wald sur les effets fixes")
+                    help="Wald tests on the fixed effects")
     ap.add_argument("--kenward-roger", action="store_true",
-                    help="ddl du denominateur et covariance ajustee de beta (K&R 1997)")
+                    help="denominator df and adjusted covariance of beta (K&R 1997)")
     ap.add_argument("--theta-in", action="store_true",
-                    help="depart a chaud : lit in_theta.bin comme point initial "
-                         "(avec --maxiter 0, evalue simplement la vraisemblance)")
+                    help="warm start: reads in_theta.bin as the starting point "
+                         "(with --maxiter 0, only evaluates the likelihood)")
     ap.add_argument("--only-predict", action="store_true",
-                    help="AUCUN ajustement : relit in_theta.bin et ne fait que predire")
+                    help="NO fit: rereads in_theta.bin and only predicts")
     ap.add_argument("--predict", action="store_true",
-                    help="predictions : lit pred_L.bin (et pred_M_<terme>.bin) du paquet")
+                    help="predictions: reads pred_L.bin (and pred_M_<term>.bin) from the bundle")
     ap.add_argument("--fixed-theta", default=None,
-                    help="indices (1-based) des parametres FIXES a leur valeur de depart")
+                    help="indices (1-based) of the parameters FIXED at their starting value")
     ap.add_argument("--bayes", action="store_true",
-                    help="loi a posteriori des parametres de variance par HMC (blackjax, "
-                         "ChEES), depuis l'optimum REML")
+                    help="posterior distribution of the variance parameters by HMC (blackjax, "
+                         "ChEES), from the REML optimum")
     ap.add_argument("--start", default="map", choices=["map", "reml"],
-                    help="voie bayesienne : 'map' (defaut) part du mode a posteriori, SANS "
-                         "ajustement REML ; 'reml' ajuste d'abord par REML")
+                    help="Bayesian route: 'map' (default) starts from the posterior mode, WITHOUT "
+                         "a REML fit. 'reml' fits by REML first.")
     ap.add_argument("--chains", type=int, default=0,
-                    help="nombre de chaines ; 0 : 8 sur CPU, 32 sur GPU")
+                    help="number of chains. 0: 8 on CPU, 32 on GPU")
     ap.add_argument("--superchains", type=int, default=4)
     ap.add_argument("--warmup", type=int, default=150)
     ap.add_argument("--draws", type=int, default=150)
@@ -166,9 +166,9 @@ def _parser():
     ap.add_argument("--target-accept", type=float, default=0.651)
     ap.add_argument("--max-leapfrog", dest="max_leapfrog", type=int, default=1000)
     ap.add_argument("--prior", default=None,
-                    help="fichier JSON de loi a priori, relatif au paquet (prior.json)")
+                    help="JSON file of the prior, relative to the bundle (prior.json)")
     ap.add_argument("--bayes-effects", dest="bayes_effects", type=int, default=100,
-                    help="tirages servant aux moments a posteriori de beta et des BLUP")
+                    help="draws used for the posterior moments of beta and the BLUPs")
     return ap
 
 
@@ -198,10 +198,10 @@ def _select_device(a):
     enable_compilation_cache()
     dev, plat = pick_device(a.backend)
     if not a.quiet:
-        print("[remlax] peripheriques : %s" % device_report(), flush=True)
+        print("[remlax] devices: %s" % device_report(), flush=True)
         if _FILS["message"]:
             print(_FILS["message"], flush=True)
-        print("[remlax] backend retenu : %s (%s)" % (plat, dev), flush=True)
+        print("[remlax] backend chosen: %s (%s)" % (plat, dev), flush=True)
     chrono.mark("device")
     return dev, plat
 
@@ -226,7 +226,7 @@ def _read_inputs(a):
     # Prior weights of the observations (rx_model(weights = )): fit.fit_reml.
     weights = np.asarray(b.get("weights"), dtype=np.float64) if b.has("weights") else None
     if weights is not None and a.bayes:
-        raise _Refusal("la voie bayesienne ne prend pas encore les poids")
+        raise _Refusal("the Bayesian route does not yet accept weights")
     lag = b.lag()
     if lag is not None:
         lag = _prepare_lag(a, lag, y, X)
@@ -241,23 +241,23 @@ def _prepare_lag(a, lag, y, X):
     from remlax.lag import prepare_lag
     lag = prepare_lag(lag, y, X)
     if not a.quiet:
-        print("[remlax] decalage spatial : q=%d, %d entree(s) libre(s) de Psi, critere %s, "
-              "chemin %s" % (lag["q"], int(lag["mask"].sum()), lag["criterion"],
+        print("[remlax] spatial lag: q=%d, %d free entry(ies) of Psi, criterion %s, "
+              "path %s" % (lag["q"], int(lag["mask"].sum()), lag["criterion"],
                              lag["path"]), flush=True)
     if a.kenward_roger or a.predict or a.only_predict:
-        raise _Refusal("Kenward-Roger et predict ne sont pas disponibles avec un "
-                       "decalage spatial (rx_lag) : ils supposent y lineaire en beta et u a V "
-                       "donnee, alors qu'ici seule y* = (I - M) y l'est.")
+        raise _Refusal("Kenward-Roger and predict are not available with a "
+                       "spatial lag (rx_lag). They assume y linear in beta and u at given V. "
+                       "Here only y* = (I - M) y is.")
     return lag
 
 
 def _print_model(terms, y, X):
-    print("[remlax] n=%d, %d effet(s) fixe(s), %d terme(s) aleatoire(s)"
+    print("[remlax] n=%d, %d fixed effect(s), %d random term(s)"
           % (len(y), X.shape[1], len(terms)), flush=True)
     for t in terms:
         print("          %-14s %-5s t=%-3d q=%-5d %s"
               % (t["name"], t["struct"], t["t"], t["q"],
-                 "K=I" if t["LK"] is None else "K fournie"), flush=True)
+                 "K=I" if t["LK"] is None else "K given"), flush=True)
 
 
 def _parse_vpredict(a, inp):
@@ -328,9 +328,9 @@ def _fit_posterior_mode(a, inp, fixed, th0, prior):
     from remlax.bayes import prepare, posterior_mode, available
     from remlax.fit import initial_theta
     if not available():
-        raise _Refusal("la voie bayesienne exige blackjax (pip install blackjax)")
+        raise _Refusal("the Bayesian route requires blackjax (pip install blackjax)")
     if inp.lag is not None:
-        raise _Refusal("la voie bayesienne n'accepte pas encore de decalage spatial")
+        raise _Refusal("the Bayesian route does not yet accept a spatial lag")
     start = th0 if th0 is not None else initial_theta(inp.terms, inp.res, inp.y)
     th_map, Hu_map, info_map = posterior_mode(prepare(inp.terms, inp.res, inp.y, inp.X, prior),
                                                start, fixed_idx=fixed, floor=a.floor,
@@ -358,7 +358,7 @@ def _inference(a, r, inp, exprs, fixed):
     terms, res, lag = inp.terms, inp.res, inp.lag
     r["component_names"] = component_names(terms, res, lag=lag)
     if a.only_predict and len(r["theta"]) != len(r["component_names"]) and not a.quiet:
-        print("[remlax] mode predict seul : %d parametre(s) relus"
+        print("[remlax] predict-only mode: %d parameter(s) reread"
               % len(r["theta"]), flush=True)
     if not a.only_predict:
         _add_varcomp(a, r, inp, fixed)
@@ -406,7 +406,7 @@ def _add_varcomp(a, r, inp, fixed):
                                      lag=inp.lag, alias=r.get("alias"))
     except Exception as e:  # the table must never make a fit fail
         if not a.quiet:
-            print("[remlax] table des composantes non calculee : %s" % e, flush=True)
+            print("[remlax] component table not computed: %s" % e, flush=True)
 
 
 def _add_predictions(a, r, inp):
@@ -449,7 +449,7 @@ def _sample_bayes(a, r, inp, exprs, fixed, plat, Hu_map, prior):
     from remlax.bayes import sample_posterior
     n_chains = a.chains or (32 if plat == "gpu" else 8)
     if a.engine == "mme" and not a.quiet:
-        print("  [bayes] la loi a posteriori est evaluee par le moteur dense", flush=True)
+        print("  [bayes] the posterior is evaluated by the dense engine", flush=True)
     pev = (a.pev_terms.split(",") if a.pev_terms else
            ([t["name"] for t in inp.terms] if a.pev else ()))
     try:

@@ -13,7 +13,7 @@ test_that("dimension effective : plan equilibre, ratio = heritabilite sur moyenn
   expect_equal(dd["gid", "Nominal"], q - 1)
   expect_equal(sum(dd$Effective), nrow(d), tolerance = 1e-8)
   expect_equal(rx_heritability(f, "gid"), dd["gid", "Ratio"])
-  expect_error(rx_heritability(f, "absent"), "n'est pas un terme")
+  expect_error(rx_heritability(f, "absent"), "is not a random term")
 })
 
 jeu <- function() {
@@ -52,7 +52,7 @@ test_that("spl2d : PEV demandees par defaut, dimensions, tendance, cartes export
   # aucun peripherique laisse ouvert, aucun Rplots.pdf cree
   expect_identical(length(grDevices::dev.list()), nd)
   if (!avant) expect_false(file.exists("Rplots.pdf"))
-  expect_error(rx_spatial_trend(f, surface = "autre"), "inconnue")
+  expect_error(rx_spatial_trend(f, surface = "autre"), "unknown surface")
 })
 
 # ------------------------------------------------------------------------------

@@ -104,7 +104,7 @@ part (the total includes an `iid` residual, hence one more than the term
 itself):
 
 ```
-~ gid                                          2 parametre(s) de variance
+~ gid                                          2 variance parameter(s)
 ~ iid(gid)                                     2
 ~ vm(gid, K = K)                               2
 ~ vm(gid, K)                                   2
@@ -235,7 +235,7 @@ argument is the column passed as `trait =`. The others bear on the units.
 Verified (the totals include the random terms of the model that was fitted):
 
 ```
-res ~ units                                    2 parametre(s) de variance
+res ~ units                                    2 variance parameter(s)
 res ~ us(trait):units                          7
 res ~ diag(trait):units                        4
 res ~ ar1(row):ar1(col)                        4
@@ -291,10 +291,10 @@ rx_reml(y ~ trait, random = ~ gid,
 ```
 
 ```
-Ajustement REML (cpu) : logLik -78.941857 | 6 parametres | 60 obs | 0.4 s
-  max|grad| 3.46e-06 | decrement de Newton 1.68e-13 | 0 valeur(s) propre(s) negative(s)
-  Sigma[gid] 1x1, diagonale : 3.775e-11
-  residuelle : 0.6717 1.0029
+REML fit (cpu): logLik -78.941857 | 6 parameters | 60 obs | 0.4 s
+  max|grad| 3.46e-06 | Newton decrement 1.68e-13 | 0 negative eigenvalue(s)
+  Sigma[gid] 1x1, diagonal: 3.775e-11
+  residual: 0.6717 1.0029
    rho : 0.122630 0.036921
    noms : gid, residual[1,1], residual[2,1], residual[2,2],
           residual!ar1ar11, residual!ar1ar12
@@ -304,9 +304,8 @@ The guard still refuses a genuine repetition, with the same trait twice in
 the same cell:
 
 ```
-residual = ~ ar1(row):ar1(col) : 1 couple(s) (cellule, caractere) en double. Un
-champ residuel structure exige au plus une observation par cellule et par
-caractere.
+residual = ~ ar1(row):ar1(col): 1 duplicated (cell, trait) pair(s). A structured
+residual field allows at most one observation per cell and per trait.
 ```
 
 The explicit path builds the same structure and remains useful when the cell
@@ -324,11 +323,11 @@ fe <- rx_fit(me, backend = "cpu", verbose = FALSE)
 ```
 
 ```
-formule   : logLik -78.941857, 6 parametres
-explicite : logLik -78.941857, 6 parametres
-ecart de logLik      : 0.000e+00
-ecart max sur R      : 0.000e+00
-ecart max sur les rho : 0.000e+00
+formula  : logLik -78.941857, 6 parameters
+explicit : logLik -78.941857, 6 parameters
+logLik gap      : 0.000e+00
+max gap on R        : 0.000e+00
+max gap on the rhos : 0.000e+00
 ```
 
 Same likelihood, same parameter count, and `R` and both AR1 correlations agree
@@ -482,12 +481,12 @@ parameters, for which the omitted second-order term is not exactly zero.
 ### `fixed_theta` and `n_restarts`
 
 ```
-libre  logLik -141.733086  theta = -0.153257 -0.218434
+free   logLik -141.733086  theta = -0.153257 -0.218434
        n_par 2 | n_at_bound 0 | n_fixed 0 | n_fixed_out 0 | n_par_free 2
-       max|grad| 1.934e-08 | decrement de Newton 1.548e-18
-fixe   logLik -141.765166  theta = -0.197944 -0.216115
+       max|grad| 1.934e-08 | Newton decrement 1.548e-18
+fixed  logLik -141.765166  theta = -0.197944 -0.216115
        n_par 2 | n_at_bound 0 | n_fixed 1 | n_fixed_out 1 | n_par_free 1
-       max|grad| 2.879e+00 | decrement de Newton 4.614e-28
+       max|grad| 2.879e+00 | Newton decrement 4.614e-28
 ```
 
 A fixed parameter is bounded to its starting value; the algebra is unchanged.
@@ -549,7 +548,7 @@ same way.
 ```
    backend='gpu' -> gpu, logLik -155.752734812
    backend='cpu' -> cpu, logLik -155.752734812
-   ecart relatif sur -2logL : 1.82e-16
+   relative gap on -2logL: 1.82e-16
 ```
 
 The device is fixed once, through `jax.default_device`. It is the only place
@@ -647,11 +646,11 @@ tests operate on whole terms.
 `print.rx_model()` gives the inventory:
 
 ```
-Modele REML 'model' : 240 observations, 1 effets fixes
-  terme dge_ige        us    t=2   q=60    K=I        (3 parametres)
-  terme champ          iid   t=1   q=240   AR1xAR1    (3 parametres)
-  residuelle     iid   t=1  (1 parametre)
-  total : 7 parametres de variance
+REML model 'model': 240 observations, 1 fixed effects
+  term  dge_ige        us    t=2   q=60    K=I        (3 parameters)
+  term  champ          iid   t=1   q=240   AR1xAR1    (3 parameters)
+  residual       iid   t=1  (1 parameter)
+  total: 7 parameters
 ```
 
 ---
@@ -723,7 +722,7 @@ Predictions
    B         6.36507  0.433628      TRUE
    C         6.45335  0.436859      TRUE
 
-  erreur-type moyenne des differences : 0.465645
+  mean standard error of differences: 0.465645
 ```
 
 `vcov = "kenward-roger"` requires a fit made with `kenward_roger = TRUE`. It
@@ -764,12 +763,12 @@ mod <- rx_model(d$y, X, terms = c(list(rx_term("gid", d$gid)), sp$terms))
 ```
 
 ```
-partie nulle (fixe) : 3 colonnes : spl_lin1, spl_lin2, spl_lin3
-  terme spl_fx     q = 7
-  terme spl_fy     q = 7
-  terme spl_fx_y   q = 7
-  terme spl_x_fy   q = 7
-  terme spl_fx_fy  q = 49
+null part (fixed): 3 columns: spl_lin1, spl_lin2, spl_lin3
+  term  spl_fx     q = 7
+  term  spl_fy     q = 7
+  term  spl_fx_y   q = 7
+  term  spl_x_fy   q = 7
+  term  spl_fx_fy  q = 49
 ```
 
 Nothing is added to the solver: a smooth surface is a random effect with a
@@ -782,11 +781,11 @@ known incidence, exactly as in sommer and asreml.
 `rx_fit` objects have a `print` method:
 
 ```
-Ajustement REML (cpu) : logLik -388.088838 | 3 parametres | 240 obs | 1.6 s
-  max|grad| 3.42e-14 | decrement de Newton 1.43e-28 | 0 valeur(s) propre(s) negative(s)
-  Sigma[gid] 1x1, diagonale : 1.401
-  Sigma[bloc] 1x1, diagonale : 0.00722
-  residuelle : 0.8988
+REML fit (cpu): logLik -388.088838 | 3 parameters | 240 obs | 1.6 s
+  max|grad| 3.42e-14 | Newton decrement 1.43e-28 | 0 negative eigenvalue(s)
+  Sigma[gid] 1x1, diagonal: 1.401
+  Sigma[bloc] 1x1, diagonal: 0.00722
+  residual: 0.8988
 ```
 
 | field | contents |

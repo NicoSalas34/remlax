@@ -27,8 +27,8 @@ rx_fit <- function(model, backend = c("auto", "gpu", "cpu"), dir = NULL,
   # Kenward-Roger and predictions assume y linear in beta and u at given V;
   # with a spatial lag only y* = (I - M) y is, and M depends on a parameter.
   if (!is.null(model$lag) && (isTRUE(kenward_roger) || !is.null(predict)))
-    stop("rx_fit : Kenward-Roger et predict ne sont pas disponibles avec un decalage ",
-         "spatial (rx_lag).", call. = FALSE)
+    stop("rx_fit: Kenward-Roger and predict are not available with a spatial ",
+         "lag (rx_lag).", call. = FALSE)
   if (is.null(dir)) { dir <- tempfile("rx_"); on.exit(if (!keep) unlink(dir, recursive = TRUE)) }
 
   t_R0 <- Sys.time()
@@ -46,7 +46,7 @@ rx_fit <- function(model, backend = c("auto", "gpu", "cpu"), dir = NULL,
                           hessian, blups, pev, verbose))
   t_R1 <- Sys.time()
   # The interpreter is checked only after a failure, to explain it.
-  tryCatch(.rx_run_solver(py, a, verbose, "solveur REML : echec"), error = function(e) {
+  tryCatch(.rx_run_solver(py, a, verbose, "rx_fit: the REML solver failed"), error = function(e) {
     .rx_python_require(py)
     stop(e)
   })
@@ -62,24 +62,24 @@ rx_fit <- function(model, backend = c("auto", "gpu", "cpu"), dir = NULL,
 # did not converge (no criterion met, at least one failed) or stopped on a
 # saddle point, and a posterior sample whose chains did not mix.
 .rx_warn_fit <- function(res, maxiter) {
-  fmt <- function(v) if (is.null(v) || !is.finite(v)) "n.d." else sprintf("%.2e", v)
+  fmt <- function(v) if (is.null(v) || !is.finite(v)) "n/a" else sprintf("%.2e", v)
   if (as.numeric(maxiter) > 0 && is.null(res[["bayes_start"]])) {
     crit <- c(res[["conv_grad_rel"]], res[["conv_decrement"]])
     crit <- as.logical(crit[!vapply(crit, is.null, TRUE)])
     if (length(crit) && !any(crit, na.rm = TRUE) && any(!crit, na.rm = TRUE))
       warning(sprintf(paste0(
-        "rx_fit : l'ajustement REML n'a pas converge (gradient relatif %s, decrement de ",
-        "Newton %s). Ne pas l'exploiter tel quel : essayer optimizer = \"ai\", d'autres ",
-        "valeurs de depart (theta_init), ou des structures plus simples."),
+        "rx_fit: the REML fit did not converge (relative gradient %s, Newton ",
+        "decrement %s). Do not use it as is: try optimizer = \"ai\", other ",
+        "starting values (theta_init) or simpler structures."),
         fmt(res[["grad_rel"]]), fmt(res[["newton_decrement"]])), call. = FALSE)
     if (isTRUE(res[["n_neg_eig"]] > 0))
-      warning(sprintf(paste0("rx_fit : le Hessien a %d valeur(s) propre(s) negative(s) : ",
-                             "le point atteint n'est pas un maximum de la vraisemblance."),
+      warning(sprintf(paste0("rx_fit: the Hessian has %d negative eigenvalue(s). ",
+                             "The point reached is not a maximum of the likelihood."),
                       as.integer(res[["n_neg_eig"]])), call. = FALSE)
   }
   pb <- .rx_bayes_problems(res)
   if (length(pb))
-    warning("rx_fit : echantillon a posteriori inexploitable : ", paste(pb, collapse = " ; "),
+    warning("rx_fit: the posterior sample cannot be used: ", paste(pb, collapse = ", "),
             ".", call. = FALSE)
   invisible()
 }
@@ -90,13 +90,13 @@ rx_fit <- function(model, backend = c("auto", "gpu", "cpu"), dir = NULL,
   if (is.null(dg)) return(character(0))
   pb <- character(0)
   if (isFALSE(res[["posterior_mode"]][["success"]]))
-    pb <- c(pb, "la recherche du mode a posteriori n'a pas converge")
+    pb <- c(pb, "the search for the posterior mode did not converge")
   if (isTRUE(dg[["step_size"]] < 1e-6))
-    pb <- c(pb, sprintf("pas d'integration %.1e, les chaines n'avancent pas", dg[["step_size"]]))
+    pb <- c(pb, sprintf("integration step %.1e (the chains do not move)", dg[["step_size"]]))
   if (isTRUE(dg[["nested_rhat_max"]] > 1.01))
-    pb <- c(pb, sprintf("R-hat emboite max %.3g > 1,01", dg[["nested_rhat_max"]]))
+    pb <- c(pb, sprintf("max nested R-hat %.3g > 1.01", dg[["nested_rhat_max"]]))
   if (isTRUE(dg[["ess_min"]] < 100))
-    pb <- c(pb, sprintf("ESS min %.0f < 100", dg[["ess_min"]]))
+    pb <- c(pb, sprintf("min ESS %.0f < 100", dg[["ess_min"]]))
   if (isTRUE(dg[["divergences"]] > 0))
     pb <- c(pb, sprintf("%d divergence(s)", as.integer(dg[["divergences"]])))
   pb
@@ -132,7 +132,7 @@ rx_fit <- function(model, backend = c("auto", "gpu", "cpu"), dir = NULL,
   floor <- as.numeric(floor); ceil <- as.numeric(ceil)
   if (length(floor) != 1L || length(ceil) != 1L || !is.finite(floor) || !is.finite(ceil) ||
       floor >= ceil)
-    stop("rx_fit : floor et ceil doivent etre deux scalaires finis avec floor < ceil.",
+    stop("rx_fit: floor and ceil must be two finite scalars with floor < ceil.",
          call. = FALSE)
   c(floor, ceil)
 }
@@ -141,10 +141,10 @@ rx_fit <- function(model, backend = c("auto", "gpu", "cpu"), dir = NULL,
 # which would silently treat it as independent.
 .rx_check_kinv_engine <- function(model, engine) {
   if (isTRUE(attr(model$terms, "kinv_only")) && !(as.character(engine)[1] %in% c("mme", "auto")))
-    stop("rx_fit : ce modele contient un ou plusieurs termes declares par leur ",
-         "PRECISION (Kinv) sans facteur de K. Le moteur dense a besoin de K et ",
-         "ignorerait silencieusement la parente, en estimant les effets comme ",
-         "INDEPENDANTS. Fournir K a rx_term(), ou ajuster avec engine = \"mme\".",
+    stop("rx_fit: this model has one or more terms declared by their ",
+         "PRECISION (Kinv) without a factor of K. The dense engine needs K. ",
+         "It would silently ignore the relationship and estimate the effects as ",
+         "INDEPENDENT. Give K to rx_term(), or fit with engine = \"mme\".",
          call. = FALSE)
 }
 

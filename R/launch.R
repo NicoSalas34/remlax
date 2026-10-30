@@ -85,6 +85,6 @@
 
 # Error with the last 40 lines of the solver's output.
 .rx_solver_error <- function(what, output) {
-  stop(paste(c(paste0(what, ". Sortie du solveur :"), utils::tail(output, 40)),
+  stop(paste(c(paste0(what, ". Solver output:"), utils::tail(output, 40)),
              collapse = "\n"), call. = FALSE)
 }

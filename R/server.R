@@ -128,7 +128,7 @@ rx_server_stop <- function() {
   if (is.na(code)) {
     rx_server_stop()
     code <- 1L
-    output <- c(output, "[remlax] le processus solveur persistant s'est arrete en cours d'ajustement")
+    output <- c(output, "[remlax] the persistent solver process stopped during the fit")
   }
   list(code = code, output = output)
 }

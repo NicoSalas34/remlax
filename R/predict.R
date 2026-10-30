@@ -50,19 +50,19 @@ rx_predict <- function(fit, classify, levels = NULL, at = NULL,
 # the fixed formula: its contribution comes from the BLUP, not from X.
 .rx_predict_check <- function(fit, classify) {
   if (is.null(fit$fixed) || is.null(fit$data))
-    stop("rx_predict : cet ajustement ne vient pas de rx_reml() ; la formule des ",
-         "effets fixes et les donnees ne sont pas connues.")
+    stop("rx_predict: this fit does not come from rx_reml(). The formula of the ",
+         "fixed effects and the data are not known.")
   if (!is.null(fit$model$lag))
-    stop("rx_predict : non disponible avec un decalage spatial (rx_lag).", call. = FALSE)
+    stop("rx_predict: not available with a spatial lag (rx_lag).", call. = FALSE)
   cls <- unlist(strsplit(classify, "[:+]"))
   cls <- trimws(cls[nzchar(cls)])
   tt   <- stats::delete.response(stats::terms(fit$fixed, data = fit$data))
   vars <- all.vars(tt)
   random_names <- vapply(fit$model$terms, `[[`, "", "name")
   if (length(missing_vars <- setdiff(cls, c(vars, random_names))))
-    stop("rx_predict : ", paste(missing_vars, collapse = ", "), " n'est ni dans le ",
-         "modele fixe (", paste(vars, collapse = ", "), ") ni parmi les termes ",
-         "aleatoires (", paste(random_names, collapse = ", "), ").")
+    stop("rx_predict: ", paste(missing_vars, collapse = ", "), " is neither in the ",
+         "fixed model (", paste(vars, collapse = ", "), ") nor among the random ",
+         "terms (", paste(random_names, collapse = ", "), ").")
   list(cls = cls, tt = tt, vars = vars)
 }
 
@@ -75,7 +75,7 @@ rx_predict <- function(fit, classify, levels = NULL, at = NULL,
   vals <- list()
   for (v in union(spec$vars, cls)) {
     if (!v %in% names(data))
-      stop("rx_predict : colonne '", v, "' absente des donnees de l'ajustement.")
+      stop("rx_predict: column '", v, "' is missing from the data of the fit.")
     x <- data[[v]]
     if (!is.null(at[[v]])) { vals[[v]] <- at[[v]]; next }
     if (is.factor(x) || is.character(x) || is.logical(x)) {
@@ -93,9 +93,9 @@ rx_predict <- function(fit, classify, levels = NULL, at = NULL,
     Xg <- cbind(Xg, matrix(0, nrow(Xg), length(fit$spl2d$columns),
                            dimnames = list(NULL, fit$spl2d$columns)))
   if (ncol(Xg) != length(fit$beta))
-    stop("rx_predict : la grille donne ", ncol(Xg), " colonnes pour ",
-         length(fit$beta), " coefficients. Un facteur a-t-il des niveaux absents ",
-         "de la grille ?")
+    stop("rx_predict: the grid gives ", ncol(Xg), " columns for ",
+         length(fit$beta), " coefficients. A factor may have levels missing ",
+         "from the grid.")
   list(vals = vals, grid = grid, Xg = Xg)
 }
 
@@ -118,7 +118,7 @@ rx_predict <- function(fit, classify, levels = NULL, at = NULL,
   if (!is.null(weights)) row_weights <- row_weights * weights[key]
   L <- t(vapply(ukey, function(k) {
     i <- which(key == k); w <- row_weights[i]
-    if (sum(w) <= 0) stop("rx_predict : poids nuls pour la cellule '",
+    if (sum(w) <= 0) stop("rx_predict: zero weights for the cell '",
                           gsub("\r", ":", k), "'.")
     colSums(Xg[i, , drop = FALSE] * (w / sum(w)))
   }, numeric(ncol(Xg))))
@@ -146,8 +146,8 @@ rx_predict <- function(fit, classify, levels = NULL, at = NULL,
     v <- tm$name
     if (!v %in% cls || is.null(tm$levels)) next
     if (tm$t != 1L) {
-      warning("rx_predict : terme '", v, "' multi-caractere ignore dans la ",
-              "part aleatoire (t = ", tm$t, ").")
+      warning("rx_predict: multi-trait term '", v, "' ignored in the ",
+              "random part (t = ", tm$t, ").")
       next
     }
     Mi <- matrix(0, n_cells, tm$q)
@@ -163,8 +163,8 @@ rx_predict <- function(fit, classify, levels = NULL, at = NULL,
 .rx_predict_fixed <- function(fit, L, vcov) {
   Vb <- if (vcov == "kenward-roger") fit$vbeta_kr else fit$vbeta
   if (is.null(Vb))
-    stop("rx_predict : la covariance des effets fixes n'est pas dans l'ajustement",
-         if (vcov == "kenward-roger") " (relancer rx_reml(..., kenward_roger = TRUE))" else "",
+    stop("rx_predict: the covariance of the fixed effects is not in the fit",
+         if (vcov == "kenward-roger") " (rerun rx_reml(..., kenward_roger = TRUE))" else "",
          ".")
   list(val = as.numeric(L %*% fit$beta), Cv = L %*% Vb %*% t(L))
 }
@@ -173,8 +173,8 @@ rx_predict <- function(fit, classify, levels = NULL, at = NULL,
 # computes the predictions and their prediction error covariance.
 .rx_predict_solver <- function(fit, L, M, vcov, backend, verbose) {
   if (vcov == "kenward-roger")
-    warning("rx_predict : l'ajustement de Kenward-Roger porte sur les effets ",
-            "FIXES ; la part aleatoire garde son erreur de prediction usuelle.")
+    warning("rx_predict: the Kenward-Roger adjustment applies to the FIXED ",
+            "effects. The random part keeps its usual prediction error.")
   dir <- tempfile("rkpred_"); on.exit(unlink(dir, recursive = TRUE))
   rx_export(fit$model, dir)
   .rx_write_bin(file.path(dir, "in_theta.bin"), fit$theta)
@@ -184,7 +184,7 @@ rx_predict <- function(fit, classify, levels = NULL, at = NULL,
   .rx_python_require(py)
   a <- c(rx_solver_args(), dir, "--backend", backend, "--only-predict",
          if (!verbose) "--quiet" else NULL)
-  .rx_run_solver(py, a, verbose, "rx_predict : le solveur a echoue")
+  .rx_run_solver(py, a, verbose, "rx_predict: the solver failed")
   rr <- rx_read_result(dir)
   list(val = as.numeric(rr$predictions$value), Cv = rr$predictions$cov)
 }
@@ -202,8 +202,8 @@ print.rx_predict <- function(x, ...) {
   cat("Predictions\n")
   print(as.data.frame(x), row.names = FALSE, digits = 6)
   if (!is.null(attr(x, "sed.mean")))
-    cat(sprintf("\n  erreur-type moyenne des differences : %.6f\n", attr(x, "sed.mean")))
+    cat(sprintf("\n  mean standard error of differences: %.6f\n", attr(x, "sed.mean")))
   if (any(!x$estimable))
-    cat(sprintf("  %d prediction(s) NON estimable(s)\n", sum(!x$estimable)))
+    cat(sprintf("  %d prediction(s) NOT estimable\n", sum(!x$estimable)))
   invisible(x)
 }

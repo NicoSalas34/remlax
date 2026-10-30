@@ -229,7 +229,7 @@ def test_refus_conjoint_inter_especes():
     try:
         scan(proj, {"dir": d["Mdir"], "ind": d["Mind"]}, tests=["dir+ind"])
     except ValueError as e:
-        assert "inter-espece" in str(e), str(e)
+        assert "between-species" in str(e), str(e)
         print("  refus obtenu : %s..." % str(e)[:60])
     else:
         raise AssertionError("test conjoint accepte sur deux jeux de SNP")

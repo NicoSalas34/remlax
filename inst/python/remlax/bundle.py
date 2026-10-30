@@ -25,7 +25,7 @@ class Bundle:
         self.path = path
         mf = os.path.join(path, "manifest.json")
         if not os.path.exists(mf):
-            raise FileNotFoundError("manifest.json absent de %s" % path)
+            raise FileNotFoundError("manifest.json missing from %s" % path)
         with open(mf) as f:
             man = json.load(f)
         self.man = {d["name"]: d for d in man} if isinstance(man, list) else man["arrays"]
@@ -192,10 +192,10 @@ class Bundle:
             cited = np.concatenate([s["rows"] for s in secs])
             if len(np.unique(cited)) != len(cited) or len(cited) != self.n:
                 raise ValueError(
-                    "dsum : les sections ne partitionnent pas les %d observations "
-                    "(%d lignes citees, %d distinctes). Une ligne oubliee sortirait "
-                    "de V avec une variance nulle, une ligne doublee la compterait "
-                    "deux fois." % (self.n, len(cited), len(np.unique(cited))))
+                    "dsum: the sections do not partition the %d observations "
+                    "(%d rows cited, %d distinct). A missing row would leave "
+                    "V with a zero variance. A duplicated row would count "
+                    "twice." % (self.n, len(cited), len(np.unique(cited))))
             r["sections"] = secs
         return r
 

@@ -98,12 +98,12 @@ def n_level_params(kind, order=0, parts=None, opts=None):
         bad = [k for k, _ in (parts or []) if k in deps]
         if bad:
             raise ValueError(
-                "produit separable : les familles %s ne sont pas admises dans "
-                "`parts`, qui ne porte que (famille, dimension) : leur nombre de "
-                "parametres depend d'un ordre ou d'options, ou elles exigent des "
-                "coordonnees. Les declarer ici decouperait theta differemment de "
-                "level_chol, ou donnerait une identite en silence. Utiliser "
-                "`expr` pour ces cas." % sorted(set(bad)))
+                "separable product: the families %s are not allowed in "
+                "`parts`, which carries only (family, dimension). Their number of "
+                "parameters depends on an order or on options, or they require "
+                "coordinates. Declaring them here would split theta differently from "
+                "level_chol, or would silently give an identity. Use "
+                "`expr` for these cases." % sorted(set(bad)))
         return sum(n_level_params(k) for k, _ in (parts or []))
     if kind == "corb":
         return int(order)
@@ -120,7 +120,7 @@ def n_level_params(kind, order=0, parts=None, opts=None):
         return int((opts or {}).get("n_par", 0))
     n = LEVEL_STRUCTURES.get(kind)
     if n is None:
-        raise ValueError("structure de niveaux inconnue : %s" % kind)
+        raise ValueError("unknown level structure: %s" % kind)
     return n
 
 
@@ -220,7 +220,7 @@ def _acf(theta, kind, q, order=0):
         b = int(order)
         vals = jnp.tanh(theta[:b])
         return jnp.concatenate([jnp.ones(1), vals, jnp.zeros(max(q - 1 - b, 0))])[:q]
-    raise ValueError("pas d'ACF pour la structure %s" % kind)
+    raise ValueError("no ACF for the structure %s" % kind)
 
 
 def _tril_off(t):
@@ -296,7 +296,7 @@ def _own_corr(theta_lv, q, expr, coord=None, opts=None):
     Unless opts["normalise"] = 0, D^-1/2 C D^-1/2 is returned: this module
     returns correlation matrices, the scale being carried by Sigma."""
     if not expr:
-        raise ValueError("own : aucune expression fournie.")
+        raise ValueError("own: no expression given.")
     expr = expr.replace("^", "**")
     i = jnp.arange(q)
     lag = jnp.abs(i[:, None] - i[None, :]).astype(jnp.float64)
@@ -335,7 +335,7 @@ def level_corr(theta_lv, kind, q, order=0, coord=None, C_fixed=None, parts=None,
         return jnp.eye(q)
     if kind == "ar1ar1":
         if dims is None or len(dims) != 2:
-            raise ValueError("ar1ar1 exige dims = (n_lignes, n_colonnes)")
+            raise ValueError("ar1ar1 requires dims = (n_rows, n_columns)")
         nr, nc = int(dims[0]), int(dims[1])
         Cr = _toeplitz(_acf(theta_lv[:1], "ar1", nr), nr)
         Cc = _toeplitz(_acf(theta_lv[1:2], "ar1", nc), nc)
@@ -509,9 +509,9 @@ def level_params_report(theta_lv, kind, order=0, opts=None, q=None, parts=None):
     if kind == "cor":
         if q is None:
             raise ValueError(
-                "level_params_report(kind='cor') exige q : la correlation uniforme "
-                "est remise a l'echelle sur (-1/(q-1), 1), donc tanh(theta) n'est "
-                "pas la valeur du modele.")
+                "level_params_report(kind='cor') requires q. The uniform correlation "
+                "is rescaled to (-1/(q-1), 1), so tanh(theta) is "
+                "not the value of the model.")
         lo = -1.0 / max(int(q) - 1, 1)
         return {"phi": [float(lo + (np.tanh(th[0]) + 1.0) * 0.5 * (1.0 - lo))],
                 "lower_bound": [float(lo)]}

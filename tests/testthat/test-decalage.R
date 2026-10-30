@@ -88,16 +88,16 @@ test_that("rx_lag : entrees libres, ordre des parametres, alignement par noms", 
 test_that("rx_lag refuse les specifications ambigues ou fausses", {
   d <- .jeu_lag()
   Wd <- d$W; Wd[1, 1] <- 1
-  expect_error(rx_lag(Wd, d$trait, d$unit), "diagonale non nulle")
+  expect_error(rx_lag(Wd, d$trait, d$unit), "non-zero diagonal")
   u <- d$unit; u[1] <- 2L
-  expect_error(rx_lag(d$W, d$trait, u), "en double")
+  expect_error(rx_lag(d$W, d$trait, u), "duplicated")
   expect_error(rx_lag(d$W, d$trait, d$unit + 1000), "1\\.\\.")
   expect_error(rx_lag(d$W, d$trait, as.character(d$unit)), "rownames")
-  expect_error(rx_lag(list(d$W, d$W), d$trait, d$unit), "NOMMEE")
-  expect_error(rx_lag(d$W, d$trait, d$unit, struct = "mask"), "exige `mask`")
-  expect_error(rx_lag(d$W, d$trait, d$unit, receivers = "T9"), "inconnu")
+  expect_error(rx_lag(list(d$W, d$W), d$trait, d$unit), "NAMED")
+  expect_error(rx_lag(d$W, d$trait, d$unit, struct = "mask"), "requires `mask`")
+  expect_error(rx_lag(d$W, d$trait, d$unit, receivers = "T9"), "unknown")
   expect_error(rx_model(d$y[-1], d$X[-1, ], list(rx_term("g", factor(rep(d$g, 2))[-1])),
-                        lag = rx_lag(d$W, d$trait, d$unit)), "lignes declarees")
+                        lag = rx_lag(d$W, d$trait, d$unit)), "rows declared")
 })
 
 test_that("decalage et residuelle none : KR refuse, residuelle none comptee", {
@@ -106,7 +106,7 @@ test_that("decalage et residuelle none : KR refuse, residuelle none comptee", {
   expect_error(rx_fit(m, kenward_roger = TRUE, verbose = FALSE), "Kenward-Roger")
   m0 <- .modele_tb(d, res = rx_residual("none"))
   expect_equal(m0$n_par, 3L)
-  expect_error(rx_model(d$y, d$X, list(), rx_residual("none")), "V serait nulle")
+  expect_error(rx_model(d$y, d$X, list(), rx_residual("none")), "V would be zero")
 })
 
 # --- ajustement -----------------------------------------------------------------
@@ -184,7 +184,7 @@ test_that("residuelle none : V non definie positive refusee en clair, VP+ ajuste
   skip_si_pas_de_jax()
   d <- .jeu_lag(nr = 5, nc = 4, ng = 6, seed = 6)
   expect_error(rx_fit(.modele_tb(d, res = rx_residual("none")), backend = "cpu", verbose = FALSE),
-               "residuelle 'none'")
+               "residual 'none'")
   N <- d$N; I_N <- Matrix::Diagonal(N) * 1; zN <- Matrix::Matrix(0, N, N, sparse = TRUE)
   Zp <- list(res_T1 = rbind(I_N, zN), res_T2 = rbind(zN, I_N),
              IEE_T1 = rbind(d$W, zN), IEE_T2 = rbind(zN, d$W))
@@ -193,7 +193,7 @@ test_that("residuelle none : V non definie positive refusee en clair, VP+ ajuste
   f <- rx_fit(m, backend = "cpu", verbose = FALSE, maxiter = 500)
   expect_null(f[["sigma_res"]])
   expect_equal(dim(f$sigmas[["plante"]]), c(4L, 4L))
-  expect_output(print(f), "residuelle : aucune")
+  expect_output(print(f), "residual: none")
   # W symetrique : Cov(res_T1, IEE_T2) et Cov(res_T2, IEE_T1) ne sont identifiees
   # que par leur somme (theorie_v2.md T1b) : ici 3 (DGE us) + 10 (plante us 4)
   # = 13 parametres, dont 12 identifies.
@@ -205,7 +205,7 @@ test_that("residuelle none : V non definie positive refusee en clair, VP+ ajuste
   expect_equal(s$aic, -2 * f$logLik + 2 * 12)
   expect_equal(s$varcomp[c("plante[3,2]", "plante[4,1]"), "bound"], c("N", "N"))
   expect_true(is.finite(s$varcomp["plante[3,2]+plante[4,1]", "std.error"]))
-  expect_output(print(f), "direction\\(s\\) plate\\(s\\)")
+  expect_output(print(f), "flat direction\\(s\\)")
 })
 
 test_that("TB+ avec IEE* et Psi reciproque libre : avertissement ; masque : rien", {
@@ -215,7 +215,7 @@ test_that("TB+ avec IEE* et Psi reciproque libre : avertissement ; masque : rien
   termes <- list(rx_term("gen", d$ZD, struct = "us"), rx_term("iee", Ziee, struct = "us"))
   res <- rx_residual("us", trait = d$trait, unit = d$unit)
   expect_warning(rx_model(d$y, d$X, termes, res, lag = rx_lag(d$W, d$trait, d$unit)),
-                 "faiblement")
+                 "weakly")
   expect_no_warning(rx_model(d$y, d$X, termes, res,
                              lag = rx_lag(d$W, d$trait, d$unit, receivers = "T2", emitters = "T1")))
   expect_no_warning(rx_model(d$y, d$X, termes[1], res, lag = rx_lag(d$W, d$trait, d$unit)))
