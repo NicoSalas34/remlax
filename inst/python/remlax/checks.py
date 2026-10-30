@@ -22,6 +22,10 @@ def _check_section(res, n):
     check covers us/diag/fa and every structure between units."""
     tr, un = np.asarray(res["trait"]), np.asarray(res["unit"])
     kind = res.get("lvl", "id")
+    if kind == "sep":
+        # A residual section carries no factors (parts) for the product.
+        raise ValueError("structure residuelle 'sep' non disponible : utiliser ar1ar1 "
+                         "pour un champ separable.")
     if res["struct"] in ("us", "diag", "fa") or kind != "id":
         key = un.astype(np.int64) * (int(tr.max()) + 1) + tr.astype(np.int64)
         if len(np.unique(key)) != n:

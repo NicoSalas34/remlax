@@ -91,3 +91,12 @@ def test_repli_du_noyau_c_annonce(monkeypatch, capsys):
     assert selinv._c_kernel() is None
     assert "indisponible" in capsys.readouterr().err
     monkeypatch.setattr(selinv, "_C_KERNEL", None)
+
+
+def test_residuelle_sep_refusee():
+    from remlax.checks import validate
+    n = 12
+    res = od.residuelle("iid", np.zeros(n), np.arange(n), 1, lvl="sep")
+    terms = [od.terme_facteur("g", np.arange(n) % 3, 3)]
+    with pytest.raises(ValueError, match="ar1ar1"):
+        validate(terms, res, np.zeros(n), np.ones((n, 1)))

@@ -72,3 +72,7 @@ test_that("Wald et Kenward-Roger tiennent compte des poids a priori", {
   expect_equal(f$wald$tests$F[2], drop(b[2]^2 / vb[2, 2]), tolerance = 1e-6)
   expect_equal(unname(f$kenward_roger$se_beta_brut), unname(sqrt(diag(vb))), tolerance = 1e-6)
 })
+
+test_that("le produit separable est refuse pour la residuelle", {
+  expect_error(rx_residual(level = "sep"), "ar1ar1")
+})
