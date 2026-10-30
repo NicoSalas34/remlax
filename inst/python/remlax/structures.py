@@ -1,6 +1,6 @@
 """Covariance structures: theta (free, unconstrained) -> Sigma (t x t).
 
-The convention is shared with the R side (R/remlax.R). Any divergence here
+The convention is shared with the R side (R/counts.R). Any divergence here
 silently breaks the mapping of parameters. The functions of this file are the
 reference, and R must reproduce them exactly.
 

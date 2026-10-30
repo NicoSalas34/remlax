@@ -3,7 +3,7 @@
 This module neither imports nor modifies `cli.py`. It reuses `Bundle`,
 `fit_reml` and `scan`, and nothing else.
 
-    python -m remlax.scan_cli <bundle> --tests "dir,ind,dir+ind+sim,ind|dir+sim"
+    python3 remlax_run.py scan_cli <bundle> --tests "dir,ind,dir+ind+sim,ind|dir+sim"
 
 The scan has its own entry point because it needs `Vi` and `Py`. These n x n
 matrices live in the process of the fit and do not travel to R through the

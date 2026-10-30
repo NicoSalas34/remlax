@@ -1,4 +1,4 @@
-"""Reads a design serialised by R (R/remlax.R).
+"""Reads a design serialised by R (R/bundle_write.R).
 
 The bundle is a directory holding manifest.json and one file per array:
 <name>.bin (raw binary) or <name>.txt (strings). Raw binary avoids any Python
