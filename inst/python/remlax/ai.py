@@ -479,7 +479,7 @@ class _AIRemlVar:
                                   ftol=1e-15, gtol=1e-12))
         th_n = np.clip(np.asarray(r.x, dtype=np.float64), self.lo, self.hi)
         f_n, g_n, A_n = self.evaluate(th_n)
-        self.n_it += int(r.nfev)
+        self.n_it += int(r.nit)
         gain_ = self.f - f_n
         if self.verbose:
             print("  [ai] %s : salve L-BFGS-B %d/%d (%d iterations), gain %.3e"
@@ -631,7 +631,6 @@ class _AIRemlVar:
         if pr is None:
             return None
         phi_c, th_c = pr
-        self.n_it += 1
         # Ratio test (option, REMLAX_AI_RAPPORT > 0): the actual gain must be at
         # least RATIO_MIN of the gain predicted by the quadratic model of the
         # AI; near the optimum (predicted gain under 1e-6) any decrease passes.
@@ -741,6 +740,7 @@ class _AIRemlVar:
                 break
             gain = self.f - acc[2]
             self.phi, self.theta, self.f, self.g_t, self.A_t = acc
+            self.n_it += 1
             self.n_clamped = np.where(self.last_clamped, self.n_clamped + 1, 0)
             if self.verbose:
                 print("  aiv  %4d | -2logL %14.6f | gain %.3e | decrement %.3e | %s | %6.1f s%s"

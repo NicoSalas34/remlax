@@ -69,3 +69,15 @@ def test_grad_rel_identique_avec_et_sans_hessien():
     b = gradient_diagnostic(g, theta, -12.0, 12.0, f_obj=500.0)
     assert a["grad_rel"] == b["grad_rel"]
     assert a["grad_proj_max"] == b["grad_proj_max"] == 30.0
+
+
+def test_iterations_ai_comptent_les_pas_acceptes(capsys):
+    """n_iter de l'AI compte les iterations acceptees (une ligne aiv chacune),
+    pas les points essayes. Le cas ar1 de test_econome essaie trois fois plus
+    de points qu'il ne fait d'iterations."""
+    from test_econome import cas_ar1
+    terms, res, y, X = cas_ar1()
+    r = fit_reml(terms, res, y, X, optimizer="ai", verbose=True, hessian=False, blups=False)
+    lignes = [l for l in capsys.readouterr().out.splitlines() if l.lstrip().startswith("aiv")]
+    assert r["scipy_success"]
+    assert r["n_iter"] == len(lignes)
