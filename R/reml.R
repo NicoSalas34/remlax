@@ -54,7 +54,9 @@ rx_reml <- function(fixed, random = NULL, residual = "units", data,
 .rx_fixed_design <- function(fixed, data) {
   mf <- model.frame(fixed, data, na.action = na.pass)
   y  <- model.response(mf)
-  X  <- model.matrix(fixed, data)
+  # From the frame built with na.pass, not from `data`: model.matrix() would
+  # otherwise apply the global na.action option and drop rows from X only.
+  X  <- model.matrix(attr(mf, "terms"), mf)
   assign <- attr(X, "assign")
   labels <- c("(Intercept)", attr(terms(fixed), "term.labels"))
   attr(X, "termes") <- labels[sort(unique(assign)) + 1L]
@@ -77,8 +79,9 @@ rx_reml <- function(fixed, random = NULL, residual = "units", data,
     y <- y[ok]; X <- X[ok, , drop = FALSE]
     attr(X, "assign") <- fx$assign
     attr(X, "termes") <- fx$labels[sort(unique(fx$assign)) + 1L]
-    if (!is.null(trait)) trait <- trait[ok]
-    if (!is.null(unit))  unit  <- unit[ok]
+    # A column name stays a name; only a vector given row by row is subset.
+    if (length(trait) == length(ok)) trait <- trait[ok]
+    if (length(unit) == length(ok))  unit  <- unit[ok]
   }
   list(data = data, y = y, X = X, trait = trait, unit = unit)
 }
