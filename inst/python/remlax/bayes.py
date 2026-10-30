@@ -371,7 +371,10 @@ def run_sampler(logdens, z_init, warmup, draws, seed=0, target_accept=0.651,
 
 
 def prepare(terms, res, y, X, prior=None):
-    """Resolved prior, with log p(theta) and -2 logL as JAX functions."""
+    """Resolved prior, with log p(theta) and -2 logL as JAX functions. The
+    posterior is evaluated by the dense engine, which needs K."""
+    from .checks import require_K
+    require_K(terms, "voie bayesienne")
     y = np.asarray(y, dtype=np.float64)
     X = np.asarray(X, dtype=np.float64)
     p = _resoudre_prior(prior, terms, res, y, X)

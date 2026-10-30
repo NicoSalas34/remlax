@@ -24,7 +24,7 @@ from .levels import level_params_report
 from .lag import (prepare_lag, lag_n_params, ystar as lag_ystar, lag_terms,
                   lag_report, theta_from_psi)
 from .start import initial_theta, loading_bounds, _range_sweep
-from .checks import validate
+from .checks import validate, require_K
 from .effects import dense_effects
 from .diagnostics import hessian_fd, diagnostic, gradient_diagnostic
 
@@ -300,9 +300,11 @@ def _build_engine(terms, res, y, X, lag, moteur, inversion, memoire, optimizer, 
             return v_ / _sc, g_ / _sc
         eng.fun_sc = fun_sc
     elif eng.engine == "blocs":
+        require_K(terms, "moteur par blocs")
         from .blocs import make_objective_blocks
         eng.fun_sc, eng.fun_jac, eng.sc = make_objective_blocks(eng.plan_blocs)
     else:
+        require_K(terms, "moteur dense")
         _dense_objective(eng, terms, res, y, X, lag, verbose)
     return eng
 

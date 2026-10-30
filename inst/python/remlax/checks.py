@@ -61,3 +61,17 @@ def _check_terms_y_X(terms, y, X, n):
     if np.linalg.matrix_rank(X) < X.shape[1]:
         raise ValueError("X est de rang %d pour %d colonnes."
                          % (np.linalg.matrix_rank(X), X.shape[1]))
+
+
+def require_K(terms, what):
+    """Refuses a term given only by its precision Kinv (pedigree) where the
+    computation needs K itself: the dense engines and the Bayesian route
+    would treat it as K = I, independent levels, without a message. Only the
+    mixed model equations engine uses Kinv."""
+    bad = [tm["name"] for tm in terms if tm.get("Kinv") is not None and tm.get("LK") is None]
+    if bad:
+        raise ValueError(
+            "%s : terme(s) %s donne(s) par leur seule precision Kinv, sans facteur de K. "
+            "Ce calcul a besoin de K et traiterait ces niveaux comme independants. "
+            "Fournir K, ou ajuster par le moteur MME sans voie bayesienne."
+            % (what, ", ".join(bad)))
