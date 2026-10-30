@@ -55,3 +55,17 @@ def test_plancher_mme_seulement_si_le_moteur_reste_mme():
     terms, res, y, X = _dispositif_simple(struct="rr", t=2)
     r = fit_reml(terms, res, y, X, moteur="mme", **kw)
     assert r["moteur"] == "dense" and r["par_floor"] == -12.0
+
+
+def test_grad_rel_identique_avec_et_sans_hessien():
+    """Les deux voies du diagnostic (avec et sans Hessien) rendent le meme
+    grad_rel, y compris quand un parametre a sa borne est pousse vers
+    l'interieur par le gradient : il compte dans les deux."""
+    from remlax.diagnostics import diagnostic, gradient_diagnostic
+    theta = np.array([-12.0, 0.5, 2.0])
+    g = np.array([-30.0, 1e-3, -2e-3])               # le premier pousse vers l'interieur
+    H = np.eye(3)
+    a = diagnostic(H, g, theta, -12.0, 12.0, f_obj=500.0)
+    b = gradient_diagnostic(g, theta, -12.0, 12.0, f_obj=500.0)
+    assert a["grad_rel"] == b["grad_rel"]
+    assert a["grad_proj_max"] == b["grad_proj_max"] == 30.0

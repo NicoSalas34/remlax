@@ -82,28 +82,19 @@ def _free_subspace(theta, floor, ceil, tol_bound, fixed_idx):
 
 
 def gradient_diagnostic(g, theta, floor, ceil, tol_bound=1e-7, fixed_idx=None,
-                        f_obj=None, ech=None):
+                        f_obj=None):
     """The criteria that need only a gradient, already computed; used when
-    the fit is run without Hessian.
-
-    The gradient is taken on the free subspace: a variance held at its bound
-    keeps a non-zero gradient in that direction, and no criterion could ever be
-    met otherwise. Each component is scaled by max(|theta_i|, 1) and the
-    objective by max(|f|, 1)."""
+    the fit is run without Hessian. grad_proj_max and grad_rel are those of
+    diagnostic(): the gradient projected on the admissible cone, so the two
+    routes give the same value at the same point."""
     fixed, free, out = _free_subspace(theta, floor, ceil, tol_bound, fixed_idx)
-    if free.sum() == 0:
+    if free.sum() == 0 or not np.all(np.isfinite(np.asarray(g)[free])):
         return dict(out, grad_proj_max=np.nan, grad_rel=np.nan, conv_grad_rel=None)
-    gf = g[free]
-    if not np.all(np.isfinite(gf)):
-        return dict(out, grad_proj_max=np.nan, grad_rel=np.nan, conv_grad_rel=None)
-    gpm = float(np.max(np.abs(gf)))
-    e = np.maximum(np.abs(theta[free]), 1.0) if ech is None else np.asarray(ech)[free]
-    if f_obj is None or not np.isfinite(f_obj):
-        grad_rel = np.nan
-    else:
-        grad_rel = float(np.max(np.abs(gf) * e) / max(abs(float(f_obj)), 1.0))
+    gpm, grad_rel = _projected_gradient(g, theta, floor, ceil, tol_bound, fixed_idx, fixed,
+                                        f_obj)
     return dict(out, grad_proj_max=gpm, grad_rel=grad_rel,
-                conv_grad_rel=(None if not np.isfinite(grad_rel) else bool(grad_rel < 1e-6)))
+                conv_grad_rel=(None if not np.isfinite(grad_rel)
+                               else bool(grad_rel < GRAD_REL_THRESHOLD)))
 
 
 def diagnostic(H, g, theta, floor, ceil, tol_bound=1e-7, fixed_idx=None, f_obj=None,
