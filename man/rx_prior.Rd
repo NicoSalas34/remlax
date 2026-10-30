@@ -61,6 +61,12 @@ An object of class \code{rx_prior}.
 Priors are placed on the natural scale of each parameter and carried to the
 internal parameters \code{theta} by the Jacobian of the change of variable.
 }
+\section{Experimental}{
+
+The Bayesian route is experimental: it has been used on few data sets so far, and its
+interface may change in a future version without a deprecation period.
+}
+
 \examples{
 rx_prior()
 rx_prior(sd = "half_normal", scale = 1, lkj = 4,

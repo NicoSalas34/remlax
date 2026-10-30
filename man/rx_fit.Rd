@@ -95,7 +95,7 @@ the dense engine (in low memory mode above n = 5000); with
 \code{optimizer = "auto"} it is the fastest combination on the benchmarks against
 kmmr and ASReml-R. \code{"dense"}, \code{"mme"} and \code{"blocks"} select the marginal
 covariance \code{V}, the mixed model equations \code{C}, or \code{V} processed block by
-block. \code{"blocks"} finds by itself the terms that link otherwise
+block (experimental). \code{"blocks"} finds by itself the terms that link otherwise
 independent groups of observations (for instance genetic terms across
 tanks), writes \verb{V = A + U U'} with \code{A} block diagonal, and processes the
 blocks in batches; same likelihood, L-BFGS-B only. Without such a
@@ -107,7 +107,8 @@ a message. The default can be set with \code{options(remlax.engine = )} or the
 environment variable \code{RX_ENGINE}.}
 
 \item{inversion}{with \code{engine = "mme"}: \code{"auto"} (default), \code{"dense"},
-\code{"sparse"} or \code{"hybrid"}; see \code{\link[=rx_fit_mme]{rx_fit_mme()}}. Ignored by the dense engine.}
+\code{"sparse"} or \code{"hybrid"} (experimental); see \code{\link[=rx_fit_mme]{rx_fit_mme()}}. Ignored by
+the dense engine.}
 
 \item{finish}{\code{"newton"} (default: L-BFGS-B to its tolerance, then Newton
 polishing) or \code{"trust"}: L-BFGS-B stops when its gain over the last 100

@@ -312,6 +312,11 @@ Full definitions, positivity constraints and internal parametrisations:
 
 ## Known limitations
 
+- Some features are experimental: they have been used on few data sets, and
+  their interface may change without a deprecation period. They are the
+  Bayesian route (`rx_bayes()`, `rx_prior()`), the spatial lag of the response
+  (`rx_lag()`), the blocks engine (`engine = "blocks"`), the hybrid inversion
+  (`inversion = "hybrid"`), and `rx_scan_loco()` and `rx_scan_exact()`.
 - The dense engine forms `V`. See "What it is not" above.
 - A Python process stays open during the R session. The first fit starts
   it; later fits reuse it, which avoids the start of Python and the import of
@@ -322,11 +327,13 @@ Full definitions, positivity constraints and internal parametrisations:
   per iteration (step adapted to the measured evaluation cost) and the Newton
   polishing prints one line per step. A log with no new line for a long time
   means the current evaluation is long, not that the fit has stalled.
-- CPU fits are bitwise reproducible on one machine; GPU fits are not. On
-  CPU, four independent runs of the same fit on the cluster returned exactly
-  the same log-likelihood. That equality holds for the same binary on the same
-  machine: across jax versions or CPU models the last bit can move (one ulp
-  measured between jax 0.11.2 on two GitHub runners). On GPU, XLA reductions are not deterministic across runs:
+- CPU fits are bitwise reproducible on one machine when the solver uses one
+  core; with several cores they are reproducible to about 1e-13 relative. XLA
+  on CPU does not always sum in the same order across runs: the same dense AI
+  matrix differed by up to 3e-13 in about one run out of six, and never once
+  the process was pinned to one core. Across jax versions or CPU models the
+  last bit can move (one ulp measured between jax 0.11.2 on two GitHub
+  runners). On GPU, XLA reductions are not deterministic across runs:
   measured on an RTX A1000 with jax 0.11.1, two identical fits agree on
   `-2 logL` to 3e-13 but can stop at a `theta` 2e-8 apart, because the
   rounding noise changes which line-search step is accepted and the

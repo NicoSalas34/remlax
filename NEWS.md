@@ -1,5 +1,37 @@
 # remlax (development version)
 
+* Corrections, each with its test:
+  - with prior weights, the Wald tests, Kenward-Roger and the predictions
+    now use the weighted model; their fixed effects, covariance and F were
+    wrong;
+  - `rx_reml()` no longer depends on the global `na.action` option: a
+    missing covariate gave X fewer rows than y and stopped the fit;
+  - `rx_reml()` with `trait` or `unit` given as a column name and
+    incomplete rows kept the name instead of turning it into a vector;
+  - two scans started in the same second no longer share a folder;
+  - a term given only by its precision `Kinv` is refused outside the mixed
+    model equations engine, Bayesian route included, instead of being
+    treated as independent levels;
+  - the variance floor of the mixed model equations engine is raised only
+    when the engine stays in use, and the component table reads the bounds
+    of the fit (a variance at that floor is now coded B);
+  - `grad_rel` has one definition, with or without Hessian;
+  - `n_iter` of the average information optimiser counts accepted
+    iterations, not the steps tried;
+  - the fallback of the selected inversion to its slower NumPy loop is
+    announced;
+  - `rx_residual(level = "sep")`, which could not work, is refused.
+* `rx_fit()` warns when a REML fit did not converge or stopped on a saddle
+  point, and when a posterior sample cannot be used (collapsed step size,
+  nested R-hat above 1.01, ESS under 100, divergences, failed search for the
+  posterior mode).
+* Scan arguments in English: `markers`, `map`, `coding`, `block`, `build`,
+  `K_of`, and `rx_scan_threshold()`. `marqueurs`, `carte`, `codage`, `bloc`,
+  `construire`, `K_de` and `rx_scan_seuil()` still work, with a deprecation
+  warning.
+* The Bayesian route, the spatial lag, the blocks engine, the hybrid
+  inversion, `rx_scan_loco()` and `rx_scan_exact()` are marked experimental.
+
 * CRAN policy. The solver writes its compilation cache in
   `tools::R_user_dir("remlax", "cache")`, pruned of files unused for 30 days,
   or in `tempdir()` during `R CMD check` and with

@@ -110,6 +110,12 @@ through the genetic level, at a cost in precision.
 \strong{Not available} with a lag: the sparse engine, Kenward-Roger, predict and
 the genome scan.
 }
+\section{Experimental}{
+
+The spatial lag of the response is experimental: it has been used on few data sets so far, and its
+interface may change in a future version without a deprecation period.
+}
+
 \examples{
 # 4 x 5 plants, queen neighbourhood, two traits in long format
 co <- expand.grid(c = 1:5, r = 1:4)

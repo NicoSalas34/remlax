@@ -85,6 +85,12 @@ a summary with posterior means, medians, 95 \% credible intervals, split
 R-hat, nested R-hat and effective sample sizes, and sampler diagnostics
 (divergences, acceptance rate, step size, leapfrog steps).
 }
+\section{Experimental}{
+
+The Bayesian route is experimental: it has been used on few data sets so far, and its
+interface may change in a future version without a deprecation period.
+}
+
 \examples{
 \dontshow{if (rx_python_check(quiet = TRUE)$ok && rx_bayes_available()) withAutoprint(\{ # examplesIf}
 \donttest{

@@ -78,6 +78,12 @@ columns \code{X_sup} appended to \code{X}. The relationship matrix can then chan
 without guessing where it enters the model, and the design of the null is
 kept by construction.
 }
+\section{Experimental}{
+
+The leave-one-chromosome-out scan and the exact refit is experimental: it has been used on few data sets so far, and its
+interface may change in a future version without a deprecation period.
+}
+
 \examples{
 \dontrun{
 build <- function(K, X_sup = NULL)

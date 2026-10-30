@@ -224,7 +224,7 @@ NULL
 #'   `optimizer = "auto"` it is the fastest combination on the benchmarks against
 #'   kmmr and ASReml-R. `"dense"`, `"mme"` and `"blocks"` select the marginal
 #'   covariance `V`, the mixed model equations `C`, or `V` processed block by
-#'   block. `"blocks"` finds by itself the terms that link otherwise
+#'   block (experimental). `"blocks"` finds by itself the terms that link otherwise
 #'   independent groups of observations (for instance genetic terms across
 #'   tanks), writes `V = A + U U'` with `A` block diagonal, and processes the
 #'   blocks in batches; same likelihood, L-BFGS-B only. Without such a
@@ -235,7 +235,8 @@ NULL
 #'   a message. The default can be set with `options(remlax.engine = )` or the
 #'   environment variable `RX_ENGINE`.
 #' @param inversion with `engine = "mme"`: `"auto"` (default), `"dense"`,
-#'   `"sparse"` or `"hybrid"`; see [rx_fit_mme()]. Ignored by the dense engine.
+#'   `"sparse"` or `"hybrid"` (experimental); see [rx_fit_mme()]. Ignored by
+#'   the dense engine.
 #' @param finish `"newton"` (default: L-BFGS-B to its tolerance, then Newton
 #'   polishing) or `"trust"`: L-BFGS-B stops when its gain over the last 100
 #'   iterations falls below 0.05 in -2 log L, then a trust-region Newton method
@@ -570,6 +571,9 @@ NULL
 #' rx_lag(W, trait, unit, struct = c("full", "diag", "mask"), mask = NULL,
 #'        init = NULL, value = NULL, emitters = NULL, receivers = NULL,
 #'        criterion = c("reml_y", "jacobian", "ml"))
+#' @section Experimental:
+#' The spatial lag of the response is experimental: it has been used on few data sets so far, and its
+#' interface may change in a future version without a deprecation period.
 #' @name rx_lag
 NULL
 
@@ -1316,6 +1320,9 @@ NULL
 #' rx_scan_exact(res, test, build, K_of, markers, map, incidences,
 #'               top = 10L, loco = TRUE, fit_args = list(), theta_init = NULL,
 #'               verbose = TRUE, ...)
+#' @section Experimental:
+#' The leave-one-chromosome-out scan and the exact refit is experimental: it has been used on few data sets so far, and its
+#' interface may change in a future version without a deprecation period.
 #' @name rx_scan_loco
 #' @aliases rx_scan_exact
 NULL

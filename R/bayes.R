@@ -47,6 +47,9 @@
 #' rx_prior()
 #' rx_prior(sd = "half_normal", scale = 1, lkj = 4,
 #'          terms = list(gid = list(scale = 0.5)))
+#' @section Experimental:
+#' The Bayesian route is experimental: it has been used on few data sets so far, and its
+#' interface may change in a future version without a deprecation period.
 #' @name rx_prior
 rx_prior <- function(sd = c("half_t", "half_normal", "half_cauchy", "inv_gamma", "uniform"),
                      df = 3, scale = NULL, shape = 0.001, rate = 0.001, lkj = 2,
@@ -135,6 +138,9 @@ print.rx_prior <- function(x, ...) {
 #'                verbose = FALSE)
 #' fit$bayes$summary
 #' }
+#' @section Experimental:
+#' The Bayesian route is experimental: it has been used on few data sets so far, and its
+#' interface may change in a future version without a deprecation period.
 #' @name rx_bayes
 rx_bayes <- function(start = c("map", "reml"), chains = NULL, superchains = 4L,
                      warmup = 150L, draws = 150L, seed = 0L,
