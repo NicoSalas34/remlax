@@ -31,7 +31,7 @@
 .rx_mtrn_opts <- function(opt, env = parent.frame()) {
   ev <- function(z) if (is.null(z)) NULL else eval(z, envir = env)
   defaults <- list(phi = NA, nu = 0.5, delta = 1.0, alpha = 0.0)
-  o <- c(lambda = as.numeric(ev(opt$lambda) %||% 2))
+  o <- c(lambda = as.numeric(ev(opt[["lambda"]]) %||% 2))
   if (!o[["lambda"]] %in% c(1, 2))
     stop("mtrn: lambda is 1 (city-block) or 2 (Euclidean), not ", o[["lambda"]], ".")
   for (p in c("phi", "nu", "delta", "alpha")) {

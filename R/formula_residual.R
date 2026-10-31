@@ -51,7 +51,7 @@
   section_factor <- factor(data[[section_var]])
   # Several structures separated by `+` need one group of levels each;
   # otherwise the same structure applies to every level.
-  groups <- if (!is.null(args$levels)) eval(args$levels, envir = data, enclos = env) else NULL
+  groups <- if (!is.null(args[["levels"]])) eval(args[["levels"]], envir = data, enclos = env) else NULL
   if (length(structures) > 1L) {
     if (is.null(groups) || length(groups) != length(structures))
       stop("dsum: ", length(structures), " structures separated by '+' but ",
@@ -227,7 +227,7 @@
       if (!is.null(trait_name) && identical(a1, trait_name)) {
         p$struct <- switch(f, iid = , idv = , id = "iid", diag = , idh = "diag",
                            us = , corgh = "us", fa = "fa")
-        if (!is.null(args$rank)) p$rank <- as.integer(eval(args$rank, env))
+        if (!is.null(args[["rank"]])) p$rank <- as.integer(eval(args[["rank"]], env))
       } else if (!a1 %in% c("units", "")) {
         p$unit_factors <- c(p$unit_factors, a1)
       }
@@ -257,13 +257,13 @@
   positional <- as.list(e)[-1]
   pos_names <- names(positional); if (is.null(pos_names)) pos_names <- rep("", length(positional))
   positional <- positional[pos_names == ""]
-  if (!is.null(args$order)) p$order <- as.integer(eval(args$order, env))
-  if (!is.null(args$coord)) p$coord <- as.matrix(eval(args$coord, envir = data, enclos = env))
+  if (!is.null(args[["order"]])) p$order <- as.integer(eval(args[["order"]], env))
+  if (!is.null(args[["coord"]])) p$coord <- as.matrix(eval(args[["coord"]], envir = data, enclos = env))
   if (f == "mtrn") p$opts <- .rx_mtrn_opts(args, env)
   if (f == "own") {
-    p$expr <- as.character(eval(args$expr, env))
-    p$opts <- c(n_par = as.numeric(eval(args$n_par %||% 1L, env)),
-                normalise = as.numeric(eval(args$normalise %||% TRUE, env)))
+    p$expr <- as.character(eval(args[["expr"]], env))
+    p$opts <- c(n_par = as.numeric(eval(args[["n_par"]] %||% 1L, env)),
+                normalise = as.numeric(eval(args[["normalise"]] %||% TRUE, env)))
   }
   if (f %in% RX_METRIC_2D && length(positional) == 2L && is.null(p$coord)) {
     xv <- eval(positional[[1]], envir = data, enclos = env)

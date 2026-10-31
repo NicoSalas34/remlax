@@ -121,12 +121,17 @@
   if (length(labels) < 2L)
     stop("str(): at least two terms expected, got ", length(labels), ".")
   args <- as.list(e)[-(1:2)]
-  st <- if (!is.null(args$struct)) as.character(eval(args$struct, ctx$env)) else "us"
-  K  <- if (!is.null(args$K)) eval(args$K, envir = ctx$data, enclos = ctx$env) else NULL
-  rk <- if (!is.null(args$rank)) as.integer(eval(args$rank, ctx$env)) else 0L
-  inc <- lapply(labels, function(l) .rx_incidence(str2lang(l), ctx$data, ctx$env))
+  .rx_check_term_args(args, c("struct", "K", "Kinv", "Kinv_logdet", "rank", "name"),
+                      deparse(e)[1])
+  st <- if (!is.null(args[["struct"]])) as.character(eval(args[["struct"]], ctx$env)) else "us"
+  K  <- if (!is.null(args[["K"]])) eval(args[["K"]], envir = ctx$data, enclos = ctx$env) else NULL
+  Kinv <- if (!is.null(args[["Kinv"]])) eval(args[["Kinv"]], envir = ctx$data, enclos = ctx$env) else NULL
+  Kinv_logdet <- if (!is.null(args[["Kinv_logdet"]])) as.numeric(eval(args[["Kinv_logdet"]], ctx$env)) else NULL
+  rk <- if (!is.null(args[["rank"]])) as.integer(eval(args[["rank"]], ctx$env)) else 0L
+  inc <- lapply(labels, function(l)
+    .rx_kinv_levels(Kinv, .rx_incidence(str2lang(l), ctx$data, ctx$env), deparse(e)[1]))
   # Readable name: the names of the incidences (column or mm(name =)).
-  nm <- if (!is.null(args$name)) as.character(args$name) else
+  nm <- if (!is.null(args[["name"]])) as.character(args[["name"]]) else
         paste(vapply(inc, `[[`, "", "nom"), collapse = "_")
   lv0 <- inc[[1]]$levels
   for (k in seq_along(inc)) if (!identical(inc[[k]]$levels, lv0))
@@ -135,7 +140,8 @@
   Zl <- lapply(inc, function(z) if (is.null(z$Z))
     Matrix::sparseMatrix(i = seq_len(ctx$n), j = as.integer(z$f), x = 1,
                          dims = c(ctx$n, z$q)) else methods::as(as.matrix(z$Z), "dgCMatrix"))
-  rx_term(nm, Zl, K = K, struct = st, rank = rk, levels = lv0)
+  rx_term(nm, Zl, K = K, struct = st, rank = rk, levels = lv0,
+          Kinv = Kinv, Kinv_logdet = Kinv_logdet)
 }
 
 # A correlation structure between levels: ar1(f), ar2, ar3, sar, ma1, ma2,
@@ -151,9 +157,9 @@
   pos <- args[arg_names == ""]
   opt <- args[arg_names != ""]
   env <- ctx$env; data <- ctx$data
-  lvl_order <- if (!is.null(opt$order)) as.integer(eval(opt$order, env)) else 0L
-  st    <- if (!is.null(opt$struct)) as.character(eval(opt$struct, env)) else "iid"
-  rk    <- if (!is.null(opt$rank)) as.integer(eval(opt$rank, env)) else 0L
+  lvl_order <- if (!is.null(opt[["order"]])) as.integer(eval(opt[["order"]], env)) else 0L
+  st    <- if (!is.null(opt[["struct"]])) as.character(eval(opt[["struct"]], env)) else "iid"
+  rk    <- if (!is.null(opt[["rank"]])) as.integer(eval(opt[["rank"]], env)) else 0L
   by_trait <- function(codes, q) {
     if (identical(st, "iid")) return(NULL)
     if (is.null(ctx$trait))
@@ -178,8 +184,8 @@
                                             function(a, b) paste(b, a, sep = ":")))))
   }
 
-  co <- if (!is.null(opt$coord))
-    as.matrix(eval(opt$coord, envir = data, enclos = env)) else NULL
+  co <- if (!is.null(opt[["coord"]]))
+    as.matrix(eval(opt[["coord"]], envir = data, enclos = env)) else NULL
   # A 2D metric on two positional arguments, mtrn(x, y): the level is the cell
   # (x, y) and the coordinates follow from the data.
   if (fn %in% RX_METRIC_2D && length(pos) == 2L && is.null(co)) {
@@ -217,10 +223,10 @@
   opts <- NULL; expr <- NULL
   if (fn == "mtrn") opts <- .rx_mtrn_opts(opt, env)
   if (fn == "own") {
-    expr <- as.character(eval(opt$expr, env))
-    npar <- as.integer(eval(opt$n_par %||% 1L, env))
+    expr <- as.character(eval(opt[["expr"]], env))
+    npar <- as.integer(eval(opt[["n_par"]] %||% 1L, env))
     opts <- c(n_par = as.numeric(npar),
-              normalise = as.numeric(eval(opt$normalise %||% TRUE, env)))
+              normalise = as.numeric(eval(opt[["normalise"]] %||% TRUE, env)))
   }
   if (fn == "corg") lvl_order <- z$q
   Zl <- by_trait(as.integer(z$f), z$q)
@@ -238,14 +244,65 @@
 # `trait`. rank defaults to 1.
 .rx_random_multitrait <- function(e, fn, txt, ctx) {
   args <- as.list(e)[-(1:2)]
-  rk <- if (!is.null(args$rank)) as.integer(eval(args$rank, ctx$env)) else 1L
-  K  <- if (!is.null(args$K)) eval(args$K, envir = ctx$data, enclos = ctx$env) else NULL
-  z <- .rx_incidence(e[[2]], ctx$data, ctx$env)
+  .rx_check_term_args(args, c("rank", "K", "Kinv", "Kinv_logdet"), txt)
+  rk <- if (!is.null(args[["rank"]])) as.integer(eval(args[["rank"]], ctx$env)) else 1L
+  K  <- if (!is.null(args[["K"]])) eval(args[["K"]], envir = ctx$data, enclos = ctx$env) else NULL
+  Kinv <- if (!is.null(args[["Kinv"]])) eval(args[["Kinv"]], envir = ctx$data, enclos = ctx$env) else NULL
+  Kinv_logdet <- if (!is.null(args[["Kinv_logdet"]])) as.numeric(eval(args[["Kinv_logdet"]], ctx$env)) else NULL
+  z <- .rx_kinv_levels(Kinv, .rx_incidence(e[[2]], ctx$data, ctx$env), txt)
   if (is.null(ctx$trait))
     stop("term '", txt, "': structure '", fn, "' is multi-trait, but ",
          "no `trait` was given to rx_reml().")
   rx_term(z$nom, .rx_split_by_trait(as.integer(z$f), z$q, ctx), K = K, struct = fn,
-          rank = rk, levels = z$levels)
+          rank = rk, levels = z$levels, Kinv = Kinv, Kinv_logdet = Kinv_logdet)
+}
+
+# Named arguments of a term, checked against the names it accepts. An unknown
+# name (a typo, or Kinv where only K was read) would otherwise be dropped
+# without a word, and the term fitted without the matrix it was given.
+.rx_check_term_args <- function(args, allowed, txt, n_positional = 0L) {
+  nm <- names(args); if (is.null(nm)) nm <- rep("", length(args))
+  bad <- setdiff(nm[nzchar(nm)], allowed)
+  if (length(bad))
+    stop("term '", txt, "': unknown argument(s) ", paste(bad, collapse = ", "),
+         ". Accepted: ", paste(allowed, collapse = ", "), ".", call. = FALSE)
+  if (sum(!nzchar(nm)) > n_positional)
+    stop("term '", txt, "': too many unnamed arguments.", call. = FALSE)
+  invisible(NULL)
+}
+
+# A precision Kinv between levels (a pedigree inverse, for example). Its rows
+# carry every level of the relationship, ancestors without a record included:
+# an inverse cannot be cut down to the levels present, so the factor takes the
+# levels of Kinv, in its order. Without row names, Kinv must have exactly one
+# row per level of the factor.
+.rx_kinv_levels <- function(Kinv, z, txt) {
+  if (is.null(Kinv)) return(z)
+  rn <- rownames(Kinv)
+  if (is.null(z$f)) {
+    if (nrow(Kinv) != z$q)
+      stop("term '", txt, "': Kinv is ", nrow(Kinv), "x", ncol(Kinv), " but the ",
+           "incidence has ", z$q, " columns.", call. = FALSE)
+    if (!is.null(rn) && !identical(rn, z$levels))
+      stop("term '", txt, "': the row names of Kinv differ from the column names ",
+           "of the incidence.", call. = FALSE)
+    return(z)
+  }
+  if (is.null(rn)) {
+    if (nrow(Kinv) != z$q)
+      stop("term '", txt, "': Kinv has ", nrow(Kinv), " rows and no names, but ",
+           "the factor has ", z$q, " levels. Name the rows of Kinv.", call. = FALSE)
+    return(z)
+  }
+  if (!is.null(colnames(Kinv)) && !identical(colnames(Kinv), rn))
+    stop("term '", txt, "': Kinv must have the same row and column names.", call. = FALSE)
+  miss <- setdiff(levels(droplevels(z$f)), rn)
+  if (length(miss))
+    stop("term '", txt, "': ", length(miss), " level(s) missing from Kinv (e.g. ",
+         paste(head(miss, 3), collapse = ", "), ").", call. = FALSE)
+  z$f <- factor(as.character(z$f), levels = rn)
+  z$levels <- rn; z$q <- length(rn)
+  z
 }
 
 # iid, vm, diag, us, fa and mm. vm(f, K) takes K as its second positional
@@ -255,11 +312,16 @@
   args <- if (is.name(e)) list() else as.list(e)[-(1:2)]
   struct <- switch(fn, iid = "iid", vm = "iid", mm = "iid",
                    diag = "diag", us = "us", fa = "fa")
-  if (!is.null(args$struct)) struct <- as.character(eval(args$struct, env))
-  K <- if (!is.null(args$K)) eval(args$K, envir = data, enclos = env) else
+  if (!is.null(args[["struct"]])) struct <- as.character(eval(args[["struct"]], env))
+  .rx_check_term_args(args, if (fn == "mm") c("name", "K", "struct") else
+                       c("K", "Kinv", "Kinv_logdet", "struct", "rank"), txt,
+                     n_positional = if (fn == "vm") 1L else 0L)
+  K <- if (!is.null(args[["K"]])) eval(args[["K"]], envir = data, enclos = env) else
        if (fn == "vm" && length(args) >= 1L && (is.null(names(args)) || !nzchar(names(args)[1])))
          eval(args[[1]], envir = data, enclos = env) else NULL
-  rank <- if (!is.null(args$rank)) as.integer(eval(args$rank, env)) else 0L
+  Kinv <- if (!is.null(args[["Kinv"]])) eval(args[["Kinv"]], envir = data, enclos = env) else NULL
+  Kinv_logdet <- if (!is.null(args[["Kinv_logdet"]])) as.numeric(eval(args[["Kinv_logdet"]], env)) else NULL
+  rank <- if (!is.null(args[["rank"]])) as.integer(eval(args[["rank"]], env)) else 0L
 
   if (fn == "mm") {
     z <- .rx_incidence(e, data, env)
@@ -273,11 +335,18 @@
 
   # A bare name (~ g) has no e[[2]].
   z <- .rx_incidence(if (is.name(e)) e else e[[2]], data, env)
+  z <- .rx_kinv_levels(Kinv, z, txt)
   if (struct == "iid")
-    return(rx_term(z$nom, z$f, K = K, struct = "iid", levels = z$levels))
+    # With Kinv the factor keeps levels without records (ancestors): it goes
+    # as a matrix, since rx_term() would rebuild it and drop those levels.
+    return(rx_term(z$nom, if (is.null(z$f)) list(z$Z) else if (is.null(Kinv)) z$f else
+                     list(Matrix::sparseMatrix(i = seq_len(ctx$n), j = as.integer(z$f), x = 1,
+                                               dims = c(ctx$n, z$q))),
+                   K = K, struct = "iid",
+                   levels = z$levels, Kinv = Kinv, Kinv_logdet = Kinv_logdet))
   if (is.null(ctx$trait))
     stop("term '", txt, "': structure '", struct,
          "' is multi-trait, but no `trait` was given to rx_reml().")
   rx_term(z$nom, .rx_split_by_trait(as.integer(z$f), z$q, ctx), K = K, struct = struct,
-          rank = rank, levels = z$levels)
+          rank = rank, levels = z$levels, Kinv = Kinv, Kinv_logdet = Kinv_logdet)
 }

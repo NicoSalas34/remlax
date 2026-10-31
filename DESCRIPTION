@@ -1,7 +1,7 @@
 Package: remlax
 Type: Package
 Title: Generic, Differentiable REML Solver for Linear Mixed Models
-Version: 0.2.0
+Version: 0.2.0.9000
 Authors@R: person(given = "Nicolas", family = "Salas",
                   email = "nicolas.salas@supagro.fr",
                   role = c("aut", "cre"))

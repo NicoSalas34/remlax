@@ -54,6 +54,7 @@ and `q` the number of levels of the grouping factor.
 | `f` (bare name) | `s2` | 1 | no |
 | `iid(f)` | `s2` | 1 | no |
 | `vm(f, K)` or `vm(f, K = K)` | `s2`, relationship `K` | 1 | no |
+| `vm(f, Kinv = Ki)` | `s2`, relationship given by its inverse | 1 | no |
 | `mm(Z)` | `s2`, supplied incidence | 1 | no |
 | `diag(f)` | `diag(s2_j)` | `w` | yes |
 | `us(f)` | free symmetric PD | `w(w+1)/2` | yes |
@@ -65,7 +66,11 @@ and `q` the number of levels of the grouping factor.
 | `str(~ a + b, struct = )` | one covariance for several terms | depends on `struct` | no |
 
 `K =` is accepted by all of them: `us(gid, K = Kmat)` is a multi-trait model
-with a relationship matrix. `rank =` only means something for `fa`, `rr`,
+with a relationship matrix. `Kinv =` gives the relationship by its sparse
+inverse instead, as a pedigree inverse usually comes (`nadiv::makeAinv()`,
+`pedigreemm::getAInv()`). The factor then takes the levels of `Kinv`, matched
+by name, so ancestors without a record keep their place and get a BLUP; the
+fit needs `engine = "mme"`. An unknown argument name is an error. `rank =` only means something for `fa`, `rr`,
 `chol` and `ante`. `mm()` accepts `name =` to control the output key.
 
 `diag`, `us`, `fa`, `rr`, `chol`, `ante` and `corh` require `trait =` on

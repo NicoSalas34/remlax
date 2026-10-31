@@ -1,3 +1,17 @@
+# remlax (development version)
+
+* A relationship given by its precision in the formula, `vm(id, Kinv = Ai)`
+  (a pedigree inverse from nadiv or `getAInv()`, for example), is now read
+  as a precision. Before, the formula read only `K`: `Kinv` was taken for
+  `K` by partial matching, so a pedigree inverse served as the relationship
+  matrix itself, without any message. The factor takes the levels of `Kinv`
+  (ancestors without records included, aligned by name) and the fit needs
+  `engine = "mme"`. Also accepted by `us()`, `diag()`, `fa()`, `rr()`,
+  `chol()`, `ante()`, `corh()` and `str()`, with `Kinv_logdet`.
+* An unknown argument of a random term (`vm(id, Kinverse = Ai)`) is refused
+  with the list of accepted names, instead of being dropped. The arguments of
+  the formula terms are matched exactly.
+
 # remlax 0.2.0
 
 * Corrections, each with its test:
