@@ -100,50 +100,59 @@ rx_scan <- function(fit, model, markers, map = NULL,
 # one term with t = 2), so "term:a" names the a-th; it is required when t > 1,
 # since guessing would give the direct effect the neighbour incidence.
 .rx_scan_incidences <- function(model, incidences) {
-  term_names <- vapply(model$terms, `[[`, "", "name")
   Z <- list()
   for (fam in names(incidences)) {
     if (!fam %in% c("dir", "ind"))
       stop("incidences: unknown name '", fam, "'. Expected 'dir' and/or 'ind'.",
            call. = FALSE)
-    x <- incidences[[fam]]
-    if (is.matrix(x) || inherits(x, "Matrix")) {
-      # A matrix given directly: the neighbour weights of the `sim` family
-      # when the null model has no neighbour term (Neighbor GWAS of Sato).
-      if (nrow(x) != model$n)
-        stop("incidences['", fam, "']: a matrix with ", nrow(x), " rows, the model has ",
-             model$n, ".", call. = FALSE)
-      Z[[fam]] <- x
-      next
-    }
-    ref <- .rx_parse_term_ref(x)
-    spec <- ref$name; a <- ref$index
-    if (is.na(a)) stop("incidences['", fam, "']: after ':' an integer is needed, ",
-                       "the index of the column of the term.", call. = FALSE)
-    k <- match(spec, term_names)
-    if (is.na(k))
-      stop("incidences['", fam, "'] = '", spec,
-           "': this term is not in the model. Available terms: ",
-           paste(term_names, collapse = ", "), call. = FALSE)
-    tm <- model$terms[[k]]
-    if (!ref$indexed && .rx_scan_multitrait_term(model, tm)) {
-      # A multi-trait term: one incidence per trait, each on the rows of its
-      # trait. The family gets them all (one SNP effect per trait).
-      Z[[fam]] <- tm$Zl
-      next
-    }
-    if (tm$t > 1L && !ref$indexed)
-      stop("term '", tm$name, "' carries t = ", tm$t, " incidences. Say ",
-           "which one: incidences['", fam, "'] = \"", spec, ":1\" for the ",
-           "first. Guessing the index would silently give the direct effect ",
-           "the neighbour incidence.", call. = FALSE)
-    if (a < 1L || a > tm$t)
-      stop("incidences['", fam, "']: index ", a, " outside 1..", tm$t,
-           " for the term '", tm$name, "'.", call. = FALSE)
-    Z[[fam]] <- tm$Zl[[a]]
+    Z[[fam]] <- .rx_scan_family_incidence(model, fam, incidences[[fam]])
   }
   if (!length(Z)) stop("incidences is empty.", call. = FALSE)
   Z
+}
+
+# The incidence of one family: a matrix given directly (neighbour weights of
+# the Neighbor GWAS of Sato), the per-trait incidences of a multi-trait term,
+# or the a-th incidence of a term ("term:a", required when t > 1).
+.rx_scan_family_incidence <- function(model, fam, x) {
+  if (is.matrix(x) || inherits(x, "Matrix")) {
+    if (nrow(x) != model$n)
+      stop("incidences['", fam, "']: a matrix with ", nrow(x), " rows, the model has ",
+           model$n, ".", call. = FALSE)
+    return(x)
+  }
+  ref <- .rx_parse_term_ref(x)
+  tm <- .rx_scan_term(model, fam, ref)
+  if (!ref$indexed && .rx_scan_multitrait_term(model, tm)) return(tm$Zl)
+  .rx_scan_check_index(fam, tm, ref)
+  tm$Zl[[ref$index]]
+}
+
+# "term:a" is required when a term carries t > 1 incidences, since guessing
+# would give the direct effect the neighbour incidence; a must be in 1..t.
+.rx_scan_check_index <- function(fam, tm, ref) {
+  if (tm$t > 1L && !ref$indexed)
+    stop("term '", tm$name, "' carries t = ", tm$t, " incidences. Say ",
+         "which one: incidences['", fam, "'] = \"", ref$name, ":1\" for the ",
+         "first. Guessing the index would silently give the direct effect ",
+         "the neighbour incidence.", call. = FALSE)
+  if (ref$index < 1L || ref$index > tm$t)
+    stop("incidences['", fam, "']: index ", ref$index, " outside 1..", tm$t,
+         " for the term '", tm$name, "'.", call. = FALSE)
+  invisible(NULL)
+}
+
+# The term named by a parsed reference, with the errors of a bad name.
+.rx_scan_term <- function(model, fam, ref) {
+  if (is.na(ref$index)) stop("incidences['", fam, "']: after ':' an integer is needed, ",
+                             "the index of the column of the term.", call. = FALSE)
+  term_names <- vapply(model$terms, `[[`, "", "name")
+  k <- match(ref$name, term_names)
+  if (is.na(k))
+    stop("incidences['", fam, "'] = '", ref$name,
+         "': this term is not in the model. Available terms: ",
+         paste(term_names, collapse = ", "), call. = FALSE)
+  model$terms[[k]]
 }
 
 # TRUE when the term is a multi-trait term of the model: as many incidences
@@ -211,41 +220,55 @@ rx_scan <- function(fit, model, markers, map = NULL,
   shared <- length(fams) < 2 ||
     (identical(dim(markers[[fams[1]]]), dim(markers[[fams[2]]])) &&
        identical(markers[[fams[1]]], markers[[fams[2]]]))
-  meta <- list(p = p)
-  put_coo <- function(Zm, pre) {
-    S <- methods::as(methods::as(Zm, "CsparseMatrix"), "TsparseMatrix")
-    .rx_put(w, paste0(pre, "_zi"), S@i, "i4")
-    .rx_put(w, paste0(pre, "_zj"), S@j, "i4")
-    .rx_put(w, paste0(pre, "_zx"), S@x)
-  }
-  # Multi-trait model: the trait of each row, as 0-based codes, and the names.
-  tr <- model$residual$trait
-  if (!is.null(tr) && nlevels(as.factor(tr)) > 1L) {
-    tr <- as.factor(tr)
-    .rx_put(w, "scan_trait", as.integer(tr) - 1L, "i4")
-    .rx_put(w, "scan_traits", levels(tr), "str")
-    meta$T <- nlevels(tr)
-  }
+  meta <- c(list(p = p), .rx_scan_write_traits(w, model))
   for (fam in fams) {
-    pre <- paste0("scan_", fam)
-    if (is.list(Z[[fam]])) {
-      for (k in seq_along(Z[[fam]])) put_coo(Z[[fam]][[k]], paste0(pre, "_t", k - 1L))
-      meta[[paste0("T_", fam)]] <- length(Z[[fam]])
-    } else put_coo(Z[[fam]], pre)
-    meta[[paste0("q_", fam)]] <- .rx_scan_q(Z[[fam]])
+    meta <- c(meta, .rx_scan_write_incidence(w, fam, Z[[fam]]))
     if (!shared) .rx_put(w, paste0("scan_M", fam), markers[[fam]])
   }
   if (shared) .rx_put(w, "scan_M", markers[[fams[1]]])
   .rx_put(w, "scan_keep", as.integer(keep_snp), "i4")
+  .rx_scan_write_map(w, map, colnames(markers[[fams[1]]]))
+  writeLines(jsonlite::toJSON(list(arrays = w$manifest, meta = meta), auto_unbox = TRUE),
+             file.path(dir, "scan_manifest.json"))
+}
+
+# Multi-trait model: the trait of each row (0-based codes) and the names.
+.rx_scan_write_traits <- function(w, model) {
+  tr <- model$residual$trait
+  if (is.null(tr) || nlevels(as.factor(tr)) < 2L) return(list())
+  tr <- as.factor(tr)
+  .rx_put(w, "scan_trait", as.integer(tr) - 1L, "i4")
+  .rx_put(w, "scan_traits", levels(tr), "str")
+  list(T = nlevels(tr))
+}
+
+# One family incidence in COO triplets (one set per trait for a list).
+.rx_scan_write_incidence <- function(w, fam, Zf) {
+  pre <- paste0("scan_", fam)
+  put_coo <- function(Zm, pr) {
+    S <- methods::as(methods::as(Zm, "CsparseMatrix"), "TsparseMatrix")
+    .rx_put(w, paste0(pr, "_zi"), S@i, "i4")
+    .rx_put(w, paste0(pr, "_zj"), S@j, "i4")
+    .rx_put(w, paste0(pr, "_zx"), S@x)
+  }
+  meta <- list()
+  if (is.list(Zf)) {
+    for (k in seq_along(Zf)) put_coo(Zf[[k]], paste0(pre, "_t", k - 1L))
+    meta[[paste0("T_", fam)]] <- length(Zf)
+  } else put_coo(Zf, pre)
+  meta[[paste0("q_", fam)]] <- .rx_scan_q(Zf)
+  meta
+}
+
+# SNP names, chromosomes and positions.
+.rx_scan_write_map <- function(w, map, snp_names) {
   if (!is.null(map)) {
     if (!is.null(map$snp)) .rx_put(w, "scan_snp", map$snp, "str")
     if (!is.null(map$chr)) .rx_put(w, "scan_chr", map$chr, "str")
     if (!is.null(map$pos)) .rx_put(w, "scan_pos", as.double(map$pos))
-  } else if (!is.null(colnames(markers[[names(Z)[1]]]))) {
-    .rx_put(w, "scan_snp", colnames(markers[[names(Z)[1]]]), "str")
+  } else if (!is.null(snp_names)) {
+    .rx_put(w, "scan_snp", snp_names, "str")
   }
-  writeLines(jsonlite::toJSON(list(arrays = w$manifest, meta = meta), auto_unbox = TRUE),
-             file.path(dir, "scan_manifest.json"))
 }
 
 # Bonferroni threshold over the SNPs actually tested.

@@ -123,6 +123,34 @@ rx_neighbor_gwas <- function(data, traits, plant, markers, W, fixed = ~ 1,
   if (is.null(kin)) kin <- rx_neighbor_kinship(markers, W)
   K1 <- kin$K1; K2 <- kin$K2; dimnames(K1) <- dimnames(K2) <- list(ids, ids)
   T <- length(traits)
+  long <- .rx_neighbor_long(data, traits, plant, ids)
+  fm <- .rx_neighbor_formulas(T, fixed, struct, environment())
+  args0 <- c(list(fixed = fm$fixed, residual = fm$residual, data = long, verbose = FALSE),
+             if (T > 1L) list(trait = ".trait", unit = ".unit"), fit_args)
+  fit <- do.call(rx_reml, c(list(random = fm$full), args0))
+  only_dir <- vapply(tests, function(t) all(.rx_scan_test_families(t) == "dir"), TRUE)
+  fit_self <- if (self_null == "K1" && any(only_dir))
+    do.call(rx_reml, c(list(random = fm$self), args0))
+  # Row-level neighbour incidence for the `sim` family: the weights of the
+  # plant of each row, over the plants (columns = levels of .plant).
+  Zn <- W[as.integer(long$.plant), , drop = FALSE]
+  run <- function(f, tt) {
+    inc <- if (any(.rx_scan_test_families(tt) != "dir")) list(dir = ".plant", ind = Zn)
+           else list(dir = ".plant")
+    rx_scan(f, f$model, markers = as.matrix(markers), incidences = inc, tests = tt,
+            maf = maf, verbose = verbose, backend = fit_args$backend %||% "auto")
+  }
+  out <- if (!is.null(fit_self)) {
+    o <- run(fit_self, tests[only_dir])
+    if (any(!only_dir)) { r2 <- run(fit, tests[!only_dir]); o <- cbind(o, r2[setdiff(names(r2), names(o))]) }
+    o
+  } else run(fit, tests)
+  c(list(scan = out, fit = fit, fit_self = fit_self), .rx_neighbor_shares(fit, traits, K1, K2),
+    list(K1 = K1, K2 = K2))
+}
+
+# Long format, one row per plant x trait, plants in the order of `ids`.
+.rx_neighbor_long <- function(data, traits, plant, ids) {
   long <- do.call(rbind, lapply(traits, function(tr) {
     d <- data; d$.y <- d[[tr]]; d$.trait <- tr; d
   }))
@@ -130,61 +158,39 @@ rx_neighbor_gwas <- function(data, traits, plant, markers, W, fixed = ~ 1,
   long$.plant <- factor(as.character(long[[plant]]), levels = ids)
   long$.plantN <- long$.plant
   long$.unit <- long$.plant
-  long <- long[order(long$.plant, long$.trait), ]
+  long[order(long$.plant, long$.trait), ]
+}
+
+# Fixed, random (K1 + K2, and K1 alone) and residual formulas; K1 and K2 are
+# looked up in `env`.
+.rx_neighbor_formulas <- function(T, fixed, struct, env) {
   rhs <- paste(deparse(fixed[[length(fixed)]]), collapse = " ")
   fx <- stats::as.formula(
     if (T == 1L) paste(".y ~", rhs)
     else if (rhs == "1") ".y ~ .trait"
     else paste0(".y ~ .trait + .trait:(", rhs, ")"))
-  st <- if (T > 1L) struct else "iid"
-  rnd_full <- if (T > 1L)
-    stats::as.formula(sprintf("~ %s(.plant, K = K1) + %s(.plantN, K = K2)", st, st))
-    else ~ vm(.plant, K = K1) + vm(.plantN, K = K2)
-  rnd_self <- if (T > 1L) stats::as.formula(sprintf("~ %s(.plant, K = K1)", st)) else ~ vm(.plant, K = K1)
-  res_f <- if (T > 1L) stats::as.formula(sprintf("~ %s(.trait):units", st)) else "units"
-  env <- environment()
-  environment(rnd_full) <- env; environment(rnd_self) <- env
-  args0 <- c(list(fixed = fx, residual = res_f, data = long, verbose = FALSE),
-             if (T > 1L) list(trait = ".trait", unit = ".unit"), fit_args)
-  fit <- do.call(rx_reml, c(list(random = rnd_full), args0))
-  # Row-level neighbour incidence for the `sim` family: the weights of the
-  # plant of each row, over the plants (columns = levels of .plant).
-  Zn <- W[as.integer(long$.plant), , drop = FALSE]
-  only_dir <- vapply(tests, function(t) all(.rx_scan_test_families(t) == "dir"), TRUE)
-  fit_self <- NULL
-  if (self_null == "K1" && any(only_dir))
-    fit_self <- do.call(rx_reml, c(list(random = rnd_self), args0))
-  M <- as.matrix(markers)
-  run <- function(f, tt) {
-    inc <- if (any(.rx_scan_test_families(tt) != "dir")) list(dir = ".plant", ind = Zn)
-           else list(dir = ".plant")
-    rx_scan(f, f$model, markers = M, incidences = inc, tests = tt, maf = maf,
-            verbose = verbose, backend = fit_args$backend %||% "auto")
-  }
-  out <- NULL
-  if (self_null == "K1" && any(only_dir)) {
-    out <- run(fit_self, tests[only_dir])
-    if (any(!only_dir)) {
-      r2 <- run(fit, tests[!only_dir])
-      add <- setdiff(names(r2), names(out))
-      out <- cbind(out, r2[add])
-    }
-  } else out <- run(fit, tests)
-  S1 <- fit$sigmas$.plant; S2 <- fit$sigmas$.plantN; Se <- fit$sigma_res
-  tot <- diag(as.matrix(S1)) + diag(as.matrix(S2)) + diag(as.matrix(Se))
-  # pve: the definition of rNeighborGWAS (variance parameters over their sum).
-  # share: each parameter times the mean diagonal of its matrix, which is the
-  # expected variance contribution per plant; K2 has a small diagonal when the
-  # neighbours are few, and the raw ratio then overstates the neighbour term.
-  v1 <- diag(as.matrix(S1)) * mean(diag(K1)); v2 <- diag(as.matrix(S2)) * mean(diag(K2))
-  ve <- diag(as.matrix(Se)); vt <- v1 + v2 + ve
-  pve <- data.frame(trait = traits, self = diag(as.matrix(S1)) / tot,
-                    neighbour = diag(as.matrix(S2)) / tot, residual = diag(as.matrix(Se)) / tot,
-                    share_self = v1 / vt, share_neighbour = v2 / vt, share_residual = ve / vt)
-  list(scan = out, fit = fit, fit_self = fit_self, pve = pve,
-       cor_self = if (T > 1L) stats::cov2cor(as.matrix(S1)) else NULL,
-       cor_neighbour = if (T > 1L) stats::cov2cor(as.matrix(S2)) else NULL,
-       K1 = K1, K2 = K2)
+  st <- if (T > 1L) struct else "vm"
+  full <- stats::as.formula(sprintf("~ %s(.plant, K = K1) + %s(.plantN, K = K2)", st, st), env = env)
+  self <- stats::as.formula(sprintf("~ %s(.plant, K = K1)", st), env = env)
+  list(fixed = fx, full = full, self = self,
+       residual = if (T > 1L) stats::as.formula(sprintf("~ %s(.trait):units", struct)) else "units")
+}
+
+# pve: the definition of rNeighborGWAS (variance parameters over their sum).
+# share: each parameter times the mean diagonal of its matrix, the expected
+# variance contribution per plant; K2 has a small diagonal when the neighbours
+# are few, and the raw ratio then overstates the neighbour term. Correlations
+# between traits of the self and neighbour terms with several traits.
+.rx_neighbor_shares <- function(fit, traits, K1, K2) {
+  S1 <- as.matrix(fit$sigmas$.plant); S2 <- as.matrix(fit$sigmas$.plantN)
+  Se <- as.matrix(fit$sigma_res)
+  tot <- diag(S1) + diag(S2) + diag(Se)
+  v1 <- diag(S1) * mean(diag(K1)); v2 <- diag(S2) * mean(diag(K2)); vt <- v1 + v2 + diag(Se)
+  list(pve = data.frame(trait = traits, self = diag(S1) / tot, neighbour = diag(S2) / tot,
+                        residual = diag(Se) / tot, share_self = v1 / vt,
+                        share_neighbour = v2 / vt, share_residual = diag(Se) / vt),
+       cor_self = if (length(traits) > 1L) stats::cov2cor(S1),
+       cor_neighbour = if (length(traits) > 1L) stats::cov2cor(S2))
 }
 
 # Families named by a scan test ("sim@het|dir" -> c("sim", "dir")).

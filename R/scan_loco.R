@@ -64,23 +64,15 @@ rx_scan_exact <- function(res, test, build, K_of, markers, map, incidences,
                    c(construire = "build", K_de = "K_of", marqueurs = "markers", carte = "map"),
                    "rx_scan_exact")
   col <- paste0("p_", test)
-  if (is.null(res[[col]])) stop("column '", col, "' is missing from `res`.", call. = FALSE)
-  if (is.null(res$snp)) stop("`res` must have the column `snp`.", call. = FALSE)
-  ord <- order(res[[col]])
-  ord <- ord[is.finite(res[[col]][ord])][seq_len(min(top, sum(is.finite(res[[col]]))))]
+  ord <- .rx_scan_top(res, col, top)
   K_all <- if (!loco) K_of(markers) else NULL
   m0 <- build(if (loco) K_of(markers) else K_all)
-  tr <- m0$residual$trait
-  traits <- if (!is.null(tr) && nlevels(as.factor(tr)) > 1L) levels(as.factor(tr)) else ""
-  trait_codes <- if (length(traits) > 1L) as.integer(as.factor(tr)) else rep(1L, m0$n)
+  tc <- .rx_scan_trait_codes(m0)
+  traits <- tc$traits; trait_codes <- tc$codes
   des <- .rx_scan_design(test, traits)
   fams <- unique(vapply(des$cols, `[[`, "", "fam"))
   lin_fams <- union(intersect(fams, c("dir", "ind")), if ("sim" %in% fams) c("dir", "ind"))
-  Zf <- lapply(stats::setNames(lin_fams, lin_fams), function(f) {
-    if (!f %in% names(incidences))
-      stop("rx_scan_exact: the test needs the incidence '", f, "'.", call. = FALSE)
-    .rx_scan_full_incidence(m0, incidences[[f]])
-  })
+  Zf <- .rx_scan_exact_incidences(m0, incidences, lin_fams)
   # K without a chromosome, computed once per chromosome.
   K_cache <- new.env(parent = emptyenv())
   K_for <- function(cc) {
@@ -89,19 +81,50 @@ rx_scan_exact <- function(res, test, build, K_of, markers, map, incidences,
     K_cache[[cc]]
   }
   rows <- lapply(ord, function(i) {
-    snp <- res$snp[i]; j <- match(snp, map$snp)
-    if (is.na(j)) j <- match(snp, colnames(markers))
+    j <- .rx_scan_marker_index(res$snp[i], map, markers)
     K <- if (loco) K_for(as.character(map$chr[j])) else K_all
     out <- .rx_refit_snp(build, K, Zf, des, trait_codes, markers[, j], fit_args, theta_init)
-    out <- cbind(data.frame(snp = snp, chr = map$chr[j],
+    out <- cbind(data.frame(snp = res$snp[i], chr = map$chr[j],
                             pos = if (!is.null(map$pos)) map$pos[j] else NA,
                             p_fixed_V = res[[col]][i]), out)
-    if (verbose) message(sprintf("  rx_scan_exact: %s  p fixed V %.2e  p exact %.2e", snp, out$p_fixed_V, out$p_exact))
+    if (verbose) message(sprintf("  rx_scan_exact: %s  p fixed V %.2e  p exact %.2e",
+                                 res$snp[i], out$p_fixed_V, out$p_exact))
     out
   })
   out <- do.call(rbind, rows); rownames(out) <- NULL
   attr(out, "test") <- test
   out
+}
+
+# Trait names and 1-based codes of the rows ("" and 1 for one trait).
+.rx_scan_trait_codes <- function(model) {
+  tr <- model$residual$trait
+  if (is.null(tr) || nlevels(as.factor(tr)) < 2L) return(list(traits = "", codes = rep(1L, model$n)))
+  list(traits = levels(as.factor(tr)), codes = as.integer(as.factor(tr)))
+}
+
+# Column of a SNP in the dose matrix, by the map or by the column names.
+.rx_scan_marker_index <- function(snp, map, markers) {
+  j <- match(snp, map$snp)
+  if (is.na(j)) j <- match(snp, colnames(markers))
+  j
+}
+
+# Rows of the `top` smallest finite p-values of a scan column.
+.rx_scan_top <- function(res, col, top) {
+  if (is.null(res[[col]])) stop("column '", col, "' is missing from `res`.", call. = FALSE)
+  if (is.null(res$snp)) stop("`res` must have the column `snp`.", call. = FALSE)
+  ord <- order(res[[col]])
+  ord[is.finite(res[[col]][ord])][seq_len(min(top, sum(is.finite(res[[col]]))))]
+}
+
+# Full-height incidences of the families a refit needs.
+.rx_scan_exact_incidences <- function(model, incidences, fams) {
+  lapply(stats::setNames(fams, fams), function(f) {
+    if (!f %in% names(incidences))
+      stop("rx_scan_exact: the test needs the incidence '", f, "'.", call. = FALSE)
+    .rx_scan_full_incidence(model, incidences[[f]])
+  })
 }
 
 # Model columns and tested hypothesis of a scan test, the R mirror of
@@ -111,50 +134,66 @@ rx_scan_exact <- function(res, test, build, K_of, markers, map, incidences,
 .rx_scan_design <- function(test, traits) {
   T <- length(traits)
   parts <- strsplit(test, "|", fixed = TRUE)[[1]]
-  items <- function(x) if (is.na(x) || !nzchar(trimws(x))) list() else
-    lapply(strsplit(x, "+", fixed = TRUE)[[1]], function(it) {
-      it <- trimws(it)
-      m <- regmatches(it, regexec("^(dir|ind|sim)(\\[([^]]*)\\])?(@(common|het))?$", it))[[1]]
-      if (!length(m)) stop("test '", test, "': cannot read '", it, "'.", call. = FALSE)
-      tr <- if (nzchar(m[3])) trimws(strsplit(m[4], ",", fixed = TRUE)[[1]]) else NULL
-      list(fam = m[2], traits = tr, mod = if (nzchar(m[6])) m[6] else NULL)
-    })
-  tested <- items(parts[1]); cond <- items(parts[2])
+  tested <- .rx_scan_items(parts[1], test); cond <- .rx_scan_items(parts[2], test)
+  mc <- .rx_scan_model_columns(c(tested, cond), T)
+  m <- length(mc$cols)
+  hyp <- lapply(tested, .rx_scan_hypothesis, where = mc$where, m = m, traits = traits,
+                test = test)
+  list(cols = mc$cols, L = do.call(rbind, unlist(lapply(hyp, `[[`, "rows"), recursive = FALSE)),
+       labels = unlist(lapply(hyp, `[[`, "labels")))
+}
+
+# Items of one side of a test: list(fam, traits or NULL, mod or NULL).
+.rx_scan_items <- function(x, test) {
+  if (is.na(x) || !nzchar(trimws(x))) return(list())
+  lapply(strsplit(x, "+", fixed = TRUE)[[1]], function(it) {
+    it <- trimws(it)
+    m <- regmatches(it, regexec("^(dir|ind|sim)(\\[([^]]*)\\])?(@(common|het))?$", it))[[1]]
+    if (!length(m)) stop("test '", test, "': cannot read '", it, "'.", call. = FALSE)
+    list(fam = m[2], traits = if (nzchar(m[3])) trimws(strsplit(m[4], ",", fixed = TRUE)[[1]]),
+         mod = if (nzchar(m[6])) m[6])
+  })
+}
+
+# Model columns in order of appearance: T per family, or one common column.
+.rx_scan_model_columns <- function(items, T) {
   cols <- list(); where <- list()
-  for (it in c(tested, cond)) {
+  for (it in items) {
     mode <- if (identical(it$mod, "common")) "common" else "all"
     key <- paste(it$fam, mode)
     if (!is.null(where[[key]])) next
-    if (mode == "common") {
-      where[[key]] <- length(cols) + 1L; cols <- c(cols, list(list(fam = it$fam, k = 0L)))
-    } else {
-      where[[key]] <- length(cols) + seq_len(T)
-      cols <- c(cols, lapply(seq_len(T), function(k) list(fam = it$fam, k = k)))
-    }
+    ks <- if (mode == "common") 0L else seq_len(T)
+    where[[key]] <- length(cols) + seq_along(ks)
+    cols <- c(cols, lapply(ks, function(k) list(fam = it$fam, k = k)))
   }
-  m <- length(cols); rows <- list(); labels <- character(0)
-  unit <- function(i) { r <- numeric(m); r[i] <- 1; r }
-  for (it in tested) {
-    if (identical(it$mod, "common")) {
-      rows <- c(rows, list(unit(where[[paste(it$fam, "common")]])))
-      labels <- c(labels, paste0(it$fam, "@common"))
-    } else if (identical(it$mod, "het")) {
-      if (T < 2L) stop("test '", test, "': @het needs at least two traits.", call. = FALSE)
-      ix <- where[[paste(it$fam, "all")]]
-      for (k in 2:T) { r <- unit(ix[k]); r[ix[1]] <- -1; rows <- c(rows, list(r))
-        labels <- c(labels, sprintf("%s[%s-%s]", it$fam, traits[k], traits[1])) }
-    } else {
-      ix <- where[[paste(it$fam, "all")]]
-      ks <- if (is.null(it$traits)) seq_len(T) else vapply(it$traits, function(t) {
-        k <- match(t, traits)
-        if (is.na(k) && grepl("^[0-9]+$", t)) k <- as.integer(t)
-        if (is.na(k) || k < 1L || k > T) stop("test '", test, "': unknown trait '", t, "'.", call. = FALSE)
-        k }, 1L)
-      for (k in ks) { rows <- c(rows, list(unit(ix[k])))
-        labels <- c(labels, if (T == 1L) it$fam else sprintf("%s[%s]", it$fam, traits[k])) }
-    }
+  list(cols = cols, where = where)
+}
+
+# Rows of L and their labels for one tested item.
+.rx_scan_hypothesis <- function(it, where, m, traits, test) {
+  T <- length(traits)
+  unit <- function(i, minus = NULL) { r <- numeric(m); r[i] <- 1; if (!is.null(minus)) r[minus] <- -1; r }
+  if (identical(it$mod, "common"))
+    return(list(rows = list(unit(where[[paste(it$fam, "common")]])),
+                labels = paste0(it$fam, "@common")))
+  ix <- where[[paste(it$fam, "all")]]
+  if (identical(it$mod, "het")) {
+    if (T < 2L) stop("test '", test, "': @het needs at least two traits.", call. = FALSE)
+    return(list(rows = lapply(2:T, function(k) unit(ix[k], ix[1])),
+                labels = sprintf("%s[%s-%s]", it$fam, traits[2:T], traits[1])))
   }
-  list(cols = cols, L = do.call(rbind, rows), labels = labels)
+  ks <- if (is.null(it$traits)) seq_len(T) else
+    unname(vapply(it$traits, .rx_scan_trait_index, 1L, traits = traits, test = test))
+  list(rows = lapply(ks, function(k) unit(ix[k])),
+       labels = if (T == 1L) rep(it$fam, length(ks)) else sprintf("%s[%s]", it$fam, traits[ks]))
+}
+
+.rx_scan_trait_index <- function(t, traits, test) {
+  k <- match(t, traits)
+  if (is.na(k) && grepl("^[0-9]+$", t)) k <- as.integer(t)
+  if (is.na(k) || k < 1L || k > length(traits))
+    stop("test '", test, "': unknown trait '", t, "'.", call. = FALSE)
+  k
 }
 
 # Full-height incidence of a family: the matrix of the term, or the sum of the
