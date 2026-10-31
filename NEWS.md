@@ -1,5 +1,15 @@
 # remlax (development version)
 
+* The likelihood is computed on y centred on the span of X, in every engine
+  (dense, low-memory, blocks, AI, mixed model equations; with a spatial lag,
+  y* is centred after its transform for the REML criteria). REML is
+  invariant to y -> y - X b. Raw, a large mean made y'R^-1y and r'C^-1r two
+  numbers of order 1e5 whose difference is the likelihood: on a bivariate
+  milk and protein model (pedigreemm data) the mixed model equations engine
+  lost 1.1e-5 in logLik and stopped 0.1 % away from the optimum, which asreml
+  found. beta, Wald tests and predictions keep the raw y; the MME engine adds
+  the shift back to beta. Values move at the 1e-9 to 1e-12 level elsewhere.
+
 * A relationship given by its precision in the formula, `vm(id, Kinv = Ai)`
   (a pedigree inverse from nadiv or `getAInv()`, for example), is now read
   as a precision. Before, the formula read only `K`: `Kinv` was taken for

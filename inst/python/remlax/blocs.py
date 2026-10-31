@@ -53,7 +53,7 @@ import jax
 import jax.numpy as jnp
 
 from .layout import level_kind, split_theta, res_sections, sec_n_params
-from .incidence import orthonormal_X
+from .incidence import orthonormal_X, center_y
 from .residual import _section_S
 from .structures import chol_sigma, n_params
 from .levels import level_chol
@@ -200,7 +200,7 @@ class BlockPlan:
         self.buckets = []
         for block_ids in _paquets(sizes, cost):
             self.buckets.append(self._build_bucket(block_ids, labels, sizes, Xq,
-                                                   np.asarray(y, float), Zfull, secs,
+                                                   center_y(y, Xq), Zfull, secs,
                                                    code_offset, octets_lot))
         if verbose:
             print("  [blocks] %s" % self.summary(), flush=True)

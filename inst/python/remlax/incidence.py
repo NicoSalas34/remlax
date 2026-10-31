@@ -74,6 +74,25 @@ def orthonormal_X(X):
     return Q, float(2.0 * np.sum(np.log(np.abs(np.diag(R)))))
 
 
+def center_y(y, Xq):
+    """y minus its projection on the span of X, for the likelihood only.
+
+    REML depends on y only through P y, and P X = 0: y and y - X b give the
+    same likelihood for any b. Raw, y'R^-1y and r'C^-1r (or y'V^-1y and the
+    projection on X) are two large numbers whose difference is the
+    likelihood; with a large mean (a yield of 20 next to a protein content of
+    0.6) the difference lost up to 1e-5 in -2logL, enough to move the optimum
+    on a flat ridge. Centred, both terms are of the order of the residuals.
+    Two passes (re-orthogonalisation) leave y_c orthogonal to Q to rounding.
+    beta, Wald tests and predictions keep the raw y."""
+    y = np.asarray(y, dtype=np.float64)
+    Xq = np.asarray(Xq, dtype=np.float64)
+    if Xq.ndim != 2 or Xq.shape[1] == 0:
+        return y
+    r = y - Xq @ (Xq.T @ y)
+    return r - Xq @ (Xq.T @ r)
+
+
 def prefold_fixed_K(terms, Zr):
     """Folds a fixed relationship matrix into the incidence: Z <- Z (I (x) L_K).
 

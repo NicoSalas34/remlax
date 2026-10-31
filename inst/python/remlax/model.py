@@ -41,7 +41,7 @@ from .structures import chol_sigma, n_params
 from .levels import level_chol
 from .layout import (level_kind, term_n_params, res_sections, sec_n_params,  # noqa: F401
                      res_n_params, n_theta, split_theta)
-from .incidence import (dense_Z, term_support, restrict_Z, support_groups,  # noqa: F401
+from .incidence import (dense_Z, term_support, restrict_Z, support_groups, center_y,  # noqa: F401
                         orthonormal_X, prefold_fixed_K)
 from .residual import _section_S, _section_V, section_matvec, residual_V  # noqa: F401
 
@@ -180,16 +180,31 @@ def aliased_entries(terms, n, n_vec=3, seed=12345, tol=1e-9):
     return out
 
 
+def _center_j(y, Q):
+    """y minus its projection on the span of the orthonormal Q, two passes
+    (incidence.center_y, in JAX). REML is invariant to y -> y - X b; centred,
+    y'V^-1y and its projection on X no longer cancel two large numbers."""
+    if Q.shape[1] == 0:
+        return y
+    r = y - Q @ (Q.T @ y)
+    return r - Q @ (Q.T @ r)
+
+
 def neg2_structural(theta, terms, groups, Zr, res, y, X, lag, X_lag=None):
     """-2logL of the structural model: the criterion of lag.py on
     y* = (I - M) y. Returns (value, admissible); without a lag,
-    neg2_reml_by_support and True."""
+    neg2_reml_by_support and True. X is the orthonormal Q. y (or y*) is
+    centred on it for the REML criteria, with the same operation on both
+    paths, so that Psi = 0 reproduces the model without a lag to the bit."""
     n = y.shape[0]
     if lag is None:
-        return neg2_reml_by_support(theta, terms, groups, Zr, res, y, X), jnp.asarray(True)
+        return (neg2_reml_by_support(theta, terms, groups, Zr, res, _center_j(y, X), X),
+                jnp.asarray(True))
     p_cov = n_theta(terms, res)
     th_lag = theta[p_cov:]
     ys = lag_ystar(th_lag, lag, y)
+    if lag["criterion"] != "ml":
+        ys = _center_j(ys, X)
     # The mean term of the lag uses the original X; the REML part accepts the
     # orthonormal X, the constant being added by the caller.
     ldA, ldm, ok = lag_terms(th_lag, lag, X if X_lag is None else X_lag)
@@ -219,6 +234,7 @@ def make_neg2(bundle_terms, res, y, X, lag=None):
     Xq, ldRx = orthonormal_X(X)
     if lag is not None and lag.get("criterion") == "ml":
         ldRx = 0.0
+    # y is centred inside neg2_structural (_center_j), after the lag transform.
     yj, Xj = jnp.asarray(y), jnp.asarray(Xq)
     Xl = jnp.asarray(np.asarray(X, dtype=np.float64))
     groups = support_groups(bundle_terms, n)

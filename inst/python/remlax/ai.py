@@ -31,7 +31,7 @@ import jax.numpy as jnp
 import numpy as np
 
 from .layout import level_kind, split_theta, term_n_params, res_sections, sec_n_params
-from .incidence import support_groups, restrict_Z, prefold_fixed_K, orthonormal_X
+from .incidence import support_groups, restrict_Z, prefold_fixed_K, orthonormal_X, center_y
 from .residual import section_matvec
 from .model import assemble_V_by_support
 from .structures import chol_sigma, n_params
@@ -86,7 +86,7 @@ def make_ai(terms, res, y, X):
     conditioned. The returned function carries .tools, reused by make_fga."""
     n = y.shape[0]
     Xq, ldRx = orthonormal_X(X)
-    yj, Xj = jnp.asarray(y), jnp.asarray(Xq)
+    yj, Xj = jnp.asarray(center_y(y, Xq)), jnp.asarray(Xq)
     groups = support_groups(terms, n)
     Zr = [None] * len(terms)
     rows_of = [None] * len(terms)

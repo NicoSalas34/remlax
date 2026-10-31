@@ -50,7 +50,7 @@ import numpy as np
 import scipy.sparse as sp
 
 from .layout import level_kind, split_theta, term_n_params, res_sections, sec_n_params
-from .incidence import orthonormal_X
+from .incidence import orthonormal_X, center_y
 from .residual import _section_V
 from .structures import build_sigma, n_params
 from .levels import level_chol
@@ -298,12 +298,17 @@ class MME:
         if reason:
             raise ValueError("MME engine: " + reason)
         self.verbose = verbose
-        self.y = y = np.asarray(y, dtype=np.float64)
+        y = np.asarray(y, dtype=np.float64)
         self.X = X = np.asarray(X, dtype=np.float64)
         n, p = X.shape
         self.n, self.p = n, p
         self.p_sortie = p
         Xq, self.ldRx = orthonormal_X(X)
+        # The equations are solved on the centred y (center_y): the u block of
+        # the solution is unchanged, the beta block (scale of Q) is shifted by
+        # Q'y, added back in effects().
+        self.y = center_y(y, Xq)
+        self._beta_shift = Xq.T @ (y - self.y)
         self.Rx = np.linalg.qr(X)[1]
         self.terms, self.res = terms, res
         self._n_obs0 = n                      # original design (hybrid split)
@@ -1297,7 +1302,7 @@ class MME:
         Cqq = self._solve(self._state, E)[:p, :]
         Ri = np.linalg.inv(self.Rx)
         vb = Ri @ Cqq @ Ri.T
-        out = dict(beta=Ri @ sol[:p], vbeta=0.5 * (vb + vb.T),
+        out = dict(beta=Ri @ (sol[:p] + self._beta_shift), vbeta=0.5 * (vb + vb.T),
                    blups={d["name"]: sol[d["off"]:d["off"] + d["t"] * d["q"]].reshape(d["q"], d["t"], order="F")
                           for d in self.T})
         names = [d["name"] for d in self.T] if pev is True else list(pev or [])

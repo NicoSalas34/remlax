@@ -47,7 +47,7 @@ import jax
 import jax.numpy as jnp
 
 from .layout import split_theta, res_sections, sec_n_params
-from .incidence import support_groups, restrict_Z, prefold_fixed_K, orthonormal_X
+from .incidence import support_groups, restrict_Z, prefold_fixed_K, orthonormal_X, center_y
 from .residual import _section_V, _section_S, section_matvec
 from .model import term_factor
 from .core import _reml_fwd
@@ -103,7 +103,7 @@ class LowMemoryPlan:
         n = int(y.shape[0])
         self.n, self.res, self.terms0 = n, res, terms
         Xq, self.ldRx = orthonormal_X(X)
-        self.yj, self.Xj = jnp.asarray(y), jnp.asarray(Xq)
+        self.yj, self.Xj = jnp.asarray(center_y(y, Xq)), jnp.asarray(Xq)
         self.groups = support_groups(terms, n)
         Zr = [None] * len(terms)
         rows_of = [None] * len(terms)
