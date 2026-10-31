@@ -25,6 +25,8 @@ reader reads them back. `manifest.json` cannot be corrupted this way.
                           "meta": {"q_dir":..., "q_ind":..., "p":...}}
     scan_dir_zi/zj/zx    incidence of the genotype carried by the plant, COO
     scan_ind_zi/zj/zx    weighted incidence of the neighbour genotypes, COO
+    scan_<f>_t<k>_zi/... per-trait incidences of a multi-trait term (meta T_<f>)
+    scan_trait, scan_traits  trait of each row (0-based codes) and trait names
     scan_Mdir            genotype doses (q_dir x p), CENTRED for `sim`
     scan_Mind            doses of the neighbour genotypes (q_ind x p)
     scan_M               doses shared by both families (replaces the two above)
@@ -114,11 +116,19 @@ def main(argv=None):
     incid, M = {}, {}
     for family, pre, cq, cm in (("dir", "scan_dir", "q_dir", "scan_Mdir"),
                                 ("ind", "scan_ind", "q_ind", "scan_Mind")):
-        if pre + "_zi" not in man:
+        Tf = int(meta.get("T_" + family, 0))
+        if Tf > 0:
+            # multi-trait term: one incidence per trait
+            incid[family] = [_coo(a.bundle, man, "%s_t%d" % (pre, k), n, int(meta[cq]))
+                             for k in range(Tf)]
+        elif pre + "_zi" in man:
+            incid[family] = _coo(a.bundle, man, pre, n, int(meta[cq]))
+        else:
             continue
-        incid[family] = _coo(a.bundle, man, pre, n, int(meta[cq]))
         if M_shared is None:
             M[family] = _read_array(a.bundle, man, cm)
+    trait = _read_array(a.bundle, man, "scan_trait") if "scan_trait" in man else None
+    traits = _read_array(a.bundle, man, "scan_traits") if "scan_traits" in man else None
     if M_shared is not None:
         M = M_shared
     missing = [f for f in needed if f in ("dir", "ind") and f not in incid]
@@ -149,7 +159,7 @@ def main(argv=None):
 
     # ---- projection, then scan --------------------------------------------
     t0 = time.time()
-    proj = project(fit, X, incid)
+    proj = project(fit, X, incid, trait=trait, traits=traits)
     t_proj = time.time() - t0
     t0 = time.time()
     r = scan(proj, M, tests=tests, block=a.block, verbose=not a.quiet,

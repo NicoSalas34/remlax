@@ -68,7 +68,10 @@ no longer absorbs part of the effect of the tested SNP.
 \details{
 \code{rx_scan_exact()} refits the model for the top SNPs of a scan, with the SNP
 as a fixed effect, and returns a Wald test with re-estimated variance
-components. At fixed V, the p-value of a SNP of large effect is about six
+components. It reads the same test grammar as \code{\link[=rx_scan]{rx_scan()}}, multi-trait
+tests (\verb{[trait]}, \verb{@common}, \verb{@het}), conditional tests and the \code{sim}
+family included: the SNP columns are those of the scan, and the Wald test
+bears on the same linear hypothesis. At fixed V, the p-value of a SNP of large effect is about six
 times too large. A REML likelihood ratio test is not used, since two models
 with different fixed effects do not share the same restricted likelihood.
 

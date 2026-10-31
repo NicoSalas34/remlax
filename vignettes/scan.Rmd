@@ -417,13 +417,54 @@ The output holds one vector per SNP. Each requested test produces
 
 ---
 
-## 9. Missing features
+## 9. Multi-trait scan
 
-- A multi-trait scan is not yet available. The formulas are the same with
-  N = n t and one 2t x 2t block per SNP. `rx_scan` refuses a term with t > 1 to
-  avoid returning a wrong result.
-- `rx_scan_exact()` refits the linear tests only (`dir`, `ind`, `dir+ind`).
-  The bilinear family `sim` and the conditional tests are not refitted.
+With a null model in long format (`trait =`), each family gets one SNP effect
+per trait. The covariate of trait k is the family covariate kept on the rows
+of trait k, so the projection is the univariate one applied to F x T columns
+(F families, T traits) and the cost per SNP grows as (FT)^2 in genotype
+dimension. A multi-trait term such as `us(gen, K = G)` gives its per-trait
+incidences; a single-trait term is split by trait. Traits measured on
+different subsets of units need nothing special.
+
+| test | hypothesis | df |
+|---|---|---|
+| `dir` | beta_dir = 0 on every trait (any effect) | T |
+| `dir[y1]` | beta_dir,y1 = 0, the other traits free | 1 |
+| `dir@common` | one effect shared by every trait | 1 |
+| `dir@het` | beta_dir,1 = ... = beta_dir,T | T - 1 |
+| `ind|dir`, `sim@het|dir`, `dir+ind` | conditional and joint, every trait | T x families |
+
+At fixed V, chi2(dir) = chi2(dir@common) + chi2(dir@het) exactly. The output
+adds `beta_dir[y1]`, `se_dir[y1]`, ... for the single-family tests.
+`rx_scan_exact()` refits the top SNPs with the same columns and tests the same
+hypothesis with re-estimated variance components (Wald test, REML refit),
+multi-trait, conditional and `sim` tests included. `rx_scan_loco()` passes the
+multi-trait tests through.
+
+```r
+fit <- rx_reml(y ~ trait, random = ~ us(gen, K = G) + us(nb, K = G),
+               residual = ~ us(trait):units, data = dl, trait = "trait", unit = "plot")
+res <- rx_scan(fit, fit$model, markers = M, incidences = c(dir = "gen", ind = "nb"),
+               tests = c("dir", "dir@common", "dir@het", "ind|dir"))
+```
+
+## 10. Neighbor GWAS of Sato, univariate and multi-trait
+
+`rx_neighbor_gwas()` fits the null model of Sato et al. (2021) on the plants:
+a self kinship K1 and a neighbour kinship K2 built from the neighbour
+covariates of all markers, as in rNeighborGWAS 1.2.5 (`rx_neighbor_weights()`,
+`rx_neighbor_kinship()`). The self effect is tested under K1 alone (`dir`),
+the neighbour effect given the self effect under K1 + K2 (`sim|dir`). With
+several traits, each term carries a covariance between traits (`us` by
+default) and the tests take the multi-trait grammar above, which gives the
+genetic correlation between traits of the neighbour effects and tests of a
+common or trait-specific neighbour effect. `rx_neighbor_scale()` fits the
+null over a grid of neighbourhood radii. The univariate p-values agree with
+`rNeighborGWAS::nei_lmm()` to 1e-6 in -log10(p).
+
+## 11. Missing features
+
 - The calibration of `rx_scan_loco()` remains to be measured on null
   simulations. In wheat, it multiplies the number of null fits by 21.
 - REML estimation of the neighbourhood range is not yet available. Sato sweeps

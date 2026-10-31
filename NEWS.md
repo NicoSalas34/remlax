@@ -1,5 +1,19 @@
 # remlax (development version)
 
+* Multi-trait genome scan. `rx_scan()` accepts a multi-trait null model (long
+  format, `trait =`): one SNP effect per trait and family, and the tests
+  `"dir"` (any effect, T df), `"dir[trait]"` (1 df), `"dir@common"` (1 df),
+  `"dir@het"` (T - 1 df), with conditional and joint combinations. Every test
+  is checked against a dense GLS (tests-python/test_scan_multitrait.py,
+  test-scan-multitrait.R). `rx_scan_exact()` refits the top SNPs for the same
+  grammar, `sim` and conditional tests included.
+* Neighbor GWAS of Sato et al. (2021), univariate and multi-trait:
+  `rx_neighbor_weights()`, `rx_neighbor_kinship()`, `rx_neighbor_gwas()`,
+  `rx_neighbor_scale()`. The univariate p-values agree with rNeighborGWAS
+  1.2.5 (`nei_lmm`) to 1e-6 in -log10(p).
+* `rx_scan()` accepts a matrix of neighbour weights for the `ind`/`sim`
+  family when the null model has no neighbour term.
+
 * The likelihood is computed on y centred on the span of X, in every engine
   (dense, low-memory, blocks, AI, mixed model equations; with a spatial lag,
   y* is centred after its transform for the REML criteria). REML is

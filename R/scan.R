@@ -106,7 +106,17 @@ rx_scan <- function(fit, model, markers, map = NULL,
     if (!fam %in% c("dir", "ind"))
       stop("incidences: unknown name '", fam, "'. Expected 'dir' and/or 'ind'.",
            call. = FALSE)
-    ref <- .rx_parse_term_ref(incidences[[fam]])
+    x <- incidences[[fam]]
+    if (is.matrix(x) || inherits(x, "Matrix")) {
+      # A matrix given directly: the neighbour weights of the `sim` family
+      # when the null model has no neighbour term (Neighbor GWAS of Sato).
+      if (nrow(x) != model$n)
+        stop("incidences['", fam, "']: a matrix with ", nrow(x), " rows, the model has ",
+             model$n, ".", call. = FALSE)
+      Z[[fam]] <- x
+      next
+    }
+    ref <- .rx_parse_term_ref(x)
     spec <- ref$name; a <- ref$index
     if (is.na(a)) stop("incidences['", fam, "']: after ':' an integer is needed, ",
                        "the index of the column of the term.", call. = FALSE)
@@ -116,6 +126,12 @@ rx_scan <- function(fit, model, markers, map = NULL,
            "': this term is not in the model. Available terms: ",
            paste(term_names, collapse = ", "), call. = FALSE)
     tm <- model$terms[[k]]
+    if (!ref$indexed && .rx_scan_multitrait_term(model, tm)) {
+      # A multi-trait term: one incidence per trait, each on the rows of its
+      # trait. The family gets them all (one SNP effect per trait).
+      Z[[fam]] <- tm$Zl
+      next
+    }
     if (tm$t > 1L && !ref$indexed)
       stop("term '", tm$name, "' carries t = ", tm$t, " incidences. Say ",
            "which one: incidences['", fam, "'] = \"", spec, ":1\" for the ",
@@ -130,6 +146,23 @@ rx_scan <- function(fit, model, markers, map = NULL,
   Z
 }
 
+# TRUE when the term is a multi-trait term of the model: as many incidences
+# as traits, the k-th nonzero only on the rows of trait k. A str() term with
+# t = 2 (direct and neighbour incidences) is not, and still needs "term:a".
+.rx_scan_multitrait_term <- function(model, tm) {
+  tr <- model$residual$trait
+  if (is.null(tr) || tm$t < 2L) return(FALSE)
+  tr <- as.factor(tr)
+  if (nlevels(tr) != tm$t) return(FALSE)
+  all(vapply(seq_len(tm$t), function(k) {
+    rows <- which(Matrix::rowSums(abs(tm$Zl[[k]])) > 0)
+    all(as.integer(tr[rows]) == k)
+  }, TRUE))
+}
+
+# Number of columns of a family incidence (a matrix, or a list per trait).
+.rx_scan_q <- function(Zf) if (is.list(Zf)) ncol(Zf[[1]]) else ncol(Zf)
+
 # Dose matrices by family, indexed by genotype in the order of the levels of
 # the term. One matrix serves both families unless a list is given (neighbours
 # of another species carry another set of SNPs).
@@ -139,9 +172,10 @@ rx_scan <- function(fit, model, markers, map = NULL,
     if (is.null(markers[[fam]]))
       stop("markers: no matrix for the family '", fam, "'.", call. = FALSE)
     M <- as.matrix(markers[[fam]])
-    if (nrow(M) != ncol(Z[[fam]]))
+    if (nrow(M) != .rx_scan_q(Z[[fam]]))
       stop("markers[['", fam, "']] has ", nrow(M), " rows but the incidence '",
-           incidences[[fam]], "' has ", ncol(Z[[fam]]), " columns. The doses are ",
+           if (is.character(incidences[[fam]])) incidences[[fam]] else fam, "' has ",
+           .rx_scan_q(Z[[fam]]), " columns. The doses are ",
            "indexed by GENOTYPE, in the order of the levels of the term.",
            call. = FALSE)
     markers[[fam]] <- M
@@ -178,13 +212,27 @@ rx_scan <- function(fit, model, markers, map = NULL,
     (identical(dim(markers[[fams[1]]]), dim(markers[[fams[2]]])) &&
        identical(markers[[fams[1]]], markers[[fams[2]]]))
   meta <- list(p = p)
-  for (fam in fams) {
-    S <- methods::as(methods::as(Z[[fam]], "CsparseMatrix"), "TsparseMatrix")
-    pre <- paste0("scan_", fam)
+  put_coo <- function(Zm, pre) {
+    S <- methods::as(methods::as(Zm, "CsparseMatrix"), "TsparseMatrix")
     .rx_put(w, paste0(pre, "_zi"), S@i, "i4")
     .rx_put(w, paste0(pre, "_zj"), S@j, "i4")
     .rx_put(w, paste0(pre, "_zx"), S@x)
-    meta[[paste0("q_", fam)]] <- ncol(Z[[fam]])
+  }
+  # Multi-trait model: the trait of each row, as 0-based codes, and the names.
+  tr <- model$residual$trait
+  if (!is.null(tr) && nlevels(as.factor(tr)) > 1L) {
+    tr <- as.factor(tr)
+    .rx_put(w, "scan_trait", as.integer(tr) - 1L, "i4")
+    .rx_put(w, "scan_traits", levels(tr), "str")
+    meta$T <- nlevels(tr)
+  }
+  for (fam in fams) {
+    pre <- paste0("scan_", fam)
+    if (is.list(Z[[fam]])) {
+      for (k in seq_along(Z[[fam]])) put_coo(Z[[fam]][[k]], paste0(pre, "_t", k - 1L))
+      meta[[paste0("T_", fam)]] <- length(Z[[fam]])
+    } else put_coo(Z[[fam]], pre)
+    meta[[paste0("q_", fam)]] <- .rx_scan_q(Z[[fam]])
     if (!shared) .rx_put(w, paste0("scan_M", fam), markers[[fam]])
   }
   if (shared) .rx_put(w, "scan_M", markers[[fams[1]]])

@@ -46,6 +46,10 @@ export(rx_scan_threshold)
 export(rx_scan_seuil)
 export(rx_scan_loco)
 export(rx_scan_exact)
+export(rx_neighbor_weights)
+export(rx_neighbor_kinship)
+export(rx_neighbor_gwas)
+export(rx_neighbor_scale)
 
 # --- dispositif : incidences de voisinage, expositions, parente ---
 export(rx_neighbourhood)

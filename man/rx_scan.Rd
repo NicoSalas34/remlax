@@ -26,11 +26,14 @@ doses (\verb{+/-1} coding).}
 
 \item{map}{optional data frame with columns \code{snp}, \code{chr}, \code{pos}.}
 
-\item{incidences}{named vector: which terms carry the focal incidence
-(\code{dir}) and the neighbour incidence (\code{ind}).}
+\item{incidences}{named vector (or list): which terms carry the focal
+incidence (\code{dir}) and the neighbour incidence (\code{ind}); \code{"term:a"} names
+the a-th incidence of a \code{str()} term. A list element may be a matrix
+(\code{n} rows) of neighbour weights.}
 
 \item{tests}{test specifications, e.g. \code{"dir"}, \code{"ind"}, \code{"sim"},
-\code{"dir+ind+sim"}; a bar denotes a conditional test, \code{"ind|dir+sim"}.}
+\code{"dir+ind+sim"}; a bar denotes a conditional test, \code{"ind|dir+sim"}; with
+a multi-trait model also \code{"dir[trait]"}, \code{"dir@common"}, \code{"dir@het"}.}
 
 \item{maf}{minor allele frequency filter computed on \code{markers$dir}; \code{NULL}
 to keep all.}
@@ -63,11 +66,25 @@ former name, deprecated.
 \code{\link[=rx_fit]{rx_fit()}} into the bundle and runs the scan with \verb{--theta-in --maxiter 0},
 so the variance components of the scan are exactly those of the fit. The
 incidences of the focal genotype and of the neighbours are named by the
-\emph{terms} of the model that carry them, never supplied as matrices, so the
-scan uses the design of the null model by construction.
+\emph{terms} of the model that carry them, so the scan uses the design of the
+null model by construction. The neighbour weights of the \code{sim} family may
+be given as a matrix when the null model has no neighbour term (Neighbor
+GWAS of Sato et al., see \code{\link[=rx_neighbor_gwas]{rx_neighbor_gwas()}}).
+}
+\details{
+\strong{Multi-trait models.} With a null model in long format (\verb{trait =}), each
+family gets one SNP effect per trait: the covariate of trait \code{k} is the
+family covariate on the rows of trait \code{k}. A multi-trait term (\code{us(gen)})
+gives its per-trait incidences; a single-trait term is split by trait. The
+tests then read, for \code{T} traits: \code{"dir"} any effect (\code{T} df), \code{"dir[y1]"}
+one trait with the others free (1 df), \code{"dir@common"} one effect shared by
+every trait (1 df), \code{"dir@het"} heterogeneity between traits (\code{T - 1} df),
+and conditional or joint combinations (\code{"ind|dir"}, \code{"sim@het|dir"}). At
+fixed V, \code{chi2(dir) = chi2(dir@common) + chi2(dir@het)}. The output adds
+\verb{beta_<family>[<trait>]} and \code{se_...} for the single-family tests.
 }
 \examples{
-\dontshow{if (rx_python_check(quiet = TRUE)$ok) withAutoprint(\{ # examplesIf}
+\dontshow{if (rx_python_check(quiet = TRUE)$ok) (if (getRversion() >= "3.4") withAutoprint else force)(\{ # examplesIf}
 set.seed(1)
 d <- data.frame(gid = factor(rep(1:30, each = 4)), x = rnorm(120))
 d$y <- 1 + 0.5 * d$x + rnorm(30)[d$gid] + rnorm(120)

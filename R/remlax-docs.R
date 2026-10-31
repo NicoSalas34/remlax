@@ -1191,8 +1191,21 @@ NULL
 #' [rx_fit()] into the bundle and runs the scan with `--theta-in --maxiter 0`,
 #' so the variance components of the scan are exactly those of the fit. The
 #' incidences of the focal genotype and of the neighbours are named by the
-#' *terms* of the model that carry them, never supplied as matrices, so the
-#' scan uses the design of the null model by construction.
+#' *terms* of the model that carry them, so the scan uses the design of the
+#' null model by construction. The neighbour weights of the `sim` family may
+#' be given as a matrix when the null model has no neighbour term (Neighbor
+#' GWAS of Sato et al., see [rx_neighbor_gwas()]).
+#'
+#' **Multi-trait models.** With a null model in long format (`trait =`), each
+#' family gets one SNP effect per trait: the covariate of trait `k` is the
+#' family covariate on the rows of trait `k`. A multi-trait term (`us(gen)`)
+#' gives its per-trait incidences; a single-trait term is split by trait. The
+#' tests then read, for `T` traits: `"dir"` any effect (`T` df), `"dir[y1]"`
+#' one trait with the others free (1 df), `"dir@common"` one effect shared by
+#' every trait (1 df), `"dir@het"` heterogeneity between traits (`T - 1` df),
+#' and conditional or joint combinations (`"ind|dir"`, `"sim@het|dir"`). At
+#' fixed V, `chi2(dir) = chi2(dir@common) + chi2(dir@het)`. The output adds
+#' `beta_<family>[<trait>]` and `se_...` for the single-family tests.
 #'
 #' @param fit an `rx_fit` object; only `fit$theta` is read.
 #' @param model the corresponding [rx_model].
@@ -1201,10 +1214,13 @@ NULL
 #'   case (joint tests are then refused). The `sim` family requires centred
 #'   doses (`+/-1` coding).
 #' @param map optional data frame with columns `snp`, `chr`, `pos`.
-#' @param incidences named vector: which terms carry the focal incidence
-#'   (`dir`) and the neighbour incidence (`ind`).
+#' @param incidences named vector (or list): which terms carry the focal
+#'   incidence (`dir`) and the neighbour incidence (`ind`); `"term:a"` names
+#'   the a-th incidence of a `str()` term. A list element may be a matrix
+#'   (`n` rows) of neighbour weights.
 #' @param tests test specifications, e.g. `"dir"`, `"ind"`, `"sim"`,
-#'   `"dir+ind+sim"`; a bar denotes a conditional test, `"ind|dir+sim"`.
+#'   `"dir+ind+sim"`; a bar denotes a conditional test, `"ind|dir+sim"`; with
+#'   a multi-trait model also `"dir[trait]"`, `"dir@common"`, `"dir@het"`.
 #' @param maf minor allele frequency filter computed on `markers$dir`; `NULL`
 #'   to keep all.
 #' @param coding `"pm1"` (doses in `-1/+1`) or `"012"`; used for the MAF only.
@@ -1258,7 +1274,10 @@ NULL
 #'
 #' `rx_scan_exact()` refits the model for the top SNPs of a scan, with the SNP
 #' as a fixed effect, and returns a Wald test with re-estimated variance
-#' components. At fixed V, the p-value of a SNP of large effect is about six
+#' components. It reads the same test grammar as [rx_scan()], multi-trait
+#' tests (`[trait]`, `@common`, `@het`), conditional tests and the `sim`
+#' family included: the SNP columns are those of the scan, and the Wald test
+#' bears on the same linear hypothesis. At fixed V, the p-value of a SNP of large effect is about six
 #' times too large. A REML likelihood ratio test is not used, since two models
 #' with different fixed effects do not share the same restricted likelihood.
 #'

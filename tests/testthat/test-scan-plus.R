@@ -31,10 +31,13 @@ test_that("rx_scan_loco et rx_scan_exact refusent ce qui ne peut pas s'interpret
   expect_error(rx_scan_loco(j$build, j$K_of, j$M, un_chr, incidences = c(dir = "gen"),
                             tests = "dir", verbose = FALSE), "two chromosomes")
   res <- data.frame(snp = colnames(j$M), p_dir = runif(ncol(j$M)))
-  expect_error(rx_scan_exact(res, "sim", j$build, j$K_of, j$M, j$map, c(dir = "gen"),
-                             verbose = FALSE), "linear test")
-  expect_error(rx_scan_exact(res, "dir|ind", j$build, j$K_of, j$M, j$map, c(dir = "gen"),
-                             verbose = FALSE), "linear test")
+  # sim and conditional tests are refitted too since 0.2.0.9000; they need
+  # their incidences.
+  res$`p_ind|dir` <- runif(ncol(j$M))
+  expect_error(rx_scan_exact(res, "ind|dir", j$build, j$K_of, j$M, j$map, c(dir = "gen"),
+                             verbose = FALSE), "needs the incidence 'ind'")
+  expect_error(rx_scan_exact(res, "dir[zz]|ind", j$build, j$K_of, j$M, j$map, c(dir = "gen"),
+                             verbose = FALSE), "is missing from `res`")
   expect_error(rx_scan_exact(res, "ind", j$build, j$K_of, j$M, j$map, c(dir = "gen"),
                              verbose = FALSE), "is missing from `res`")
   expect_error(rx_scan_exact(res["p_dir"], "dir", j$build, j$K_of, j$M, j$map,

@@ -74,33 +74,48 @@ LINEAR = ("dir", "ind")
 # ==============================================================================
 # Projection: P seen from the incidences of the design
 # ==============================================================================
+#
+# Multi-trait models. In long format (one row per unit x trait, T traits), the
+# covariate of family f for trait k is the family covariate kept on the rows
+# of trait k, s_{f,k} = D_k s_f. Its incidence D_k Z_f is the per-trait
+# incidence that a multi-trait term already holds. Each family thus becomes T
+# BASE COLUMNS (f, k), and every quantity below is indexed by them:
+#     c_(f,k) = Z_f' D_k P y        C_(f,k),(g,l) = Z_f' D_k P D_l Z_g
+# A univariate model is the case T = 1, with the same arithmetic as before.
 class Projection:
-    """c_f = Z_f' P y, C_fg = Z_f' P Z_g, and P Z_f kept for the `sim` family.
+    """c, C and P Z indexed by base columns (family, trait), and P Z kept for
+    the `sim` family.
 
     Attributes
     ----------
-    c    : dict family -> vector (q_f,)
-    C    : dict (family, family) -> matrix (q_f, q_g), symmetric in (f,g)
-    PZ   : dict family -> matrix (n, q_f), used by the cross terms of `sim`
-    Py   : vector (n,), taken from fit["Py"]
-    q    : dict family -> q_f
+    c       : dict (f, k) -> vector (q_f,)
+    C       : dict ((f, k), (g, l)) -> matrix (q_f, q_g)
+    PZ      : dict (f, k) -> matrix (n, q_f), used by the cross terms of `sim`
+    Z       : dict (f, k) -> per-trait incidence (n, q_f)
+    Zfull   : dict f -> full-height incidence sum_k Z_(f,k), used by `sim`
+    masks   : list of T boolean vectors (n,), rows of each trait
+    traits  : list of T trait names ("" when T = 1)
+    Py      : vector (n,), taken from fit["Py"]
+    q       : dict family -> q_f
     """
 
-    def __init__(self, c, C, PZ, Py, Z, Vi, X, vbeta, ViX):
+    def __init__(self, c, C, PZ, Py, Z, Zfull, masks, traits, Vi, X, vbeta, ViX):
         self.c, self.C, self.PZ, self.Py, self.Z = c, C, PZ, Py, Z
+        self.Zfull, self.masks, self.traits = Zfull, masks, traits
         # References, no copies: Vi weighs 2 GB at n = 16 000 and already
         # exists in `fit`. `np.asarray` on a float64 array returns the same
         # object, so nothing is duplicated. Only the `sim` family uses these
         # attributes, because it alone needs P s for an s that is not an
         # incidence column.
         self._Vi, self._X, self._vbeta, self._ViX = Vi, X, vbeta, ViX
-        self.q = {f: Z[f].shape[1] for f in Z}
+        self.q = {f: Zf.shape[1] for f, Zf in Zfull.items()}
         self.n = len(Py)
+        self.T = len(traits)
 
     def __repr__(self):
-        return ("Projection(n=%d, %s)"
-                % (self.n, ", ".join("%s: q=%d" % (f, q)
-                                     for f, q in sorted(self.q.items()))))
+        return ("Projection(n=%d, T=%d, %s)"
+                % (self.n, self.T, ", ".join("%s: q=%d" % (f, q)
+                                             for f, q in sorted(self.q.items()))))
 
 
 def _dense(Z):
@@ -111,7 +126,43 @@ def _dense(Z):
     return np.asarray(Z, dtype=np.float64)
 
 
-def project(fit, X, incidences):
+def _trait_masks(inc, n, trait, traits):
+    """(masks, names, T). The rows of each trait come from the trait codes
+    when given (integer codes 0..T-1 in the order of `traits`, or labels),
+    otherwise from the rows where a per-trait incidence is nonzero (every
+    record carries the genotype of its plant)."""
+    T_inc = max(len(v) for v in inc.values())
+    if trait is not None:
+        codes = np.asarray(trait)
+        if codes.shape != (n,):
+            raise ValueError("trait has %s elements, expected (%d,)" % (codes.shape, n))
+        if traits is None:
+            lev = list(dict.fromkeys(codes.tolist()))
+            masks, names = [codes == l for l in lev], [str(l) for l in lev]
+        else:
+            names = [str(t) for t in traits]
+            if codes.dtype.kind in "iu":
+                masks = [codes == k for k in range(len(names))]
+            else:
+                masks = [codes.astype(str) == nm for nm in names]
+        if T_inc > 1 and len(masks) != T_inc:
+            raise ValueError("%d traits in `trait`, but %d per-trait incidences."
+                             % (len(masks), T_inc))
+        return masks, names, len(masks)
+    if T_inc == 1:
+        return [np.ones(n, dtype=bool)], [""], 1
+    masks = []
+    for k in range(T_inc):
+        m = np.zeros(n, dtype=bool)
+        for v in inc.values():
+            if len(v) == T_inc:
+                m |= np.abs(v[k]).sum(axis=1) > 0
+        masks.append(m)
+    names = [str(t) for t in traits] if traits is not None else [str(k + 1) for k in range(T_inc)]
+    return masks, names, T_inc
+
+
+def project(fit, X, incidences, trait=None, traits=None):
     """Project P on the incidences, once for all families.
 
     Parameters
@@ -122,11 +173,17 @@ def project(fit, X, incidences):
     X           : fixed-effect matrix of the null model (n x p_fixed), the one
                   used for the fit.
     incidences  : dict {"dir": Z_dir, "ind": Z_ind}, with at least one key.
-                  The two may have different numbers of columns. This is the
-                  inter-species case, where the neighbours of a wheat plant
-                  are alfalfa plants.
+                  Each value is a matrix (n x q_f), or, for a multi-trait
+                  model, a list of T per-trait incidences (the `Zl` of a
+                  multi-trait term). A single matrix with `trait` given is
+                  split by trait. The two families may have different numbers
+                  of columns: this is the inter-species case, where the
+                  neighbours of a wheat plant are alfalfa plants.
+    trait       : optional trait of each row (n,), codes or labels. Needed to
+                  split a single matrix; otherwise read from the incidences.
+    traits      : optional trait names, in the order of the per-trait lists.
 
-    Cost: one (n x n) by (n x q) product per family. No factorisation.
+    Cost: one (n x n) by (n x q) product per base column. No factorisation.
     """
     for key in ("Vi", "vbeta", "Py"):
         if key not in fit:
@@ -150,53 +207,99 @@ def project(fit, X, incidences):
     if Vi.shape != (n, n):
         raise ValueError("Vi is %s but Py has %d elements." % (Vi.shape, n))
 
-    Z = {f: _dense(Zf) for f, Zf in incidences.items()}
-    for f, Zf in Z.items():
-        if Zf.shape[0] != n:
-            raise ValueError("incidence '%s' has %d rows, expected %d."
-                             % (f, Zf.shape[0], n))
+    inc = {f: ([_dense(z) for z in Zf] if isinstance(Zf, (list, tuple)) else [_dense(Zf)])
+           for f, Zf in incidences.items()}
+    for f, v in inc.items():
+        for Zk in v:
+            if Zk.shape[0] != n:
+                raise ValueError("incidence '%s' has %d rows, expected %d."
+                                 % (f, Zk.shape[0], n))
+        if len({Zk.shape[1] for Zk in v}) > 1:
+            raise ValueError("incidence '%s': per-trait matrices with different "
+                             "numbers of columns." % f)
+    lens = {len(v) for v in inc.values()}
+    if len(lens - {1}) > 1:
+        raise ValueError("incidences: different numbers of traits between families "
+                         "(%s)." % {f: len(v) for f, v in inc.items()})
+    masks, traits, T = _trait_masks(inc, n, trait, traits)
+    # A single matrix in a multi-trait model is split by trait.
+    for f in inc:
+        if len(inc[f]) == 1 and T > 1:
+            inc[f] = [inc[f][0] * masks[k][:, None] for k in range(T)]
+    Z = {(f, k): inc[f][k] for f in inc for k in range(T)}
+    Zfull = {f: (inc[f][0] if T == 1 else sum(inc[f])) for f in inc}
 
     ViX = Vi @ X
     # P Z = Vi Z - ViX vbeta (X' Vi Z). This order avoids forming P (n x n).
     PZ, c, C = {}, {}, {}
-    for f, Zf in Z.items():
-        ViZ = Vi @ Zf
-        PZ[f] = ViZ - ViX @ (vbeta @ (X.T @ ViZ))
-        c[f] = Zf.T @ Py
-    for f in Z:
-        for g in Z:
-            if (g, f) in C:
-                C[(f, g)] = C[(g, f)].T
+    for b, Zb in Z.items():
+        ViZ = Vi @ Zb
+        PZ[b] = ViZ - ViX @ (vbeta @ (X.T @ ViZ))
+        c[b] = Zb.T @ Py
+    for a in Z:
+        for b in Z:
+            if (b, a) in C:
+                C[(a, b)] = C[(b, a)].T
             else:
-                C[(f, g)] = Z[f].T @ PZ[g]
-    return Projection(c, C, PZ, Py, Z, Vi, X, vbeta, ViX)
+                C[(a, b)] = Z[a].T @ PZ[b]
+    return Projection(c, C, PZ, Py, Z, Zfull, masks, traits, Vi, X, vbeta, ViX)
 
 
 # ==============================================================================
 # Parsing of test specifications
 # ==============================================================================
-def _parse_test(spec):
-    """'sim|dir+ind' -> (model, tested). 'dir+ind' -> (both, both).
+#   spec  := items [ "|" items ]         tested left of the bar, conditioned right
+#   items := item { "+" item }
+#   item  := family [ "[" trait {"," trait} "]" ] [ "@common" | "@het" ]
+# With T traits:
+#   dir          beta_dir = 0 on every trait (any effect, T df)
+#   dir[a]       beta_dir,a = 0, the other traits of dir free (1 df)
+#   dir@common   one beta shared by every trait = 0, model column sum_k s_dir,k (1 df)
+#   dir@het      beta_dir,1 = ... = beta_dir,T (heterogeneity, T - 1 df)
+# A conditioning family enters the model with all its traits (or its common
+# column with @common). With T = 1 the grammar is the univariate one.
+_ITEM = None
 
-    Left of the bar are the tested families. Right of the bar are the families
-    conditioned on. The model is the union of both. Without a bar the whole
-    model is tested, which is the joint test.
-    """
-    if "|" in spec:
-        left, right = spec.split("|", 1)
-        tested = [t.strip() for t in left.split("+") if t.strip()]
-        cond = [t.strip() for t in right.split("+") if t.strip()]
-    else:
-        tested = [t.strip() for t in spec.split("+") if t.strip()]
-        cond = []
-    model = list(dict.fromkeys(tested + cond))
-    bad = [f for f in model if f not in FAMILIES]
-    if bad:
+
+def _parse_item(item, spec):
+    import re
+    global _ITEM
+    if _ITEM is None:
+        _ITEM = re.compile(r"\s*([A-Za-z]+)\s*(?:\[([^\]]*)\])?\s*(?:@\s*([A-Za-z]+))?\s*")
+    m = _ITEM.fullmatch(item)
+    if not m:
+        raise ValueError("test '%s': cannot read '%s'." % (spec, item))
+    fam, tr, mod = m.groups()
+    if fam not in FAMILIES:
         raise ValueError("test '%s': unknown family(ies) %s. Expected among %s"
-                         % (spec, bad, list(FAMILIES)))
+                         % (spec, [fam], list(FAMILIES)))
+    if mod is not None and mod not in ("common", "het"):
+        raise ValueError("test '%s': unknown modifier '@%s' (expected @common or @het)."
+                         % (spec, mod))
+    traits = [t.strip() for t in tr.split(",") if t.strip()] if tr is not None else None
+    if traits is not None and mod is not None:
+        raise ValueError("test '%s': '[traits]' and '@%s' cannot be combined." % (spec, mod))
+    return fam, traits, mod
+
+
+def _parse_test_full(spec):
+    """'sim|dir+ind' -> (tested items, conditioning items); each item is
+    (family, traits or None, modifier or None)."""
+    left, right = (spec.split("|", 1) + [""])[:2] if "|" in spec else (spec, "")
+    tested = [_parse_item(t, spec) for t in left.split("+") if t.strip()]
+    cond = [_parse_item(t, spec) for t in right.split("+") if t.strip()]
     if not tested:
         raise ValueError("test '%s': nothing tested left of the bar." % spec)
-    return model, tested
+    return tested, cond
+
+
+def _parse_test(spec):
+    """'sim|dir+ind' -> (model families, tested families). Without a bar the
+    whole model is tested, which is the joint test."""
+    tested, cond = _parse_test_full(spec)
+    t = [f for f, _, _ in tested]
+    model = list(dict.fromkeys(t + [f for f, _, _ in cond]))
+    return model, list(dict.fromkeys(t))
 
 
 def required_families(tests):
@@ -208,6 +311,67 @@ def required_families(tests):
             if f not in needed:
                 needed.append(f)
     return [f for f in FAMILIES if f in needed]
+
+
+def _design(spec, T, traits):
+    """Model columns of a test as combinations of base columns, and the matrix L
+    of the tested linear hypothesis on the model coefficients.
+
+    Returns (W, L, labels): W (n_base_used x m) as a list of dicts
+    {(f, k): weight}, one per model column; L (r x m); labels of the tested
+    rows (for the 1-df outputs)."""
+    tested, cond = _parse_test_full(spec)
+    cols, where = [], {}
+    names = list(traits)
+
+    def add(f, mod):
+        mode = "common" if mod == "common" else "all"
+        other = (f, "all" if mode == "common" else "common")
+        if other in where:
+            raise ValueError("test '%s': family '%s' enters the model both with and "
+                             "without @common." % (spec, f))
+        if (f, mode) in where:
+            return
+        if mode == "common":
+            where[(f, mode)] = [len(cols)]
+            cols.append({(f, k): 1.0 for k in range(T)})
+        else:
+            where[(f, mode)] = list(range(len(cols), len(cols) + T))
+            cols.extend({(f, k): 1.0} for k in range(T))
+
+    for f, tr, mod in tested + cond:
+        add(f, mod)
+    rows, labels = [], []
+    m = len(cols)
+    for f, tr, mod in tested:
+        if mod == "common":
+            r = np.zeros(m); r[where[(f, "common")][0]] = 1.0
+            rows.append(r); labels.append("%s@common" % f)
+        elif mod == "het":
+            if T < 2:
+                raise ValueError("test '%s': @het needs at least two traits." % spec)
+            idx = where[(f, "all")]
+            for k in range(1, T):
+                r = np.zeros(m); r[idx[k]] = 1.0; r[idx[0]] = -1.0
+                rows.append(r); labels.append("%s[%s-%s]" % (f, names[k], names[0]))
+        else:
+            idx = where[(f, "all")]
+            ks = range(T) if tr is None else [_trait_index(t, names, spec) for t in tr]
+            for k in ks:
+                r = np.zeros(m); r[idx[k]] = 1.0
+                rows.append(r); labels.append(f if T == 1 else "%s[%s]" % (f, names[k]))
+    L = np.array(rows)
+    _, keep = np.unique(L, axis=0, return_index=True)
+    keep = np.sort(keep)
+    return cols, L[keep], [labels[i] for i in keep]
+
+
+def _trait_index(t, names, spec):
+    if t in names:
+        return names.index(t)
+    if t.isdigit() and 1 <= int(t) <= len(names):
+        return int(t) - 1
+    raise ValueError("test '%s': unknown trait '%s' (traits: %s)." % (spec, t, names))
 
 
 # ==============================================================================
@@ -257,6 +421,11 @@ def _same_snps(Mf, families):
     return True
 
 
+def _key(b, T, names):
+    f, k = b
+    return f if T == 1 else "%s[%s]" % (f, names[k])
+
+
 def scan(proj, M, tests=("dir", "ind", "sim"), keep=None, block=1024,
          xp=None, verbose=False):
     """Per-SNP statistics for the requested tests, at fixed V.
@@ -268,13 +437,16 @@ def scan(proj, M, tests=("dir", "ind", "sim"), keep=None, block=1024,
               For the `sim` family the doses must be centred (typically +/-1
               coding). Otherwise the product is not a similarity.
     tests   : list of specifications, for example
-                "dir"            direct effect alone, 1 df (standard GWAS)
-                "ind"            additive indirect effect alone, 1 df
-                "sim"            similarity alone, 1 df (Sato model)
-                "dir+ind"        joint, 2 df
-                "dir+ind+sim"    joint, 3 df
-                "ind|dir"        indirect GIVEN the direct effect, 1 df
+                "dir"            direct effect alone (1 df; T df with T traits)
+                "ind"            additive indirect effect alone
+                "sim"            similarity alone (Sato model)
+                "dir+ind"        joint
+                "ind|dir"        indirect GIVEN the direct effect
                 "sim|dir+ind"    similarity given both additive effects
+              and, with T traits (multi-trait null model):
+                "dir[y1]"        one trait, the others free (1 df)
+                "dir@common"     one effect shared by every trait (1 df)
+                "dir@het"        heterogeneity between traits (T - 1 df)
               Conditional tests are those of asreml and of
               `fixed_tests.wald`: each term given the others.
     keep    : boolean mask (p,) of the SNPs to process. The others come out
@@ -288,11 +460,14 @@ def scan(proj, M, tests=("dir", "ind", "sim"), keep=None, block=1024,
     Returns
     -------
     dict of vectors (p,):
-      num_<f>, den_<f>_<g>          raw score quantities
+      num_<b>, den_<b>_<b'>         raw score quantities, b a base column
+                                    (family, or family[trait] with T traits)
       chi2_<test>, df_<test>, p_<test>
       beta_<test>, se_<test>        for 1-df tests only
+      beta_<f>[<trait>], se_...     with T traits, per-trait effects of the
+                                    model of each single-family test
       r_dir_ind                     correlation between the direct and
-                                    indirect covariates, conditional on V and X
+                                    indirect covariates (T = 1)
       df (degrees of freedom) and p are vectors so that they can be written
       to CSV as they are.
     """
@@ -300,6 +475,7 @@ def scan(proj, M, tests=("dir", "ind", "sim"), keep=None, block=1024,
     xp = np if xp is None else xp
     needed = required_families(tests)
     Mf, p = _markers(M, needed)
+    T, names = proj.T, proj.traits
 
     joint = [t for t in tests if len(_parse_test(t)[0]) > 1]
     if joint and not _same_snps(Mf, needed):
@@ -329,6 +505,7 @@ def scan(proj, M, tests=("dir", "ind", "sim"), keep=None, block=1024,
                     "(mean %.3g for a standard deviation %.3g). The product of the doses "
                     "is an allelic similarity only under centred coding (+/-1). "
                     "Centre the doses, or do not request 'sim'." % (f, mu, sd))
+    designs = {spec: _design(spec, T, names) for spec in tests}
 
     if keep is None:
         keep = np.ones(p, dtype=bool)
@@ -337,81 +514,99 @@ def scan(proj, M, tests=("dir", "ind", "sim"), keep=None, block=1024,
         raise ValueError("keep has %s elements, expected (%d,)" % (keep.shape, p))
     idx = np.flatnonzero(keep)
 
+    base = [(f, k) for f in needed for k in range(T)]
     nan = lambda: np.full(p, np.nan)
-    num = {f: nan() for f in needed}
+    num = {b: nan() for b in base}
     den = {}
-    for i, f in enumerate(needed):
-        for g in needed[i:]:
-            den[(f, g)] = nan()
+    for i, a in enumerate(base):
+        for b in base[i:]:
+            den[(a, b)] = nan()
 
     # ---- linear families: everything in genotype dimension ---------------
-    lin = [f for f in needed if f in LINEAR]
-    for f in lin:
-        num[f][idx] = Mf[f][:, idx].T @ proj.c[f]
-    for i, f in enumerate(lin):
-        for g in lin[i:]:
-            A = proj.C[(f, g)] @ Mf[g][:, idx]
-            den[(f, g)][idx] = np.einsum("ij,ij->j", Mf[f][:, idx], A)
+    lin = [b for b in base if b[0] in LINEAR]
+    for b in lin:
+        num[b][idx] = Mf[b[0]][:, idx].T @ proj.c[b]
+    for i, a in enumerate(lin):
+        for b in lin[i:]:
+            A = proj.C[(a, b)] @ Mf[b[0]][:, idx]
+            den[(a, b)][idx] = np.einsum("ij,ij->j", Mf[a[0]][:, idx], A)
 
     # ---- sim family: by blocks, the only step in dimension n -------------
     if "sim" in needed:
         Mdir, Mind = Mf["dir"], Mf["ind"]
-        Zdir, Zind = proj.Z["dir"], proj.Z["ind"]
+        Zdir, Zind = proj.Zfull["dir"], proj.Zfull["ind"]
         Py = proj.Py
-        PZdir, PZind = proj.PZ["dir"], proj.PZ["ind"]
         # P is never formed. P Z is already computed for the incidence
         # columns. s3 is not one of them, so the code computes
         #   P s3 = Vi s3 - ViX vbeta (X' Vi s3)
-        # by blocks of SNPs. It is the only O(n^2) step of the file.
+        # by blocks of SNPs, one block of columns per trait. It is the only
+        # O(n^2) step of the file.
         Vi = proj._Vi
         for d0 in range(0, len(idx), int(block)):
             j = idx[d0:d0 + int(block)]
             u = Zdir @ Mdir[:, j]                       # (n, b)
             v = Zind @ Mind[:, j]                       # (n, b)
             S3 = u * v
-            num["sim"][j] = S3.T @ Py
-            # s_sim' P (Z_f m) = (s_sim' P Z_f) m: sum over the q genotypes,
-            # one value per SNP of the block, hence "ij,ij->i" (rows are SNPs).
-            if ("dir", "sim") in den:
-                den[("dir", "sim")][j] = np.einsum(
-                    "ij,ij->i", S3.T @ PZdir, Mdir[:, j].T)
-            if ("ind", "sim") in den:
-                den[("ind", "sim")][j] = np.einsum(
-                    "ij,ij->i", S3.T @ PZind, Mind[:, j].T)
-            S3x = xp.asarray(S3)
-            PS3 = xp.asarray(Vi) @ S3x
-            PS3 = PS3 - xp.asarray(proj._ViX) @ (
-                xp.asarray(proj._vbeta) @ (xp.asarray(proj._X).T @ PS3))
-            den[("sim", "sim")][j] = np.asarray(
-                xp.einsum("ij,ij->j", S3x, PS3))
+            S3k = [S3 if T == 1 else S3 * proj.masks[k][:, None] for k in range(T)]
+            PS3 = []
+            for k in range(T):
+                S3x = xp.asarray(S3k[k])
+                Pk = xp.asarray(Vi) @ S3x
+                Pk = Pk - xp.asarray(proj._ViX) @ (
+                    xp.asarray(proj._vbeta) @ (xp.asarray(proj._X).T @ Pk))
+                PS3.append(Pk)
+            for k in range(T):
+                sk = ("sim", k)
+                num[sk][j] = S3k[k].T @ Py
+                # s_sim' P (Z_b m) = (s_sim' P Z_b) m: sum over the q genotypes,
+                # one value per SNP of the block, hence "ij,ij->i".
+                for b in lin:
+                    key = (b, sk) if (b, sk) in den else (sk, b)
+                    den[key][j] = np.einsum("ij,ij->i", S3k[k].T @ proj.PZ[b],
+                                            Mf[b[0]][:, j].T)
+                for l in range(k, T):
+                    sl = ("sim", l)
+                    den[(sk, sl)][j] = np.asarray(
+                        xp.einsum("ij,ij->j", xp.asarray(S3k[k]), PS3[l]))
             if verbose:
                 print("  [scan sim] %d / %d SNP" % (min(d0 + int(block), len(idx)),
                                                     len(idx)), flush=True)
 
     # ---- tests ------------------------------------------------------------
     out = {}
-    for f in needed:
-        out["num_" + f] = num[f]
-    for (f, g), v in den.items():
-        out["den_%s_%s" % (f, g)] = v
+    for b in base:
+        out["num_" + _key(b, T, names)] = num[b]
+    for (a, b), v in den.items():
+        out["den_%s_%s" % (_key(a, T, names), _key(b, T, names))] = v
 
-    def den_block(fams, j):
-        k = len(fams)
-        Dm = np.empty((len(j), k, k))
-        for a, fa in enumerate(fams):
-            for b, fb in enumerate(fams):
-                key = (fa, fb) if (fa, fb) in den else (fb, fa)
-                Dm[:, a, b] = den[key][j]
-        return Dm
+    pos_of = {b: i for i, b in enumerate(base)}
+    Nb = np.stack([num[b][idx] for b in base], axis=1)               # (m, B)
+    Db = np.empty((len(idx), len(base), len(base)))
+    for (a, b), v in den.items():
+        Db[:, pos_of[a], pos_of[b]] = v[idx]
+        Db[:, pos_of[b], pos_of[a]] = v[idx]
 
     for spec in tests:
-        model, tested = _parse_test(spec)
-        k, kt = len(model), len(tested)
+        cols, L, labels = designs[spec]
+        kt = L.shape[0]
         chi2v, betav, sev = nan(), nan(), nan()
-        Dm = den_block(model, idx)
-        Nv = np.stack([num[f][idx] for f in model], axis=1)        # (m, k)
-        pos = [model.index(f) for f in tested]
+        # W: base columns -> model columns. A pure selection keeps the
+        # univariate arithmetic exactly.
+        W = np.zeros((len(base), len(cols)))
+        for c_, wd in enumerate(cols):
+            for b, w in wd.items():
+                W[pos_of[b], c_] = w
+        sel = [int(np.flatnonzero(W[:, c_])[0]) if (np.count_nonzero(W[:, c_]) == 1
+               and W[:, c_].max() == 1.0) else -1 for c_ in range(W.shape[1])]
+        if all(s >= 0 for s in sel):
+            Dm = Db[:, sel][:, :, sel]
+            Nv = Nb[:, sel]
+        else:
+            Dm = np.einsum("ba,mbc,cd->mad", W, Db, W)
+            Nv = Nb @ W
+        k = Dm.shape[1]
         ok = np.isfinite(Dm).all(axis=(1, 2)) & np.isfinite(Nv).all(axis=1)
+        is_sel = np.all((L == 0) | (L == 1)) and np.all(L.sum(axis=1) == 1)
         if k == 1:
             d = Dm[:, 0, 0]
             good = ok & (d > 0)
@@ -419,34 +614,52 @@ def scan(proj, M, tests=("dir", "ind", "sim"), keep=None, block=1024,
             chi2v[idx[good]] = Nv[good, 0] ** 2 / d[good]
             betav[idx[good]] = b
             sev[idx[good]] = 1.0 / np.sqrt(d[good])
+            Di = None
         else:
-            # beta = D^-1 num, var(beta) = D^-1. Test of the subset A:
-            #   chi2 = beta_A' [(D^-1)_AA]^-1 beta_A
+            # beta = D^-1 num, var(beta) = D^-1. Test of the hypothesis L beta = 0:
+            #   chi2 = (L beta)' [L D^-1 L']^-1 (L beta)
+            # (a subset A of the coefficients when L selects them).
             Di = np.full_like(Dm, np.nan)
             good = ok.copy()
             if good.any():
-                sel = np.flatnonzero(good)
+                selg = np.flatnonzero(good)
                 try:
-                    Di[sel] = np.linalg.inv(Dm[sel])
+                    Di[selg] = np.linalg.inv(Dm[selg])
                 except np.linalg.LinAlgError:
-                    for s in sel:
+                    for s_ in selg:
                         try:
-                            Di[s] = np.linalg.inv(Dm[s])
+                            Di[s_] = np.linalg.inv(Dm[s_])
                         except np.linalg.LinAlgError:
-                            good[s] = False
+                            good[s_] = False
             beta = np.einsum("mab,mb->ma", Di, Nv)
-            sub = Di[:, pos][:, :, pos]
-            bA = beta[:, pos]
-            for m in np.flatnonzero(good):
+            if is_sel:
+                pos = [int(np.flatnonzero(r)[0]) for r in L]
+                sub = Di[:, pos][:, :, pos]
+                bA = beta[:, pos]
+            else:
+                sub = np.einsum("ra,mab,sb->mrs", L, Di, L)
+                bA = beta @ L.T
+            for m_ in np.flatnonzero(good):
                 try:
-                    W = np.linalg.inv(sub[m])
+                    Wm = np.linalg.inv(sub[m_])
                 except np.linalg.LinAlgError:
                     continue
-                chi2v[idx[m]] = float(bA[m] @ W @ bA[m])
+                chi2v[idx[m_]] = float(bA[m_] @ Wm @ bA[m_])
             if kt == 1:
                 betav[idx[good]] = bA[good, 0]
                 d = sub[good, 0, 0]
                 sev[idx[good]] = np.sqrt(np.maximum(d, 0.0))
+            # Per-trait effects of a single-family test with T traits.
+            tested, cond = _parse_test_full(spec)
+            if T > 1 and not cond and len(tested) == 1 and tested[0][1] is None \
+                    and tested[0][2] is None:
+                f = tested[0][0]
+                for kk in range(T):
+                    bv, sv = nan(), nan()
+                    bv[idx[good]] = beta[good, kk]
+                    sv[idx[good]] = np.sqrt(np.maximum(Di[good, kk, kk], 0.0))
+                    out["beta_%s[%s]" % (f, names[kk])] = bv
+                    out["se_%s[%s]" % (f, names[kk])] = sv
         out["chi2_" + spec] = chi2v
         out["df_" + spec] = np.full(p, float(kt))
         with np.errstate(invalid="ignore"):
@@ -455,10 +668,10 @@ def scan(proj, M, tests=("dir", "ind", "sim"), keep=None, block=1024,
             out["beta_" + spec] = betav
             out["se_" + spec] = sev
 
-    if ("dir", "ind") in den:
+    if T == 1 and (("dir", 0), ("ind", 0)) in den:
         with np.errstate(invalid="ignore", divide="ignore"):
-            out["r_dir_ind"] = den[("dir", "ind")] / np.sqrt(
-                den[("dir", "dir")] * den[("ind", "ind")])
+            out["r_dir_ind"] = den[(("dir", 0), ("ind", 0))] / np.sqrt(
+                den[(("dir", 0), ("dir", 0))] * den[(("ind", 0), ("ind", 0))])
     return out
 
 

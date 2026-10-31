@@ -1,6 +1,6 @@
 # Multivariate genome scan and multi-trait Neighbor GWAS: design
 
-Status: proposal, 2026-10-31. Nothing implemented yet. References are
+Status: agreed on 2026-10-31 (choices below), implementation started. References are
 collected in `multivariate_gwas_literature.md` (same folder).
 
 ## Where the univariate scan stands
@@ -101,10 +101,36 @@ few SNPs; type I error and power by simulation under a multi-trait IGE model.
    Sato model, simulation for the multi-trait Sato model.
 6. Documentation: vignette section, NEWS.
 
-## Open questions
+## Decisions (2026-10-31)
 
-- Fixed V only (EMMAX-type), or also an exact per-SNP refit (GEMMA mvLMM
-  type) for the top SNPs?
-- Default tests for a multi-trait scan.
-- Sato's K2: user supplied (vm(id, K = K2)), or built by remlax from the
-  neighbour incidence and K1?
+- Fixed-V scan on the whole genome, then an exact refit for the SNPs above a
+  threshold: REML refit with the SNP columns in X (V re-estimated), Wald test
+  of the same linear hypothesis, as the Wald test of GEMMA mvLMM. An LRT would
+  need ML fits, which remlax has only for the spatial lag.
+- All four multivariate tests: any effect (T df), per trait (1 df), common
+  effect (1 df), heterogeneity (T - 1 df).
+- Sato's K2 built by remlax, with the definitions of rNeighborGWAS 1.2.5
+  (Sato, Yamamoto, Shimizu & Nagano 2021, Heredity 126:597,
+  doi:10.1038/s41437-020-00401-w): with q markers coded +/-1, X1 the focal
+  doses and X2 the similarity covariates of all markers,
+      K1 = ((q - 1)/2 + X1 X1'/2) / (q - 1),   K2 = X2 X2' / (q - 1),
+  both projected to the nearest positive definite matrix. A user-supplied K2
+  stays possible. Sato fits no covariance between the self and neighbour
+  polygenic terms; the multi-trait model keeps them independent by default
+  and allows str() for a covariance (Sato & Hamazaki 2026 add one, one trait
+  at a time).
+
+## Notes from the literature (multivariate_gwas_literature.md)
+
+- At fixed V, score, Wald and ML LRT coincide; GEMMA's score test and Sato's
+  per-SNP LRT are this statistic. Conditional test of block b given a:
+  U_b.a = U_b - I_ba I_aa^-1 U_a, I_b.a = I_bb - I_ba I_aa^-1 I_ab,
+  T = U_b.a' I_b.a^-1 U_b.a.
+- Fixed V is conservative in small related samples (Zhou & Stephens 2014:
+  top p-values about 10 times too large in 656 related mice), hence the exact
+  refit of the top SNPs.
+- Animal IGE GWAS (Baud et al. 2021, Brinker et al. 2018) test direct and
+  indirect effects jointly in the model and report conditional tests;
+  conditioning on the local direct genotype is needed for calibration.
+- Long format handles missing traits (MTMM); GEMMA and LIMIX need complete
+  phenotypes.
