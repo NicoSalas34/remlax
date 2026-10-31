@@ -128,38 +128,87 @@ def _dense(Z):
 
 def _trait_masks(inc, n, trait, traits):
     """(masks, names, T). The rows of each trait come from the trait codes
-    when given (integer codes 0..T-1 in the order of `traits`, or labels),
-    otherwise from the rows where a per-trait incidence is nonzero (every
-    record carries the genotype of its plant)."""
+    when given, otherwise from the per-trait incidences."""
     T_inc = max(len(v) for v in inc.values())
     if trait is not None:
-        codes = np.asarray(trait)
-        if codes.shape != (n,):
-            raise ValueError("trait has %s elements, expected (%d,)" % (codes.shape, n))
-        if traits is None:
-            lev = list(dict.fromkeys(codes.tolist()))
-            masks, names = [codes == l for l in lev], [str(l) for l in lev]
-        else:
-            names = [str(t) for t in traits]
-            if codes.dtype.kind in "iu":
-                masks = [codes == k for k in range(len(names))]
-            else:
-                masks = [codes.astype(str) == nm for nm in names]
+        masks, names = _masks_from_codes(trait, n, traits)
         if T_inc > 1 and len(masks) != T_inc:
             raise ValueError("%d traits in `trait`, but %d per-trait incidences."
                              % (len(masks), T_inc))
         return masks, names, len(masks)
     if T_inc == 1:
         return [np.ones(n, dtype=bool)], [""], 1
+    names = [str(t) for t in traits] if traits is not None else [str(k + 1) for k in range(T_inc)]
+    return _masks_from_incidences(inc, n, T_inc), names, T_inc
+
+
+def _masks_from_codes(trait, n, traits):
+    """Integer codes 0..T-1 in the order of `traits`, or labels."""
+    codes = np.asarray(trait)
+    if codes.shape != (n,):
+        raise ValueError("trait has %s elements, expected (%d,)" % (codes.shape, n))
+    if traits is None:
+        lev = list(dict.fromkeys(codes.tolist()))
+        return [codes == l for l in lev], [str(l) for l in lev]
+    names = [str(t) for t in traits]
+    if codes.dtype.kind in "iu":
+        return [codes == k for k in range(len(names))], names
+    return [codes.astype(str) == nm for nm in names], names
+
+
+def _masks_from_incidences(inc, n, T):
+    """Rows where a per-trait incidence is nonzero: every record carries the
+    genotype of its plant."""
     masks = []
-    for k in range(T_inc):
+    for k in range(T):
         m = np.zeros(n, dtype=bool)
         for v in inc.values():
-            if len(v) == T_inc:
+            if len(v) == T:
                 m |= np.abs(v[k]).sum(axis=1) > 0
         masks.append(m)
-    names = [str(t) for t in traits] if traits is not None else [str(k + 1) for k in range(T_inc)]
-    return masks, names, T_inc
+    return masks
+
+
+def _fit_arrays(fit):
+    """Vi, vbeta and Py of a fit, checked."""
+    for key in ("Vi", "vbeta", "Py"):
+        if key not in fit:
+            raise KeyError(
+                "fit['%s'] missing. `scan` reads the output of fit_reml and needs "
+                "Vi, vbeta and Py. They are produced as soon as blups=True or "
+                "hessian=True (the default). A fit run with "
+                "--no-blups --no-hessian does not contain them." % key)
+    Vi = np.asarray(fit["Vi"], dtype=np.float64)
+    vbeta = np.asarray(fit["vbeta"], dtype=np.float64)
+    Py = np.asarray(fit["Py"], dtype=np.float64).ravel()
+    if Vi.shape != (len(Py), len(Py)):
+        raise ValueError("Vi is %s but Py has %d elements." % (Vi.shape, len(Py)))
+    return Vi, vbeta, Py
+
+
+def _incidence_lists(incidences, n):
+    """family -> list of dense per-trait incidences (one element when the
+    family is given as a single matrix), checked."""
+    unknown = set(incidences) - set(LINEAR)
+    if unknown:
+        raise ValueError("incidences: unknown key(s) %s. Expected among %s"
+                         % (sorted(unknown), list(LINEAR)))
+    if not incidences:
+        raise ValueError("incidences empty: supply at least 'dir' or 'ind'.")
+    inc = {f: ([_dense(z) for z in Zf] if isinstance(Zf, (list, tuple)) else [_dense(Zf)])
+           for f, Zf in incidences.items()}
+    for f, v in inc.items():
+        for Zk in v:
+            if Zk.shape[0] != n:
+                raise ValueError("incidence '%s' has %d rows, expected %d."
+                                 % (f, Zk.shape[0], n))
+        if len({Zk.shape[1] for Zk in v}) > 1:
+            raise ValueError("incidence '%s': per-trait matrices with different "
+                             "numbers of columns." % f)
+    if len({len(v) for v in inc.values()} - {1}) > 1:
+        raise ValueError("incidences: different numbers of traits between families "
+                         "(%s)." % {f: len(v) for f, v in inc.items()})
+    return inc
 
 
 def project(fit, X, incidences, trait=None, traits=None):
@@ -185,42 +234,10 @@ def project(fit, X, incidences, trait=None, traits=None):
 
     Cost: one (n x n) by (n x q) product per base column. No factorisation.
     """
-    for key in ("Vi", "vbeta", "Py"):
-        if key not in fit:
-            raise KeyError(
-                "fit['%s'] missing. `scan` reads the output of fit_reml and needs "
-                "Vi, vbeta and Py. They are produced as soon as blups=True or "
-                "hessian=True (the default). A fit run with "
-                "--no-blups --no-hessian does not contain them." % key)
-    unknown = set(incidences) - set(LINEAR)
-    if unknown:
-        raise ValueError("incidences: unknown key(s) %s. Expected among %s"
-                         % (sorted(unknown), list(LINEAR)))
-    if not incidences:
-        raise ValueError("incidences empty: supply at least 'dir' or 'ind'.")
-
-    Vi = np.asarray(fit["Vi"], dtype=np.float64)
-    vbeta = np.asarray(fit["vbeta"], dtype=np.float64)
-    Py = np.asarray(fit["Py"], dtype=np.float64).ravel()
+    Vi, vbeta, Py = _fit_arrays(fit)
     X = _dense(X)
     n = len(Py)
-    if Vi.shape != (n, n):
-        raise ValueError("Vi is %s but Py has %d elements." % (Vi.shape, n))
-
-    inc = {f: ([_dense(z) for z in Zf] if isinstance(Zf, (list, tuple)) else [_dense(Zf)])
-           for f, Zf in incidences.items()}
-    for f, v in inc.items():
-        for Zk in v:
-            if Zk.shape[0] != n:
-                raise ValueError("incidence '%s' has %d rows, expected %d."
-                                 % (f, Zk.shape[0], n))
-        if len({Zk.shape[1] for Zk in v}) > 1:
-            raise ValueError("incidence '%s': per-trait matrices with different "
-                             "numbers of columns." % f)
-    lens = {len(v) for v in inc.values()}
-    if len(lens - {1}) > 1:
-        raise ValueError("incidences: different numbers of traits between families "
-                         "(%s)." % {f: len(v) for f, v in inc.items()})
+    inc = _incidence_lists(incidences, n)
     masks, traits, T = _trait_masks(inc, n, trait, traits)
     # A single matrix in a multi-trait model is split by trait.
     for f in inc:
@@ -270,16 +287,20 @@ def _parse_item(item, spec):
     if not m:
         raise ValueError("test '%s': cannot read '%s'." % (spec, item))
     fam, tr, mod = m.groups()
+    traits = [t.strip() for t in tr.split(",") if t.strip()] if tr is not None else None
+    _check_item(spec, fam, traits, mod)
+    return fam, traits, mod
+
+
+def _check_item(spec, fam, traits, mod):
     if fam not in FAMILIES:
         raise ValueError("test '%s': unknown family(ies) %s. Expected among %s"
                          % (spec, [fam], list(FAMILIES)))
     if mod is not None and mod not in ("common", "het"):
         raise ValueError("test '%s': unknown modifier '@%s' (expected @common or @het)."
                          % (spec, mod))
-    traits = [t.strip() for t in tr.split(",") if t.strip()] if tr is not None else None
     if traits is not None and mod is not None:
         raise ValueError("test '%s': '[traits]' and '@%s' cannot be combined." % (spec, mod))
-    return fam, traits, mod
 
 
 def _parse_test_full(spec):
@@ -317,53 +338,63 @@ def _design(spec, T, traits):
     """Model columns of a test as combinations of base columns, and the matrix L
     of the tested linear hypothesis on the model coefficients.
 
-    Returns (W, L, labels): W (n_base_used x m) as a list of dicts
-    {(f, k): weight}, one per model column; L (r x m); labels of the tested
-    rows (for the 1-df outputs)."""
+    Returns (cols, L, labels): cols a list of dicts {(f, k): weight}, one per
+    model column; L (r x m); labels of the tested rows (for the 1-df
+    outputs)."""
     tested, cond = _parse_test_full(spec)
-    cols, where = [], {}
-    names = list(traits)
+    cols, where = _model_columns(spec, tested + cond, T)
+    rows, labels = [], []
+    for item in tested:
+        r, lab = _hypothesis_rows(spec, item, where, len(cols), T, list(traits))
+        rows += r; labels += lab
+    L = np.array(rows)
+    _, keep = np.unique(L, axis=0, return_index=True)
+    keep = np.sort(keep)
+    return cols, L[keep], [labels[i] for i in keep]
 
-    def add(f, mod):
+
+def _model_columns(spec, items, T):
+    """Model columns in order of appearance: T unit columns per family, or one
+    common column (sum over traits) for a family with @common. `where` maps
+    (family, "all" | "common") to the positions of its columns."""
+    cols, where = [], {}
+    for f, _, mod in items:
         mode = "common" if mod == "common" else "all"
         other = (f, "all" if mode == "common" else "common")
         if other in where:
             raise ValueError("test '%s': family '%s' enters the model both with and "
                              "without @common." % (spec, f))
         if (f, mode) in where:
-            return
+            continue
         if mode == "common":
             where[(f, mode)] = [len(cols)]
             cols.append({(f, k): 1.0 for k in range(T)})
         else:
             where[(f, mode)] = list(range(len(cols), len(cols) + T))
             cols.extend({(f, k): 1.0} for k in range(T))
+    return cols, where
 
-    for f, tr, mod in tested + cond:
-        add(f, mod)
-    rows, labels = [], []
-    m = len(cols)
-    for f, tr, mod in tested:
-        if mod == "common":
-            r = np.zeros(m); r[where[(f, "common")][0]] = 1.0
-            rows.append(r); labels.append("%s@common" % f)
-        elif mod == "het":
-            if T < 2:
-                raise ValueError("test '%s': @het needs at least two traits." % spec)
-            idx = where[(f, "all")]
-            for k in range(1, T):
-                r = np.zeros(m); r[idx[k]] = 1.0; r[idx[0]] = -1.0
-                rows.append(r); labels.append("%s[%s-%s]" % (f, names[k], names[0]))
-        else:
-            idx = where[(f, "all")]
-            ks = range(T) if tr is None else [_trait_index(t, names, spec) for t in tr]
-            for k in ks:
-                r = np.zeros(m); r[idx[k]] = 1.0
-                rows.append(r); labels.append(f if T == 1 else "%s[%s]" % (f, names[k]))
-    L = np.array(rows)
-    _, keep = np.unique(L, axis=0, return_index=True)
-    keep = np.sort(keep)
-    return cols, L[keep], [labels[i] for i in keep]
+
+def _hypothesis_rows(spec, item, where, m, T, names):
+    """Rows of L for one tested item, and their labels."""
+    f, tr, mod = item
+
+    def unit(i, minus=None):
+        r = np.zeros(m); r[i] = 1.0
+        if minus is not None:
+            r[minus] = -1.0
+        return r
+    if mod == "common":
+        return [unit(where[(f, "common")][0])], ["%s@common" % f]
+    idx = where[(f, "all")]
+    if mod == "het":
+        if T < 2:
+            raise ValueError("test '%s': @het needs at least two traits." % spec)
+        return ([unit(idx[k], idx[0]) for k in range(1, T)],
+                ["%s[%s-%s]" % (f, names[k], names[0]) for k in range(1, T)])
+    ks = range(T) if tr is None else [_trait_index(t, names, spec) for t in tr]
+    return ([unit(idx[k]) for k in ks],
+            [f if T == 1 else "%s[%s]" % (f, names[k]) for k in ks])
 
 
 def _trait_index(t, names, spec):
@@ -471,12 +502,35 @@ def scan(proj, M, tests=("dir", "ind", "sim"), keep=None, block=1024,
       df (degrees of freedom) and p are vectors so that they can be written
       to CSV as they are.
     """
-    from scipy.stats import chi2 as _chi2
     xp = np if xp is None else xp
     needed = required_families(tests)
     Mf, p = _markers(M, needed)
     T, names = proj.T, proj.traits
+    _check_scan_inputs(proj, Mf, needed, tests)
+    designs = {spec: _design(spec, T, names) for spec in tests}
+    idx = _kept_snps(keep, p)
 
+    base = [(f, k) for f in needed for k in range(T)]
+    num, den = _empty_statistics(base, p)
+    _linear_statistics(proj, Mf, base, idx, num, den)
+    if "sim" in needed:
+        _sim_statistics(proj, Mf, base, idx, num, den, block, xp, verbose)
+
+    out = _raw_outputs(num, den, T, names)
+    Nb, Db = _stack_statistics(num, den, base, idx)
+    for spec in tests:
+        out.update(_test_outputs(spec, designs[spec], Nb, Db, base, idx, p, T, names))
+    if T == 1 and (("dir", 0), ("ind", 0)) in den:
+        with np.errstate(invalid="ignore", divide="ignore"):
+            out["r_dir_ind"] = den[(("dir", 0), ("ind", 0))] / np.sqrt(
+                den[(("dir", 0), ("dir", 0))] * den[(("ind", 0), ("ind", 0))])
+    return out
+
+
+def _check_scan_inputs(proj, Mf, needed, tests):
+    """Refuse what the scan cannot interpret: joint tests on different marker
+    sets, families without their incidence, `sim` on doses that are not
+    centred."""
     joint = [t for t in tests if len(_parse_test(t)[0]) > 1]
     if joint and not _same_snps(Mf, needed):
         raise ValueError(
@@ -484,45 +538,55 @@ def scan(proj, M, tests=("dir", "ind", "sim"), keep=None, block=1024,
             "from one family to the other. Column j then does not denote the same "
             "SNP on both sides (between-species case). Run the families "
             "separately." % joint)
-
     for f in needed:
         if f in LINEAR and f not in proj.q:
             raise ValueError("family '%s' requested but the matching incidence "
                              "was not projected (incidences given: %s)"
                              % (f, sorted(proj.q)))
     if "sim" in needed:
-        for f in LINEAR:
-            if f not in proj.q:
-                raise ValueError("the family 'sim' is the product of the direct "
-                                 "and indirect covariates. BOTH incidences are "
-                                 "needed (given: %s)" % sorted(proj.q))
-        for f in LINEAR:
-            mu = float(np.abs(Mf[f].mean()))
-            sd = float(Mf[f].std())
-            if sd > 0 and mu > 0.25 * sd:
-                raise ValueError(
-                    "family 'sim': the doses of '%s' are not centred "
-                    "(mean %.3g for a standard deviation %.3g). The product of the doses "
-                    "is an allelic similarity only under centred coding (+/-1). "
-                    "Centre the doses, or do not request 'sim'." % (f, mu, sd))
-    designs = {spec: _design(spec, T, names) for spec in tests}
+        _check_sim_inputs(proj, Mf)
 
+
+def _check_sim_inputs(proj, Mf):
+    """`sim` needs both incidences and centred doses."""
+    for f in LINEAR:
+        if f not in proj.q:
+            raise ValueError("the family 'sim' is the product of the direct "
+                             "and indirect covariates. BOTH incidences are "
+                             "needed (given: %s)" % sorted(proj.q))
+    for f in LINEAR:
+        mu = float(np.abs(Mf[f].mean()))
+        sd = float(Mf[f].std())
+        if sd > 0 and mu > 0.25 * sd:
+            raise ValueError(
+                "family 'sim': the doses of '%s' are not centred "
+                "(mean %.3g for a standard deviation %.3g). The product of the doses "
+                "is an allelic similarity only under centred coding (+/-1). "
+                "Centre the doses, or do not request 'sim'." % (f, mu, sd))
+
+
+def _kept_snps(keep, p):
+    """Indices of the SNPs to process."""
     if keep is None:
         keep = np.ones(p, dtype=bool)
     keep = np.asarray(keep, dtype=bool)
     if keep.shape != (p,):
         raise ValueError("keep has %s elements, expected (%d,)" % (keep.shape, p))
-    idx = np.flatnonzero(keep)
+    return np.flatnonzero(keep)
 
-    base = [(f, k) for f in needed for k in range(T)]
-    nan = lambda: np.full(p, np.nan)
-    num = {b: nan() for b in base}
+
+def _empty_statistics(base, p):
+    """num[b] and den[(a, b)] (a before b in `base`), NaN until computed."""
+    num = {b: np.full(p, np.nan) for b in base}
     den = {}
     for i, a in enumerate(base):
         for b in base[i:]:
-            den[(a, b)] = nan()
+            den[(a, b)] = np.full(p, np.nan)
+    return num, den
 
-    # ---- linear families: everything in genotype dimension ---------------
+
+def _linear_statistics(proj, Mf, base, idx, num, den):
+    """`dir` and `ind` columns: everything in genotype dimension."""
     lin = [b for b in base if b[0] in LINEAR]
     for b in lin:
         num[b][idx] = Mf[b[0]][:, idx].T @ proj.c[b]
@@ -531,147 +595,175 @@ def scan(proj, M, tests=("dir", "ind", "sim"), keep=None, block=1024,
             A = proj.C[(a, b)] @ Mf[b[0]][:, idx]
             den[(a, b)][idx] = np.einsum("ij,ij->j", Mf[a[0]][:, idx], A)
 
-    # ---- sim family: by blocks, the only step in dimension n -------------
-    if "sim" in needed:
-        Mdir, Mind = Mf["dir"], Mf["ind"]
-        Zdir, Zind = proj.Zfull["dir"], proj.Zfull["ind"]
-        Py = proj.Py
-        # P is never formed. P Z is already computed for the incidence
-        # columns. s3 is not one of them, so the code computes
-        #   P s3 = Vi s3 - ViX vbeta (X' Vi s3)
-        # by blocks of SNPs, one block of columns per trait. It is the only
-        # O(n^2) step of the file.
-        Vi = proj._Vi
-        for d0 in range(0, len(idx), int(block)):
-            j = idx[d0:d0 + int(block)]
-            u = Zdir @ Mdir[:, j]                       # (n, b)
-            v = Zind @ Mind[:, j]                       # (n, b)
-            S3 = u * v
-            S3k = [S3 if T == 1 else S3 * proj.masks[k][:, None] for k in range(T)]
-            PS3 = []
-            for k in range(T):
-                S3x = xp.asarray(S3k[k])
-                Pk = xp.asarray(Vi) @ S3x
-                Pk = Pk - xp.asarray(proj._ViX) @ (
-                    xp.asarray(proj._vbeta) @ (xp.asarray(proj._X).T @ Pk))
-                PS3.append(Pk)
-            for k in range(T):
-                sk = ("sim", k)
-                num[sk][j] = S3k[k].T @ Py
-                # s_sim' P (Z_b m) = (s_sim' P Z_b) m: sum over the q genotypes,
-                # one value per SNP of the block, hence "ij,ij->i".
-                for b in lin:
-                    key = (b, sk) if (b, sk) in den else (sk, b)
-                    den[key][j] = np.einsum("ij,ij->i", S3k[k].T @ proj.PZ[b],
-                                            Mf[b[0]][:, j].T)
-                for l in range(k, T):
-                    sl = ("sim", l)
-                    den[(sk, sl)][j] = np.asarray(
-                        xp.einsum("ij,ij->j", xp.asarray(S3k[k]), PS3[l]))
-            if verbose:
-                print("  [scan sim] %d / %d SNP" % (min(d0 + int(block), len(idx)),
-                                                    len(idx)), flush=True)
 
-    # ---- tests ------------------------------------------------------------
+def _sim_statistics(proj, Mf, base, idx, num, den, block, xp, verbose):
+    """`sim` columns, by blocks of SNPs: the only step in dimension n.
+
+    P is never formed. P Z is already computed for the incidence columns. s3
+    is not one of them, so the code computes P s3 = Vi s3 - ViX vbeta (X' Vi s3)
+    by blocks of SNPs, one block of columns per trait."""
+    T = proj.T
+    lin = [b for b in base if b[0] in LINEAR]
+    Mdir, Mind = Mf["dir"], Mf["ind"]
+    Zdir, Zind = proj.Zfull["dir"], proj.Zfull["ind"]
+    for d0 in range(0, len(idx), int(block)):
+        j = idx[d0:d0 + int(block)]
+        S3 = (Zdir @ Mdir[:, j]) * (Zind @ Mind[:, j])            # (n, b)
+        S3k = [S3 if T == 1 else S3 * proj.masks[k][:, None] for k in range(T)]
+        PS3 = [_project_columns(proj, S3k[k], xp) for k in range(T)]
+        for k in range(T):
+            sk = ("sim", k)
+            num[sk][j] = S3k[k].T @ proj.Py
+            # s_sim' P (Z_b m) = (s_sim' P Z_b) m: sum over the q genotypes,
+            # one value per SNP of the block, hence "ij,ij->i".
+            for b in lin:
+                key = (b, sk) if (b, sk) in den else (sk, b)
+                den[key][j] = np.einsum("ij,ij->i", S3k[k].T @ proj.PZ[b],
+                                        Mf[b[0]][:, j].T)
+            for l in range(k, T):
+                den[(sk, ("sim", l))][j] = np.asarray(
+                    xp.einsum("ij,ij->j", xp.asarray(S3k[k]), PS3[l]))
+        if verbose:
+            print("  [scan sim] %d / %d SNP" % (min(d0 + int(block), len(idx)),
+                                                len(idx)), flush=True)
+
+
+def _project_columns(proj, S, xp):
+    """P S = Vi S - ViX vbeta (X' Vi S), with the array module xp."""
+    Sx = xp.asarray(S)
+    PS = xp.asarray(proj._Vi) @ Sx
+    return PS - xp.asarray(proj._ViX) @ (
+        xp.asarray(proj._vbeta) @ (xp.asarray(proj._X).T @ PS))
+
+
+def _raw_outputs(num, den, T, names):
+    """num_<b> and den_<a>_<b>, named by family (and trait)."""
     out = {}
-    for b in base:
-        out["num_" + _key(b, T, names)] = num[b]
+    for b, v in num.items():
+        out["num_" + _key(b, T, names)] = v
     for (a, b), v in den.items():
         out["den_%s_%s" % (_key(a, T, names), _key(b, T, names))] = v
+    return out
 
+
+def _stack_statistics(num, den, base, idx):
+    """Nb (m, B) and the symmetric Db (m, B, B) over the kept SNPs."""
     pos_of = {b: i for i, b in enumerate(base)}
-    Nb = np.stack([num[b][idx] for b in base], axis=1)               # (m, B)
+    Nb = np.stack([num[b][idx] for b in base], axis=1)
     Db = np.empty((len(idx), len(base), len(base)))
     for (a, b), v in den.items():
         Db[:, pos_of[a], pos_of[b]] = v[idx]
         Db[:, pos_of[b], pos_of[a]] = v[idx]
+    return Nb, Db
 
-    for spec in tests:
-        cols, L, labels = designs[spec]
-        kt = L.shape[0]
-        chi2v, betav, sev = nan(), nan(), nan()
-        # W: base columns -> model columns. A pure selection keeps the
-        # univariate arithmetic exactly.
-        W = np.zeros((len(base), len(cols)))
-        for c_, wd in enumerate(cols):
-            for b, w in wd.items():
-                W[pos_of[b], c_] = w
-        sel = [int(np.flatnonzero(W[:, c_])[0]) if (np.count_nonzero(W[:, c_]) == 1
-               and W[:, c_].max() == 1.0) else -1 for c_ in range(W.shape[1])]
-        if all(s >= 0 for s in sel):
-            Dm = Db[:, sel][:, :, sel]
-            Nv = Nb[:, sel]
-        else:
-            Dm = np.einsum("ba,mbc,cd->mad", W, Db, W)
-            Nv = Nb @ W
-        k = Dm.shape[1]
-        ok = np.isfinite(Dm).all(axis=(1, 2)) & np.isfinite(Nv).all(axis=1)
-        is_sel = np.all((L == 0) | (L == 1)) and np.all(L.sum(axis=1) == 1)
-        if k == 1:
-            d = Dm[:, 0, 0]
-            good = ok & (d > 0)
-            b = Nv[good, 0] / d[good]
-            chi2v[idx[good]] = Nv[good, 0] ** 2 / d[good]
-            betav[idx[good]] = b
-            sev[idx[good]] = 1.0 / np.sqrt(d[good])
-            Di = None
-        else:
-            # beta = D^-1 num, var(beta) = D^-1. Test of the hypothesis L beta = 0:
-            #   chi2 = (L beta)' [L D^-1 L']^-1 (L beta)
-            # (a subset A of the coefficients when L selects them).
-            Di = np.full_like(Dm, np.nan)
-            good = ok.copy()
-            if good.any():
-                selg = np.flatnonzero(good)
-                try:
-                    Di[selg] = np.linalg.inv(Dm[selg])
-                except np.linalg.LinAlgError:
-                    for s_ in selg:
-                        try:
-                            Di[s_] = np.linalg.inv(Dm[s_])
-                        except np.linalg.LinAlgError:
-                            good[s_] = False
-            beta = np.einsum("mab,mb->ma", Di, Nv)
-            if is_sel:
-                pos = [int(np.flatnonzero(r)[0]) for r in L]
-                sub = Di[:, pos][:, :, pos]
-                bA = beta[:, pos]
-            else:
-                sub = np.einsum("ra,mab,sb->mrs", L, Di, L)
-                bA = beta @ L.T
-            for m_ in np.flatnonzero(good):
-                try:
-                    Wm = np.linalg.inv(sub[m_])
-                except np.linalg.LinAlgError:
-                    continue
-                chi2v[idx[m_]] = float(bA[m_] @ Wm @ bA[m_])
-            if kt == 1:
-                betav[idx[good]] = bA[good, 0]
-                d = sub[good, 0, 0]
-                sev[idx[good]] = np.sqrt(np.maximum(d, 0.0))
-            # Per-trait effects of a single-family test with T traits.
-            tested, cond = _parse_test_full(spec)
-            if T > 1 and not cond and len(tested) == 1 and tested[0][1] is None \
-                    and tested[0][2] is None:
-                f = tested[0][0]
-                for kk in range(T):
-                    bv, sv = nan(), nan()
-                    bv[idx[good]] = beta[good, kk]
-                    sv[idx[good]] = np.sqrt(np.maximum(Di[good, kk, kk], 0.0))
-                    out["beta_%s[%s]" % (f, names[kk])] = bv
-                    out["se_%s[%s]" % (f, names[kk])] = sv
-        out["chi2_" + spec] = chi2v
-        out["df_" + spec] = np.full(p, float(kt))
-        with np.errstate(invalid="ignore"):
-            out["p_" + spec] = _chi2.sf(chi2v, kt)
-        if kt == 1:
-            out["beta_" + spec] = betav
-            out["se_" + spec] = sev
 
-    if T == 1 and (("dir", 0), ("ind", 0)) in den:
-        with np.errstate(invalid="ignore", divide="ignore"):
-            out["r_dir_ind"] = den[(("dir", 0), ("ind", 0))] / np.sqrt(
-                den[(("dir", 0), ("dir", 0))] * den[(("ind", 0), ("ind", 0))])
+def _model_statistics(cols, base, Nb, Db):
+    """num and den of the model columns. W maps base columns to model
+    columns; a pure selection keeps the univariate arithmetic exactly."""
+    pos_of = {b: i for i, b in enumerate(base)}
+    W = np.zeros((len(base), len(cols)))
+    for c_, wd in enumerate(cols):
+        for b, w in wd.items():
+            W[pos_of[b], c_] = w
+    sel = [int(np.flatnonzero(W[:, c_])[0]) if (np.count_nonzero(W[:, c_]) == 1
+           and W[:, c_].max() == 1.0) else -1 for c_ in range(W.shape[1])]
+    if all(s >= 0 for s in sel):
+        return Nb[:, sel], Db[:, sel][:, :, sel]
+    return Nb @ W, np.einsum("ba,mbc,cd->mad", W, Db, W)
+
+
+def _test_outputs(spec, design, Nb, Db, base, idx, p, T, names):
+    """chi2, df and p of one test, beta and se when it has one df, and the
+    per-trait effects of a single-family test with T traits."""
+    from scipy.stats import chi2 as _chi2
+    cols, L, _ = design
+    kt = L.shape[0]
+    Nv, Dm = _model_statistics(cols, base, Nb, Db)
+    ok = np.isfinite(Dm).all(axis=(1, 2)) & np.isfinite(Nv).all(axis=1)
+    if Dm.shape[1] == 1:
+        chi2v, betav, sev = _one_column_test(Nv, Dm, ok, idx, p)
+        out = {}
+    else:
+        chi2v, betav, sev, out = _block_test(spec, L, Nv, Dm, ok, idx, p, T, names)
+    out["chi2_" + spec] = chi2v
+    out["df_" + spec] = np.full(p, float(kt))
+    with np.errstate(invalid="ignore"):
+        out["p_" + spec] = _chi2.sf(chi2v, kt)
+    if kt == 1:
+        out["beta_" + spec] = betav
+        out["se_" + spec] = sev
+    return out
+
+
+def _one_column_test(Nv, Dm, ok, idx, p):
+    """beta = num/den, var(beta) = 1/den, chi2 = num^2/den."""
+    chi2v, betav, sev = np.full(p, np.nan), np.full(p, np.nan), np.full(p, np.nan)
+    d = Dm[:, 0, 0]
+    good = ok & (d > 0)
+    chi2v[idx[good]] = Nv[good, 0] ** 2 / d[good]
+    betav[idx[good]] = Nv[good, 0] / d[good]
+    sev[idx[good]] = 1.0 / np.sqrt(d[good])
+    return chi2v, betav, sev
+
+
+def _block_test(spec, L, Nv, Dm, ok, idx, p, T, names):
+    """beta = D^-1 num, var(beta) = D^-1. Test of the hypothesis L beta = 0:
+        chi2 = (L beta)' [L D^-1 L']^-1 (L beta)
+    (a subset A of the coefficients when L selects them)."""
+    chi2v, betav, sev = np.full(p, np.nan), np.full(p, np.nan), np.full(p, np.nan)
+    Di, good = _batched_inverse(Dm, ok)
+    beta = np.einsum("mab,mb->ma", Di, Nv)
+    if np.all((L == 0) | (L == 1)) and np.all(L.sum(axis=1) == 1):
+        pos = [int(np.flatnonzero(r)[0]) for r in L]
+        sub = Di[:, pos][:, :, pos]
+        bA = beta[:, pos]
+    else:
+        sub = np.einsum("ra,mab,sb->mrs", L, Di, L)
+        bA = beta @ L.T
+    for m_ in np.flatnonzero(good):
+        try:
+            Wm = np.linalg.inv(sub[m_])
+        except np.linalg.LinAlgError:
+            continue
+        chi2v[idx[m_]] = float(bA[m_] @ Wm @ bA[m_])
+    if L.shape[0] == 1:
+        betav[idx[good]] = bA[good, 0]
+        sev[idx[good]] = np.sqrt(np.maximum(sub[good, 0, 0], 0.0))
+    return chi2v, betav, sev, _per_trait_effects(spec, beta, Di, good, idx, p, T, names)
+
+
+def _batched_inverse(Dm, ok):
+    """Inverses of the SNP blocks; a singular block leaves its SNP out."""
+    Di = np.full_like(Dm, np.nan)
+    good = ok.copy()
+    if good.any():
+        selg = np.flatnonzero(good)
+        try:
+            Di[selg] = np.linalg.inv(Dm[selg])
+        except np.linalg.LinAlgError:
+            for s_ in selg:
+                try:
+                    Di[s_] = np.linalg.inv(Dm[s_])
+                except np.linalg.LinAlgError:
+                    good[s_] = False
+    return Di, good
+
+
+def _per_trait_effects(spec, beta, Di, good, idx, p, T, names):
+    """beta_<f>[<trait>] and se_<f>[<trait>] of a single-family test with T
+    traits (no condition, no trait subset, no modifier)."""
+    tested, cond = _parse_test_full(spec)
+    if T == 1 or cond or len(tested) != 1 or tested[0][1] is not None \
+            or tested[0][2] is not None:
+        return {}
+    f = tested[0][0]
+    out = {}
+    for kk in range(T):
+        bv, sv = np.full(p, np.nan), np.full(p, np.nan)
+        bv[idx[good]] = beta[good, kk]
+        sv[idx[good]] = np.sqrt(np.maximum(Di[good, kk, kk], 0.0))
+        out["beta_%s[%s]" % (f, names[kk])] = bv
+        out["se_%s[%s]" % (f, names[kk])] = sv
     return out
 
 
