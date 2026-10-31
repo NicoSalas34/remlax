@@ -1,4 +1,4 @@
-# remlax (development version)
+# remlax 0.2.0
 
 * Corrections, each with its test:
   - with prior weights, the Wald tests, Kenward-Roger and the predictions

@@ -194,7 +194,7 @@ none.
 
 ```sh
 R CMD build remlax
-R CMD INSTALL remlax_0.1.0.tar.gz
+R CMD INSTALL remlax_0.2.0.tar.gz
 ```
 
 The package needs a Python interpreter (>= 3.10) with `jax >= 0.4.30`,
