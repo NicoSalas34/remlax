@@ -59,6 +59,11 @@ RX_LEVEL_NP <- c(id = 0L, fixed = 0L, cor = 1L, ar1 = 1L, ar2 = 2L, ar3 = 3L,
 # Metric structures need coordinates. 1D and 2D are kept apart: a coordinate
 # with one column given to iexp() would otherwise be accepted and give another
 # model than the one asked for.
+# Structures whose correlation depends on the lag between levels: their levels
+# form a regular grid, built by .rx_grid_factor() so that an empty row or
+# column keeps its place.
+RX_LAG_1D <- c("ar1", "ar2", "ar3", "sar", "ma1", "ma2", "arma", "corb")
+
 RX_METRIC_1D <- c("exp", "gau", "lvr")
 RX_METRIC_2D <- c("iexp", "igau", "ieuc", "sph", "cir",
                   "aexp", "agau", "mtrn")

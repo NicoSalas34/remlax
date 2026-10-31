@@ -183,6 +183,11 @@ def _fit_model(terms, res, y, X, theta_init=None, maxiter=3000,
                      slow_on=(finish == "trust" and optimizer == "lbfgsb"),
                      slow_stop=slow_stop)
     bornes, th0 = _bounds(th0, p, floor, ceil, terms, res, y, fixed_idx)
+    # Every parameter fixed: there is nothing to optimise, and scipy returns a
+    # result without `nit`. The fit is the evaluation at the given point.
+    all_fixed = bool(fixed_idx) and len({int(j) for j in fixed_idx}) >= p
+    if all_fixed:
+        maxiter = 0
 
     # maxiter = 0 means "do not optimise" and is short-circuited: L-BFGS-B
     # given maxiter = 0 still moves theta (dev/notes.md).
@@ -210,6 +215,8 @@ def _fit_model(terms, res, y, X, theta_init=None, maxiter=3000,
     _chrono("finish")
     out = _result_core(obj, eng, theta, r, f_end, g_end, X, y, n, p, maxiter, floor, ceil,
                        optimizer, t_optim, n_polish)
+    if all_fixed:
+        out["scipy_message"] = "evaluation only (every parameter fixed), no optimisation"
     n_plat = _add_identification(out, terms, n, p, verbose)
     y_fit = _add_lag_report(out, theta, lag, p_cov, X, y, f_end, verbose)
     _add_degenerate(out, theta, terms, p_cov, floor, fixed_idx, verbose)
@@ -799,7 +806,7 @@ def _result_core(obj, eng, theta, r, f_end, g_end, X, y, n, p, maxiter, floor, c
                 scipy_success=(True if no_optim else bool(r.success)),
                 scipy_message=("evaluation only (maxiter = 0), no optimisation"
                                if no_optim else str(r.message)),
-                n_iter=(0 if no_optim else int(r.nit)),
+                n_iter=(0 if no_optim else int(getattr(r, "nit", 0))),
                 seconds=time.time() - hist["t0"],
                 par_floor=float(floor), par_ceil=float(ceil),
                 compile_s=_t_compil, eval_s=_t_eval, first_call_s=obj.t_first,

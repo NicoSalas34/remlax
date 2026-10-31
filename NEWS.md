@@ -23,7 +23,19 @@
   - `rx_residual(level = "sep")`, which could not work, is refused;
   - the anisotropic Matern kernel has a finite gradient at zero distance:
     with `delta` or `alpha` estimated, its fit was refused at the start
-    because the gradient on the diagonal of the kernel was not finite.
+    because the gradient on the diagonal of the kernel was not finite;
+  - the lag structures of the formula interface (`ar1(row):ar1(col)` in the
+    residual, `ar1(row, col)`, and `ar1`, `ar2`, `ar3`, `sar`, `ma1`, `ma2`,
+    `arma`, `corb` on one factor) keep a row or column without any record.
+    Dropping it brought its neighbours one step closer and shortened the
+    distances. A factor keeps all its levels, used or not. Numeric positions
+    span their range with the step of the data (1, 3, 5 is a grid of step 2).
+    asreml keeps an empty line only when its cells are present as rows with
+    a missing response; `droplevels()` reproduces its grid on data without
+    them. Found on the cpdata field of sommer, where asreml given the full
+    grid disagreed on five checks;
+  - a fit whose parameters are all fixed by `fixed_theta` is the evaluation
+    at the given point; it stopped on a `KeyError: 'nit'`.
 * `rx_fit()` warns when a REML fit did not converge or stopped on a saddle
   point, and when a posterior sample cannot be used (collapsed step size,
   nested R-hat above 1.01, ESS under 100, divergences, failed search for the

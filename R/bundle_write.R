@@ -122,10 +122,11 @@ rx_export <- function(model, dir) {
   }
 }
 
-# One residual section. Units are 0-based codes. On an ar1 x ar1 grid the unit
-# keeps its cell code, (row - 1) * n_columns + column, which is its position in
-# the Kronecker product: renumbering it with factor() would drop the empty
-# cells and shift the following ones. Elsewhere the unit is only a label.
+# One residual section. Units are 0-based codes. On a lag grid the unit keeps
+# its rank in the grid: (row - 1) * n_columns + column for ar1 x ar1, its
+# position in the Kronecker product, and the level rank for ar1, ar2, ... on
+# one factor. Renumbering it with factor() would drop the empty cells and
+# shift the following ones. Elsewhere the unit is only a label.
 .rx_export_section <- function(w, pre, r, n_rows) {
   .rx_put(w, paste0(pre, "_struct"), r$struct, "str")
   .rx_put(w, paste0(pre, "_lvl"), r$level %||% "id", "str")
@@ -142,7 +143,8 @@ rx_export <- function(model, dir) {
   .rx_put(w, paste0(pre, "_rank"), r$rank, "i4")
   .rx_put(w, paste0(pre, "_trait"),
           if (is.null(r$trait)) rep(0L, n_rows) else as.integer(factor(r$trait)) - 1L, "i4")
-  grid <- identical(r$level, "ar1ar1") && !is.null(r$n_unit) && !is.null(r$unit)
+  grid <- (identical(r$level, "ar1ar1") || isTRUE(r$level %in% RX_LAG_1D)) &&
+          !is.null(r$n_unit) && !is.null(r$unit)
   .rx_put(w, paste0(pre, "_unit"),
           if (is.null(r$unit)) seq_len(n_rows) - 1L else
           if (grid) as.integer(r$unit) - 1L else as.integer(factor(r$unit)) - 1L, "i4")

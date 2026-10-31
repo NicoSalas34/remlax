@@ -71,6 +71,33 @@
        "\n  expected: a column name, or mm(<matrix>).")
 }
 
+# Levels of a coordinate for a lag structure (ar1, ar2, ..., corb, and the two
+# factors of ar1 x ar1). The lag between two levels is their difference in
+# rank, so a row or column without any record must stay in the grid: dropping
+# it brings its neighbours one step closer. A factor keeps all its levels, used
+# or not, in their order. Numeric positions, or text that reads
+# as numbers, span their range with the step of the data: the greatest common
+# divisor of the gaps for whole numbers (1, 3, 5 is a grid of step 2; 1, 2, 4
+# includes 3), the smallest gap otherwise. Other text keeps the levels present.
+.rx_grid_factor <- function(x, what) {
+  if (is.factor(x)) return(x)
+  v <- if (is.numeric(x)) as.numeric(x) else suppressWarnings(as.numeric(as.character(x)))
+  if (any(is.na(v) & !is.na(x))) return(factor(x))
+  u <- sort(unique(v[!is.na(v)]))
+  if (length(u) < 2L) return(factor(v, levels = u))
+  gaps <- diff(u)
+  whole <- all(abs(u - round(u)) < 1e-8)
+  step <- if (whole) Reduce(function(a, b) { while (b > 0) { r <- a %% b; a <- b; b <- r }; a },
+                            round(gaps)) else min(gaps)
+  k <- (u - u[1]) / step
+  if (any(abs(k - round(k)) > 1e-6))
+    stop(what, ": the positions are not on a regular grid (smallest gap ",
+         format(step), "). Give a factor whose levels are the grid.")
+  pos <- u[1] + step * seq(0, round(max(k)))
+  factor(round((v - u[1]) / step) + 1L, levels = seq_along(pos),
+         labels = as.character(pos))
+}
+
 # One indicator incidence per trait: the rows of trait k point to their level
 # in the k-th matrix and are zero elsewhere.
 .rx_split_by_trait <- function(codes, q, ctx) {
@@ -138,8 +165,8 @@
   # ar1(row, col): level = (row - 1) * n_columns + column, row slow and column
   # fast, the order of L_r (x) L_c in levels.py.
   if (fn == "ar1" && length(pos) == 2L) {
-    fr <- factor(data[[as.character(pos[[1]])]])
-    fc <- factor(data[[as.character(pos[[2]])]])
+    fr <- .rx_grid_factor(data[[as.character(pos[[1]])]], paste0("term '", txt, "'"))
+    fc <- .rx_grid_factor(data[[as.character(pos[[2]])]], paste0("term '", txt, "'"))
     nr <- nlevels(fr); nc <- nlevels(fc)
     idx <- (as.integer(fr) - 1L) * nc + as.integer(fc)
     Z <- Matrix::sparseMatrix(i = seq_len(ctx$n), j = idx, x = 1, dims = c(ctx$n, nr * nc))
@@ -174,6 +201,10 @@
   if (!length(pos))
     stop(fn, "(): no grouping factor.")
   z <- .rx_incidence(pos[[1]], data, env)
+  if (fn %in% RX_LAG_1D && !is.null(z$f) && is.null(co)) {
+    z$f <- .rx_grid_factor(data[[z$nom]], paste0("term '", txt, "'"))
+    z$levels <- levels(z$f); z$q <- nlevels(z$f)
+  }
   # A 1D metric without `coord` takes the levels as positions; they must then
   # be numeric, otherwise the distance has no meaning.
   if (fn %in% RX_METRIC_1D && is.null(co)) {
@@ -193,6 +224,11 @@
   }
   if (fn == "corg") lvl_order <- z$q
   Zl <- by_trait(as.integer(z$f), z$q)
+  # On a lag grid the incidence is given as a matrix: rx_term() would rebuild
+  # the factor and drop the empty levels again.
+  if (is.null(Zl) && fn %in% RX_LAG_1D && !is.null(z$f))
+    Zl <- list(Matrix::sparseMatrix(i = seq_len(ctx$n), j = as.integer(z$f), x = 1,
+                                    dims = c(ctx$n, z$q)))
   rx_term(z$nom, if (is.null(Zl)) z$f else Zl, struct = st, rank = rk,
           level = fn, levels = z$levels, order = lvl_order, coord = co,
           opts = opts, expr = expr)

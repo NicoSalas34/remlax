@@ -159,10 +159,16 @@
   coord <- p$coord
   if (length(coord) == 1L && is.na(coord))
     coord <- .rx_unit_positions(unit_vec, p$level, unit_factors)
+  n_unit <- if (!is.null(p$cell_unit)) length(unique(p$cell_unit)) else NULL
+  # A lag structure keeps the empty levels of its grid: the unit becomes its
+  # rank in the grid and n_unit counts the levels without observation too.
+  if (p$level %in% RX_LAG_1D && length(unit_factors) && is.null(coord)) {
+    g <- .rx_grid_factor(unit_vec, paste0("residual = ~ ", p$level, "(", unit_factors[1], ")"))
+    unit_vec <- as.integer(g); n_unit <- nlevels(g)
+  }
   rx_residual(p$struct, trait = trait_vec, unit = unit_vec, rank = p$rank,
               level = p$level, order = p$order, coord = coord,
-              opts = p$opts, expr = p$expr,
-              n_unit = if (!is.null(p$cell_unit)) length(unique(p$cell_unit)) else NULL)
+              opts = p$opts, expr = p$expr, n_unit = n_unit)
 }
 
 # ar1(row):ar1(col), possibly with a structure between traits. The unit is the
@@ -176,7 +182,9 @@
   if (!all(cols %in% names(data)))
     stop("residual: column(s) not found: ",
          paste(setdiff(cols, names(data)), collapse = ", "))
-  fr <- factor(data[[cols[1]]]); fc <- factor(data[[cols[2]]])
+  what <- paste0("residual = ~ ar1(", cols[1], "):ar1(", cols[2], ")")
+  fr <- .rx_grid_factor(data[[cols[1]]], what)
+  fc <- .rx_grid_factor(data[[cols[2]]], what)
   unit <- (as.integer(fr) - 1L) * nlevels(fc) + as.integer(fc)
   key <- if (!is.null(trait_name)) paste(unit, as.integer(factor(data[[trait_name]])),
                                          sep = "\r") else unit
