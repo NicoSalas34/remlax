@@ -601,39 +601,56 @@ def _sim_statistics(proj, Mf, base, idx, num, den, block, xp, verbose):
 
     P is never formed. P Z is already computed for the incidence columns. s3
     is not one of them, so the code computes P s3 = Vi s3 - ViX vbeta (X' Vi s3)
-    by blocks of SNPs, one block of columns per trait."""
+    by blocks of SNPs, one block of columns per trait. With a JAX array module,
+    the whole block is computed on its device: Vi and the other constants are
+    moved there once (_SimArrays), only the marker block travels."""
     T = proj.T
     lin = [b for b in base if b[0] in LINEAR]
-    Mdir, Mind = Mf["dir"], Mf["ind"]
-    Zdir, Zind = proj.Zfull["dir"], proj.Zfull["ind"]
+    dev = _SimArrays(proj, xp)
     for d0 in range(0, len(idx), int(block)):
         j = idx[d0:d0 + int(block)]
-        S3 = (Zdir @ Mdir[:, j]) * (Zind @ Mind[:, j])            # (n, b)
-        S3k = [S3 if T == 1 else S3 * proj.masks[k][:, None] for k in range(T)]
-        PS3 = [_project_columns(proj, S3k[k], xp) for k in range(T)]
+        S3 = (dev.Zdir @ dev.put(Mf["dir"][:, j])) * (dev.Zind @ dev.put(Mf["ind"][:, j]))  # (n, b)
+        S3k = [S3 if T == 1 else S3 * dev.masks[k] for k in range(T)]
+        PS3 = [dev.project(S3k[k]) for k in range(T)]
         for k in range(T):
             sk = ("sim", k)
-            num[sk][j] = S3k[k].T @ proj.Py
+            num[sk][j] = np.asarray(S3k[k].T @ dev.Py)
             # s_sim' P (Z_b m) = (s_sim' P Z_b) m: sum over the q genotypes,
             # one value per SNP of the block, hence "ij,ij->i".
             for b in lin:
                 key = (b, sk) if (b, sk) in den else (sk, b)
-                den[key][j] = np.einsum("ij,ij->i", S3k[k].T @ proj.PZ[b],
-                                        Mf[b[0]][:, j].T)
+                den[key][j] = np.asarray(xp.einsum("ij,ij->i", S3k[k].T @ dev.PZ[b],
+                                                   dev.put(Mf[b[0]][:, j]).T))
             for l in range(k, T):
-                den[(sk, ("sim", l))][j] = np.asarray(
-                    xp.einsum("ij,ij->j", xp.asarray(S3k[k]), PS3[l]))
+                den[(sk, ("sim", l))][j] = np.asarray(xp.einsum("ij,ij->j", S3k[k], PS3[l]))
         if verbose:
             print("  [scan sim] %d / %d SNP" % (min(d0 + int(block), len(idx)),
                                                 len(idx)), flush=True)
 
 
-def _project_columns(proj, S, xp):
-    """P S = Vi S - ViX vbeta (X' Vi S), with the array module xp."""
-    Sx = xp.asarray(S)
-    PS = xp.asarray(proj._Vi) @ Sx
-    return PS - xp.asarray(proj._ViX) @ (
-        xp.asarray(proj._vbeta) @ (xp.asarray(proj._X).T @ PS))
+class _SimArrays:
+    """Constants of the `sim` step on the device of the array module xp.
+
+    With numpy they are the arrays of the projection themselves (no copy,
+    same arithmetic as before). With jax.numpy they are copied to the device
+    once per scan instead of once per block: Vi alone weighs 800 MB at
+    n = 10 000."""
+
+    def __init__(self, proj, xp):
+        self.xp = xp
+        self.put = (lambda a: a) if xp is np else xp.asarray
+        put = self.put
+        self.Vi, self.X, self.vbeta, self.ViX = (put(proj._Vi), put(proj._X),
+                                                 put(proj._vbeta), put(proj._ViX))
+        self.Zdir, self.Zind = put(proj.Zfull["dir"]), put(proj.Zfull["ind"])
+        self.Py = put(proj.Py)
+        self.masks = [put(m[:, None]) for m in proj.masks]
+        self.PZ = {b: put(v) for b, v in proj.PZ.items()}
+
+    def project(self, S):
+        """P S = Vi S - ViX vbeta (X' Vi S)."""
+        PS = self.Vi @ S
+        return PS - self.ViX @ (self.vbeta @ (self.X.T @ PS))
 
 
 def _raw_outputs(num, den, T, names):

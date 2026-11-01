@@ -199,7 +199,11 @@ def main(argv=None):
     proj = project(fit, X, inp["incid"], trait=inp["trait"], traits=inp["traits"])
     t_proj = time.time() - t0
     t0 = time.time()
-    r = scan(proj, inp["M"], tests=tests, block=a.block, verbose=not a.quiet, keep=inp["keep"])
+    # The `sim` products run on the chosen device: on a GPU they go through
+    # jax.numpy, on CPU through numpy (BLAS), as before.
+    xp = None if plat == "cpu" else jax.numpy
+    r = scan(proj, inp["M"], tests=tests, block=a.block, verbose=not a.quiet, keep=inp["keep"],
+             xp=xp)
     t_scan = time.time() - t0
     p = int(inp["meta"]["p"])
     lam = {t: lambda_gc(r["chi2_" + t], int(r["df_" + t][0])) for t in tests}

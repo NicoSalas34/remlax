@@ -142,3 +142,21 @@ def test_grammar_errors():
         scan(proj, d["M"], tests=["dir[1]@common"])
     with pytest.raises(ValueError, match="both with and"):
         scan(proj, d["M"], tests=["dir@common|dir"])
+
+
+@pytest.mark.parametrize("T", [1, 2])
+def test_sim_on_a_jax_device_matches_numpy(T):
+    """The `sim` step computed with jax.numpy (on the default JAX device, a
+    GPU when there is one) gives the statistics of the numpy path."""
+    jax = pytest.importorskip("jax")
+    from remlax import _x64  # noqa: F401
+    import jax.numpy as jnp
+    d = _data(T=T, seed=9, p=40)
+    proj = project(d["fit"], d["X"], {"dir": d["Zdir"], "ind": d["Zind"]})
+    tests = ["sim", "sim|dir+ind", "dir+ind+sim"] + (["sim@het|dir", "sim[2]|dir"] if T == 2 else [])
+    ref = scan(proj, d["M"], tests=tests, block=7)
+    gpu = scan(proj, d["M"], tests=tests, block=7, xp=jnp)
+    for key, v in ref.items():
+        v = np.asarray(v, dtype=float)
+        assert np.allclose(np.asarray(gpu[key], dtype=float), v, rtol=1e-10, atol=1e-12,
+                           equal_nan=True), key

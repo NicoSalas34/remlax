@@ -100,3 +100,44 @@ def test_scan_cli_egale_scan_direct(tmp_path):
                          "--maxiter", "0", "--quiet"],
                         capture_output=True, text=True, env=env, cwd=od.RACINE)
     assert r2.returncode != 0 and "theta" in (r2.stderr + r2.stdout)
+
+
+def test_scan_cli_gpu_egale_cpu(tmp_path):
+    """Sur GPU, les produits de `sim` passent par jax.numpy sur la carte :
+    memes statistiques suffisantes (num_*, den_*) que la voie CPU (numpy), et
+    memes chi2 pour les tests a une famille. Le test joint dir+ind+sim n'est
+    pas compare : sur ce petit dispositif (n = 60, q = 20) il est mal
+    conditionne et son chi2 varie de 20 % avec le theta, alors que les
+    statistiques suffisantes restent egales a 1e-12."""
+    import jax
+    try:
+        if not jax.devices("gpu"):
+            pytest.skip("pas de GPU")
+    except RuntimeError:
+        pytest.skip("pas de GPU")
+    p = str(tmp_path / "scan")
+    _paquet_scan(p)
+    bd = Bundle(p)
+    f = fit_reml(bd.terms(), bd.residual(), bd.y, bd.X, verbose=False, hessian=False)
+    f["theta"].tofile(os.path.join(p, "in_theta.bin"))
+    env = dict(os.environ, PYTHONPATH=od._SRC, XLA_PYTHON_CLIENT_PREALLOCATE="false")
+    tests = "sim,sim|dir,dir+ind+sim"
+    out = {}
+    for backend in ("cpu", "gpu"):
+        r = subprocess.run([od.PY, "-m", "remlax.scan_cli", p, "--tests", tests, "--backend", backend,
+                            "--theta-in", "--maxiter", "0", "--block", "7", "--quiet",
+                            "--output", "scan_%s.csv" % backend],
+                           capture_output=True, text=True, env=env, cwd=od.RACINE)
+        assert r.returncode == 0, r.stderr + r.stdout
+        with open(os.path.join(p, "scan_%s.csv" % backend)) as fh:
+            entete = fh.readline().strip().split(",")
+            lignes = [l.strip().split(",") for l in fh]
+        out[backend] = np.array([[float(x) if x else np.nan for x in l[1:]] for l in lignes])
+    a, b = out["cpu"], out["gpu"]
+    cols = [c for c in entete[1:] if c.startswith(("num_", "den_")) or c in ("chi2_sim", "chi2_sim|dir")]
+    assert len(cols) > 4
+    for c in cols:
+        k = entete.index(c) - 1
+        echelle = np.nanmax(np.abs(a[:, k]))
+        # le CSV garde 10 chiffres significatifs
+        assert np.allclose(a[:, k], b[:, k], rtol=1e-9, atol=1e-9 * echelle, equal_nan=True), c
