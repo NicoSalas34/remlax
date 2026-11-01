@@ -172,6 +172,64 @@ def metis_order(A):
     return np.asarray(perm, dtype=np.int64)
 
 
+
+def _fundamental_supernodes(ip, ix, cnt, m):
+    """First column of each fundamental supernode of the CSC factor (ip, ix), then m."""
+    starts = [0]
+    for j in range(1, m):
+        jm = j - 1
+        r0 = ix[ip[jm]:ip[jm + 1]]
+        # Column j extends the supernode if L[j, j-1] is structurally
+        # nonzero and both columns have the same structure below the
+        # diagonal.
+        if cnt[jm] == cnt[j] + 1 and len(r0) > 1 and r0[1] == j:
+            continue
+        starts.append(j)
+    starts.append(m)
+    return np.array(starts, dtype=np.int64)
+
+
+def _trapezoid(nr, nc):
+    """Entries of an nr x nc trapezoidal block."""
+    return nc * nr - nc * (nc - 1) // 2
+
+
+def _merge_pays(ncol, zeros):
+    """CHOLMOD's relaxed-merge rule: few columns, or few explicit zeros added."""
+    return (ncol <= 4 or (ncol <= 16 and zeros <= 0.8) or
+            (ncol <= 48 and zeros <= 0.1) or zeros <= 0.05)
+
+
+def _relaxed_merge(sup, rows_of, m):
+    """Relaxed merging of each supernode with its contiguous parent (CHOLMOD's rules).
+
+    Returns the first columns (then m) and the rows of the merged supernodes."""
+    merged_sup, merged_rows = [sup[0]], []
+    cur_c0, cur_rows = sup[0], rows_of[0]
+    cur_struct = _trapezoid(len(rows_of[0]), sup[1] - sup[0])
+    for s in range(1, len(sup) - 1):
+        c0, rows = sup[s], rows_of[s]
+        ncol_cur = c0 - cur_c0
+        parent = len(cur_rows) > ncol_cur and cur_rows[ncol_cur] == c0
+        merge = False
+        s_struct = _trapezoid(len(rows), sup[s + 1] - c0)
+        if parent:
+            # The rows of J below its block lie in {columns of J+1} U
+            # {rows of J+1} (a property of the factor). The union is the
+            # block of J+1 extended by the columns of J.
+            ncol = int(sup[s + 1] - cur_c0)
+            after = _trapezoid(ncol_cur + len(rows), ncol)
+            merge = _merge_pays(ncol, (after - cur_struct - s_struct) / max(after, 1))
+        if merge:
+            cur_rows = np.concatenate([np.arange(cur_c0, c0, dtype=np.int64), rows])
+            cur_struct = cur_struct + s_struct
+        else:
+            merged_rows.append(cur_rows); merged_sup.append(c0)
+            cur_c0, cur_rows, cur_struct = c0, rows, s_struct
+    merged_rows.append(cur_rows); merged_sup.append(m)
+    return merged_sup, merged_rows
+
+
 class SparseFactor:
     """Successive factorisations of matrices with the SAME pattern.
 
@@ -412,52 +470,10 @@ class SparseFactor:
         m = self.m
         ip, ix = L.indptr, L.indices
         cnt = np.diff(ip)
-        # Fundamental supernodes.
-        starts = [0]
-        for j in range(1, m):
-            jm = j - 1
-            r0 = ix[ip[jm]:ip[jm + 1]]
-            # Column j extends the supernode if L[j, j-1] is structurally
-            # nonzero and both columns have the same structure below the
-            # diagonal.
-            if cnt[jm] == cnt[j] + 1 and len(r0) > 1 and r0[1] == j:
-                continue
-            starts.append(j)
-        starts.append(m)
-        sup = np.array(starts, dtype=np.int64)
-        rows_of = []
-        for s in range(len(sup) - 1):
-            j0 = sup[s]
-            rows_of.append(ix[ip[j0]:ip[j0 + 1]].astype(np.int64))      # rows of the first column
-        # Relaxed merging with the contiguous parent (CHOLMOD's rules).
-        def trapezoid(nr, nc):          # entries of an nr x nc trapezoidal block
-            return nc * nr - nc * (nc - 1) // 2
-        merged_sup, merged_rows = [sup[0]], []
-        cur_c0, cur_rows = sup[0], rows_of[0]
-        cur_struct = trapezoid(len(rows_of[0]), sup[1] - sup[0])
-        for s in range(1, len(sup) - 1):
-            c0, rows = sup[s], rows_of[s]
-            ncol_cur = c0 - cur_c0
-            parent = len(cur_rows) > ncol_cur and cur_rows[ncol_cur] == c0
-            merge = False
-            s_struct = trapezoid(len(rows), sup[s + 1] - c0)
-            if parent:
-                # The rows of J below its block lie in {columns of J+1} U
-                # {rows of J+1} (a property of the factor). The union is the
-                # block of J+1 extended by the columns of J.
-                ncol = int(sup[s + 1] - cur_c0)
-                nr_new = ncol_cur + len(rows)
-                after = trapezoid(nr_new, ncol)
-                zeros = (after - cur_struct - s_struct) / max(after, 1)
-                merge = (ncol <= 4 or (ncol <= 16 and zeros <= 0.8) or
-                         (ncol <= 48 and zeros <= 0.1) or zeros <= 0.05)
-            if merge:
-                cur_rows = np.concatenate([np.arange(cur_c0, c0, dtype=np.int64), rows])
-                cur_struct = cur_struct + s_struct
-            else:
-                merged_rows.append(cur_rows); merged_sup.append(c0)
-                cur_c0, cur_rows, cur_struct = c0, rows, s_struct
-        merged_rows.append(cur_rows); merged_sup.append(m)
+        sup = _fundamental_supernodes(ip, ix, cnt, m)
+        rows_of = [ix[ip[j0]:ip[j0 + 1]].astype(np.int64)        # rows of the first column
+                   for j0 in sup[:-1]]
+        merged_sup, merged_rows = _relaxed_merge(sup, rows_of, m)
         self.sup = np.array(merged_sup, dtype=np.int64)
         self.lignes = merged_rows
         ns = len(self.sup) - 1
@@ -466,41 +482,46 @@ class SparseFactor:
         self.nrow = np.array([len(r) for r in merged_rows], dtype=np.int64)
         self.off = np.concatenate([[0], np.cumsum(self.nrow * self.ncol)]).astype(np.int64)
         self.sn_of = np.repeat(np.arange(ns), self.ncol)
-        # Map from the entries of L (CSC order) to the flat block storage.
+        self._entry_tables(ip, ix, cnt)
+        self._gather = [self._gather_groups(s) for s in range(ns)]
+
+    def _entry_tables(self, ip, ix, cnt):
+        """Map from the entries of L (CSC order) to the flat block storage, and
+        the arrays of the C kernel (CHOLMOD supernodal layout)."""
+        m = self.m
         col_of = np.repeat(np.arange(m), cnt)
         J = self.sn_of[col_of]
         lrow = np.empty(len(ix), dtype=np.int64)
-        for s in range(ns):
+        for s in range(self.ns):
             a, b = ip[self.sup[s]], ip[self.sup[s + 1]]
             lrow[a:b] = np.searchsorted(self.lignes[s], ix[a:b])
         lcol = col_of - self.sup[J]
         self._flat_map = self.off[J] + lrow + self.nrow[J] * lcol
         self._col_of = col_of
         self._keys = col_of * m + ix.astype(np.int64)        # increasing (sorted CSC)
-        # Arrays of the C kernel (CHOLMOD supernodal layout).
         self._c_sup = self.sup.astype(np.int32)
         self._c_pi = np.concatenate([[0], np.cumsum(self.nrow)]).astype(np.int32)
         self._c_s = np.concatenate(self.lignes).astype(np.int32)
         self._c_off = self.off.astype(np.int64)
         self._c_sn = self.sn_of.astype(np.int32)
-        # Gather plan of Z_RR: for each J, the supernodes K that hold the
-        # columns of R, and the positions in their blocks.
-        self._gather = []
-        for s in range(ns):
-            nJ = self.ncol[s]; R = self.lignes[s][nJ:]
-            if not len(R):
-                self._gather.append(None); continue
-            Ks = self.sn_of[R]
-            groups = []
-            for K in np.unique(Ks):
-                pc = np.where(Ks == K)[0]
-                pr = np.where(R >= R[pc[0]])[0]
-                rK = np.searchsorted(self.lignes[K], R[pr])
-                if np.any(rK >= self.nrow[K]) or np.any(self.lignes[K][np.minimum(rK, self.nrow[K] - 1)] != R[pr]):
-                    raise RuntimeError("selinv: non-chordal pattern (supernodes %d and %d)" % (s, K))
-                cK = R[pc] - self.sup[K]
-                groups.append((int(K), pr, pc, rK, cK))
-            self._gather.append(groups)
+
+    def _gather_groups(self, s):
+        """Gather plan of Z_RR for supernode s: the supernodes K that hold the
+        columns of R, and the positions in their blocks (None when R is empty)."""
+        nJ = self.ncol[s]; R = self.lignes[s][nJ:]
+        if not len(R):
+            return None
+        Ks = self.sn_of[R]
+        groups = []
+        for K in np.unique(Ks):
+            pc = np.where(Ks == K)[0]
+            pr = np.where(R >= R[pc[0]])[0]
+            rK = np.searchsorted(self.lignes[K], R[pr])
+            if np.any(rK >= self.nrow[K]) or np.any(self.lignes[K][np.minimum(rK, self.nrow[K] - 1)] != R[pr]):
+                raise RuntimeError("selinv: non-chordal pattern (supernodes %d and %d)" % (s, K))
+            cK = R[pc] - self.sup[K]
+            groups.append((int(K), pr, pc, rK, cK))
+        return groups
 
     def prepare_extraction(self, ii, jj):
         """Positions, in the flat block storage, of the wanted entries of C^-1."""
