@@ -4,7 +4,7 @@
 \alias{rx_ld_prune}
 \title{Prune markers by linkage disequilibrium}
 \usage{
-rx_ld_prune(markers, map = NULL, r2 = 0.8, window = 500L)
+rx_ld_prune(markers, map = NULL, r2 = 0.8, window = 500L, duplicates = TRUE)
 }
 \arguments{
 \item{markers}{dose matrix, genotypes x SNPs.}
@@ -15,6 +15,9 @@ rx_ld_prune(markers, map = NULL, r2 = 0.8, window = 500L)
 \item{r2}{largest r^2 allowed between two kept SNPs of a window.}
 
 \item{window}{number of preceding SNPs compared with each SNP.}
+
+\item{duplicates}{drop SNPs whose profile, up to sign, repeats a kept one
+anywhere in the genome.}
 }
 \value{
 the indices of the kept columns, in increasing order.
@@ -26,5 +29,8 @@ r^2 with every SNP already kept among the previous \code{window} SNPs of its
 chromosome is below \code{r2}. r^2 is computed across the rows of \code{markers}
 (genotypes: lines, families or mothers), so identical profiles, or profiles
 identical up to the sign of the coding, are always reduced to one.
-Monomorphic SNPs are dropped.
+Monomorphic SNPs are dropped. With \code{duplicates = TRUE}, a SNP whose profile
+repeats (up to sign) that of a SNP kept on another chromosome is dropped too:
+the windows never compare two chromosomes, and unplaced SNPs often duplicate
+placed ones.
 }

@@ -168,7 +168,10 @@ def _block_top(chi2, beta, se, top, xp):
             np.asarray(se.ravel()[idx]))
 
 
-BINS = np.concatenate([np.linspace(0, 10, 2001), np.linspace(10.05, 200, 3800), [np.inf]])
+# Histogram of chi2 for the genomic control lambda: bins of 1e-4 up to 2 (the
+# median of chi2_1 is 0.455, so lambda is resolved to 2e-4), coarser above.
+BINS = np.concatenate([np.linspace(0, 2, 20001), np.linspace(2.01, 10, 800),
+                       np.linspace(10.1, 200, 1900), [np.inf]])
 
 
 def cogwas(proj, Ma, Mb, tests=("pair|dir+ind",), top=1000, block_a=1024, block_b=8192,

@@ -12,16 +12,21 @@
 #' chromosome is below `r2`. r^2 is computed across the rows of `markers`
 #' (genotypes: lines, families or mothers), so identical profiles, or profiles
 #' identical up to the sign of the coding, are always reduced to one.
-#' Monomorphic SNPs are dropped.
+#' Monomorphic SNPs are dropped. With `duplicates = TRUE`, a SNP whose profile
+#' repeats (up to sign) that of a SNP kept on another chromosome is dropped too:
+#' the windows never compare two chromosomes, and unplaced SNPs often duplicate
+#' placed ones.
 #'
 #' @param markers dose matrix, genotypes x SNPs.
 #' @param map optional data frame with `chr` (and `pos`), one row per column of
 #'   `markers`. Without it the SNPs form one chromosome, in column order.
 #' @param r2 largest r^2 allowed between two kept SNPs of a window.
 #' @param window number of preceding SNPs compared with each SNP.
+#' @param duplicates drop SNPs whose profile, up to sign, repeats a kept one
+#'   anywhere in the genome.
 #' @return the indices of the kept columns, in increasing order.
 #' @export
-rx_ld_prune <- function(markers, map = NULL, r2 = 0.8, window = 500L) {
+rx_ld_prune <- function(markers, map = NULL, r2 = 0.8, window = 500L, duplicates = TRUE) {
   M <- as.matrix(markers)
   storage.mode(M) <- "double"
   p <- ncol(M)
@@ -45,7 +50,16 @@ rx_ld_prune <- function(markers, map = NULL, r2 = 0.8, window = 500L) {
     kept[j] <- TRUE
     last <- c(last[rank[last] > rank[j] - window], j)
   }
-  which(kept)
+  k <- which(kept)
+  if (duplicates && length(k) > 1L) {
+    # Profile up to sign: standardised, sign fixed by the first nonzero entry.
+    P <- round(Z[, k, drop = FALSE], 10)
+    s <- apply(P, 2, function(v) { i <- which(v != 0)[1]; if (is.na(i)) 1 else sign(v[i]) })
+    key <- apply(sweep(P, 2, s, "*"), 2, paste, collapse = ",")
+    o <- order(rank[k])                          # first in map order wins
+    k <- sort(k[o][!duplicated(key[o])])
+  }
+  k
 }
 
 #' Co-GWAS: every focal locus crossed with every neighbour locus

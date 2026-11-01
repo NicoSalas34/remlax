@@ -18,10 +18,16 @@ test_that("rx_ld_prune garde un SNP par profil et respecte le seuil dans la fene
   # chromosomes : la fenetre repart de zero
   map <- data.frame(chr = rep(1:2, each = 30), pos = c(1:30, 1:30))
   M2 <- M; M2[, 31] <- M2[, 1]
-  k2 <- rx_ld_prune(M2, map, r2 = 0.5, window = 100)
+  k2 <- rx_ld_prune(M2, map, r2 = 0.5, window = 100, duplicates = FALSE)
   expect_true(all(c(1, 31) %in% k2))
   # fenetre : deux doublons eloignes de plus d'une fenetre sont gardes
   M3 <- M; M3[, 60] <- M3[, 1]
-  expect_true(60 %in% rx_ld_prune(M3, r2 = 0.5, window = 5))
+  expect_true(60 %in% rx_ld_prune(M3, r2 = 0.5, window = 5, duplicates = FALSE))
+  expect_false(60 %in% rx_ld_prune(M3, r2 = 0.5, window = 5))
   expect_false(60 %in% rx_ld_prune(M3, r2 = 0.5, window = 100))
+  # doublons d'un chromosome a l'autre : retires par defaut, gardes sinon
+  expect_false(31 %in% rx_ld_prune(M2, map, r2 = 0.5, window = 100, duplicates = TRUE))
+  expect_true(31 %in% rx_ld_prune(M2, map, r2 = 0.5, window = 100, duplicates = FALSE))
+  M4 <- M2; M4[, 31] <- -M4[, 1]
+  expect_false(31 %in% rx_ld_prune(M4, map, r2 = 0.5, window = 100))
 })
