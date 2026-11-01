@@ -135,17 +135,50 @@ def prepare_lag(lag, y, X):
     X = np.atleast_2d(np.asarray(X, dtype=np.float64))
     n, p = X.shape
     q, N = int(lag["q"]), int(lag["N"])
+    tr, unit = _lag_rows(lag, n, q, N)
+    Ws = _lag_matrices(lag, q, N)
+    mask, value, crit = _lag_parameters(lag, q)
+    widx = np.zeros(n, dtype=np.int64) if len(Ws) == 1 else tr
+    pattern = mask | (value != 0)
+    path = _lag_path(lag, pattern, Ws, n == q * N)
+    mi, mj = np.nonzero(mask)
+    # When Psi is identically zero (no free entry, no nonzero fixed value),
+    # A = I and the objective must equal the one of the model without a lag,
+    # to the bit. The code therefore avoids slogdet(X'X) in JAX, which differs
+    # from the numpy log|X'X| in the last digit, and any other floating-point
+    # detour.
+    empty = not pattern.any()
+    out = dict(lag, _prepare=True, empty=empty, q=q, N=N, n=n, p=p, trait=tr, unit=unit, mask=mask,
+               value=value, criterion=crit, scale=_lag_scale(Ws), path=path,
+               Q=jnp.asarray(_lag_Q(Ws, widx, tr, unit, y, q, N)),
+               tr_j=jnp.asarray(tr), mi=mi, mj=mj, value_j=jnp.asarray(value),
+               traits=list(lag.get("traits") or ["T%d" % (k + 1) for k in range(q)]),
+               logXX=(float(np.linalg.slogdet(X.T @ X)[1]) if p else 0.0))
+    if path == "fast":
+        out.update(_lag_fast_constants(Ws[0], tr, unit, X, q, N))
+    else:
+        out.update(Wl=jnp.asarray(_lag_long_W(Ws, widx, unit)))
+    return out
+
+
+def _lag_rows(lag, n, q, N):
+    """Trait and unit index of each row of y, checked: in range, one row per (trait, unit)."""
     tr = np.asarray(lag["trait"], dtype=np.int64)
     unit = np.asarray(lag["unit"], dtype=np.int64)
     if tr.shape != (n,) or unit.shape != (n,):
         raise ValueError("lag: `trait` and `unit` must have %d elements (one per row of y)." % n)
     if tr.min() < 0 or tr.max() >= q or unit.min() < 0 or unit.max() >= N:
         raise ValueError("lag: trait index outside 0..%d or unit index outside 0..%d." % (q - 1, N - 1))
-    key = tr * N + unit
-    if len(np.unique(key)) != n:
+    n_dup = n - len(np.unique(tr * N + unit))
+    if n_dup:
         raise ValueError("lag: %d duplicated (trait, unit) pair(s). Each unit can carry "
                          "only one observation per trait. Otherwise M is not "
-                         "defined." % (n - len(np.unique(key))))
+                         "defined." % n_dup)
+    return tr, unit
+
+
+def _lag_matrices(lag, q, N):
+    """The W matrices as CSR, checked: 1 or q of them, N x N, zero diagonal."""
     Ws = [sp.csr_matrix(W, dtype=np.float64) for W in lag["W"]]
     if len(Ws) not in (1, q):
         raise ValueError("lag: %d W matrices for %d traits (1 or %d expected)."
@@ -157,83 +190,98 @@ def prepare_lag(lag, y, X):
             raise ValueError("lag: W[%d] has a nonzero diagonal. A plant is not its "
                              "own neighbour. An effect on itself would leave Psi unidentified "
                              "against the fixed effects and the residual." % k)
+    return Ws
+
+
+def _lag_parameters(lag, q):
+    """Free-entry mask, fixed values (zero where free) and criterion of Psi."""
     mask = np.asarray(lag["mask"], dtype=bool).reshape(q, q)
     value = np.asarray(lag.get("value", np.zeros((q, q))), dtype=np.float64).reshape(q, q)
     value = np.where(mask, 0.0, value)
     crit = str(lag.get("criterion", "reml_y"))
     if crit not in CRITERES:
         raise ValueError("lag: unknown criterion '%s' (%s)." % (crit, ", ".join(CRITERES)))
+    return mask, value, crit
 
-    # Scale: mean row sum of |W|, averaged over the W matrices.
+
+def _lag_scale(Ws):
+    """Scale of Psi: mean row sum of |W|, averaged over the W matrices (1 if zero)."""
     s = float(np.mean([np.asarray(abs(W).sum(axis=1)).mean() for W in Ws]))
-    s = s if s > 0 else 1.0
+    return s if s > 0 else 1.0
 
-    widx = np.zeros(n, dtype=np.int64) if len(Ws) == 1 else tr
-    # Q[r, u] = (W_{t(r)} y_u)[unit(r)], so that M y = sum_u Psi[t(r), u] Q[r, u].
-    # y* is therefore linear in Psi with Q constant. Computing it costs n q per
-    # evaluation instead of an n x n product.
+
+def _lag_Q(Ws, widx, tr, unit, y, q, N):
+    """Q[r, u] = (W_{t(r)} y_u)[unit(r)], so that M y = sum_u Psi[t(r), u] Q[r, u].
+
+    y* is therefore linear in Psi with Q constant. Computing it costs n q per
+    evaluation instead of an n x n product.
+    """
     yfull = np.zeros((q, N))
     yfull[tr, unit] = y
     WY = [np.asarray(W @ yfull.T) for W in Ws]            # (N, q) each
-    Q = np.empty((n, q))
+    Q = np.empty((len(y), q))
     for k in range(len(Ws)):
         rows = np.flatnonzero(widx == k)
         Q[rows] = WY[k][unit[rows]]
+    return Q
 
-    pattern = mask | (value != 0)
-    complete = n == q * N
-    single_W = len(Ws) == 1 or all((abs(W - Ws[0]).max() if (W - Ws[0]).nnz else 0.0) == 0
-                                   for W in Ws[1:])
+
+def _max_abs(A):
+    """max |A| of a sparse matrix, 0 when it has no stored entry."""
+    return abs(A).max() if A.nnz else 0.0
+
+
+def _fast_allowed(Ws, complete):
+    """Whether the eigendecomposition path applies: one symmetric W, complete design."""
+    single_W = len(Ws) == 1 or all(_max_abs(W - Ws[0]) == 0 for W in Ws[1:])
     W0 = Ws[0]
-    asym = abs(W0 - W0.T).max() if W0.nnz else 0.0
-    sym = asym <= 1e-12 * max(1.0, abs(W0).max() if W0.nnz else 1.0)
+    sym = _max_abs(W0 - W0.T) <= 1e-12 * max(1.0, abs(W0).max() if W0.nnz else 1.0)
+    return single_W and sym and complete
+
+
+def _lag_path(lag, pattern, Ws, complete):
+    """Path of log|det A|: nilpotent (det = 1), fast (eigenvalues of W) or general."""
+    fast_ok = _fast_allowed(Ws, complete)
     if _nilpotent(pattern):
         path = "nilpotent"
-    elif single_W and sym and complete:
+    elif fast_ok:
         path = "fast"
     else:
         path = "general"
     # Forcing the path is meant for tests only, to compare the fast and general
     # paths on the same model. The nilpotent path requires a nilpotent pattern.
     force = lag.get("force_path")
-    if force:
-        if force not in ("fast", "general", "nilpotent"):
-            raise ValueError("lag: unknown force_path = %r." % force)
-        if force == "nilpotent" and path != "nilpotent":
-            raise ValueError("lag: nilpotent path forced on a Psi pattern with a loop.")
-        if force == "fast" and not (single_W and sym and complete):
-            raise ValueError("lag: fast path forced without a single symmetric W and a complete design.")
-        path = force
+    if not force:
+        return path
+    if force not in ("fast", "general", "nilpotent"):
+        raise ValueError("lag: unknown force_path = %r." % force)
+    if force == "nilpotent" and path != "nilpotent":
+        raise ValueError("lag: nilpotent path forced on a Psi pattern with a loop.")
+    if force == "fast" and not fast_ok:
+        raise ValueError("lag: fast path forced without a single symmetric W and a complete design.")
+    return force
 
-    mi, mj = np.nonzero(mask)
-    # When Psi is identically zero (no free entry, no nonzero fixed value),
-    # A = I and the objective must equal the one of the model without a lag,
-    # to the bit. The code therefore avoids slogdet(X'X) in JAX, which differs
-    # from the numpy log|X'X| in the last digit, and any other floating-point
-    # detour.
-    empty = not pattern.any()
-    out = dict(lag, _prepare=True, empty=empty, q=q, N=N, n=n, p=p, trait=tr, unit=unit, mask=mask,
-               value=value, criterion=crit, scale=s, path=path, Q=jnp.asarray(Q),
-               tr_j=jnp.asarray(tr), mi=mi, mj=mj, value_j=jnp.asarray(value),
-               traits=list(lag.get("traits") or ["T%d" % (k + 1) for k in range(q)]),
-               logXX=(float(np.linalg.slogdet(X.T @ X)[1]) if p else 0.0))
-    if path == "fast":
-        lam, U = np.linalg.eigh(W0.toarray())
-        pos = np.empty((q, N), dtype=np.int64)
-        pos[tr, unit] = np.arange(n)
-        Xt = np.einsum("ik,tip->ktp", U, X[pos]) if p else np.zeros((N, q, 0))
-        out.update(lam=jnp.asarray(lam), lam_np=lam, Xt=jnp.asarray(Xt),
-                   lam_min=float(lam.min()), lam_max=float(lam.max()))
-    else:
-        # Long W: Wl[r, s] = W_{t(r)}[unit(r), unit(s)], dense n x n like V.
-        Wl = np.empty((n, n))
-        for k, W in enumerate(Ws):
-            rows = np.flatnonzero(widx == k)
-            if rows.size:
-                Wd = W[unit[rows]].toarray()
-                Wl[rows] = Wd[:, unit]
-        out.update(Wl=jnp.asarray(Wl))
-    return out
+
+def _lag_fast_constants(W0, tr, unit, X, q, N):
+    """Eigendecomposition of W and the rotated fixed effects of the fast path."""
+    lam, U = np.linalg.eigh(W0.toarray())
+    pos = np.empty((q, N), dtype=np.int64)
+    pos[tr, unit] = np.arange(len(tr))
+    Xt = np.einsum("ik,tip->ktp", U, X[pos]) if X.shape[1] else np.zeros((N, q, 0))
+    return dict(lam=jnp.asarray(lam), lam_np=lam, Xt=jnp.asarray(Xt),
+                lam_min=float(lam.min()), lam_max=float(lam.max()))
+
+
+def _lag_long_W(Ws, widx, unit):
+    """Long W: Wl[r, s] = W_{t(r)}[unit(r), unit(s)], dense n x n like V."""
+    n = len(unit)
+    Wl = np.empty((n, n))
+    for k, W in enumerate(Ws):
+        rows = np.flatnonzero(widx == k)
+        if rows.size:
+            Wd = W[unit[rows]].toarray()
+            Wl[rows] = Wd[:, unit]
+    return Wl
 
 
 def psi_from_theta(th_lag, L):
