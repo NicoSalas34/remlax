@@ -49,3 +49,19 @@ test_that("rx_cogwas : diagonale = sim de rx_scan, inter et intra espece", {
     expect_equal(nrow(cg$focal), p); expect_equal(nrow(cg$neighbour), p)
   }
 })
+
+test_that("rx_cogwas_kernel : somme des u u' sur toutes les paires, normalisee", {
+  set.seed(4)
+  n <- 40; qg <- 6; qf <- 5; pa <- 7; pb <- 4
+  Zg <- diag(qg)[sample(qg, n, TRUE), ]
+  Zn <- matrix(0, n, qf); for (k in 1:2) Zn[cbind(1:n, sample(qf, n, TRUE))] <- 0.5
+  Zn[1, ] <- 0                                   # une plante sans voisine
+  Ma <- matrix(sample(c(-1, 1), qg * pa, TRUE), qg); Mb <- matrix(rnorm(qf * pb), qf)
+  S <- matrix(0, n, n)
+  for (a in 1:pa) for (b in 1:pb) { u <- (Zg %*% Ma[, a]) * (Zn %*% Mb[, b]); S <- S + tcrossprod(u) }
+  K <- rx_cogwas_kernel(Zg, tcrossprod(Ma) / pa, Zn, tcrossprod(Mb) / pb, normalize = FALSE, ridge = 0)
+  expect_equal(K, S / (pa * pb), tolerance = 1e-12)
+  Kn <- rx_cogwas_kernel(Zg, tcrossprod(Ma) / pa, Zn, tcrossprod(Mb) / pb)
+  expect_equal(mean(diag(Kn)), 1 + 1e-6, tolerance = 1e-12)
+  expect_gt(min(eigen(Kn, symmetric = TRUE, only.values = TRUE)$values), 0)
+})

@@ -136,3 +136,40 @@ rx_cogwas <- function(fit, model, focal, neighbour, incidences = c(dir = "gen", 
   list(top = top_tab, focal = fo, neighbour = ne,
        meta = jsonlite::fromJSON(file.path(dir, "cogwas_meta.json")))
 }
+
+#' Kernel of the focal x neighbour interaction, for the null model of a co-GWAS
+#'
+#' `(Z_g K_g Z_g') * (Z_n K_n Z_n')`, the Hadamard product of the focal
+#' relationship seen through the focal incidence and the neighbour
+#' relationship seen through the neighbour weights. When `K_g = M_a M_a' / p_a`
+#' and `K_n = M_b M_b' / p_b`, it equals the sum over all pairs of loci of
+#' `u_ab u_ab' / (p_a p_b)`, with `u_ab` the covariate of [rx_cogwas()]: the
+#' polygenic background of the pairs, the analogue of the second kinship of
+#' Sato et al. (2021). Put it in the null model as a term of plants
+#' (`rx_term("pair", Diagonal(n), K = kernel)`), so that an interaction
+#' between focal and neighbour genotypes does not inflate the tests of pairs.
+#'
+#' @param Zg focal incidence, plants x focal genotypes.
+#' @param Kg focal relationship matrix.
+#' @param Zn neighbour incidence (weights), plants x neighbour genotypes.
+#' @param Kn neighbour relationship matrix.
+#' @param normalize divide by the mean of the diagonal, so that the variance
+#'   of the term is on the scale of one plant.
+#' @param ridge added to the diagonal, relative to its mean: plants without
+#'   neighbours have a zero row, and the kernel would be singular.
+#' @return the n x n kernel.
+#' @export
+rx_cogwas_kernel <- function(Zg, Kg, Zn, Kn, normalize = TRUE, ridge = 1e-6) {
+  Zg <- as.matrix(Zg); Zn <- as.matrix(Zn)
+  if (nrow(Zg) != nrow(Zn)) stop("rx_cogwas_kernel: Zg and Zn must have the same rows.",
+                                 call. = FALSE)
+  A <- Zg %*% as.matrix(Kg) %*% t(Zg)
+  B <- Zn %*% as.matrix(Kn) %*% t(Zn)
+  K <- A * B
+  m <- mean(diag(K))
+  if (!is.finite(m) || m <= 0) stop("rx_cogwas_kernel: the kernel has no positive diagonal.",
+                                    call. = FALSE)
+  if (normalize) { K <- K / m; m <- 1 }
+  diag(K) <- diag(K) + ridge * m
+  K
+}

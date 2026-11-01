@@ -26,6 +26,10 @@
   plants, 181 focal lines and 106 neighbour families: 0.022 s per 10^6
   pairs (two tests), so 8.3e9 pairs in about 3 minutes; 13 times faster
   than 16 CPU cores.
+* `rx_cogwas_kernel()`: the kernel `(Z_g K_g Z_g') * (Z_n K_n Z_n')` of the
+  focal x neighbour interaction, for the null model of a co-GWAS. With
+  marker relationship matrices it is the sum of `u u'` over all pairs of
+  loci, the polygenic background of the pairs.
 * `rx_ld_prune()`: greedy LD pruning by r^2 within a window of SNPs, per
   chromosome, to reduce the number of pairs before a co-GWAS.
 
