@@ -462,77 +462,23 @@ def sample_posterior(terms, res, y, X, theta_hat, H=None, Hu=None, prior=None, c
     n_effects  : number of draws used for the posterior moments of beta and the BLUPs.
     pev       : terms whose effects get a posterior standard deviation.
     """
-    if not available():
-        raise RuntimeError("the Bayesian route requires blackjax: pip install blackjax "
-                           "(or rx_install_python(bayes = TRUE) from R)")
-    if lag is not None:
-        raise ValueError("the Bayesian route does not yet accept a spatial lag (rx_lag)")
-    K = max(1, int(superchains))
-    if chains % K:
-        raise ValueError("chains (%d) must be a multiple of superchains (%d)" % (chains, K))
-
+    K = _check_sampler_args(lag, chains, superchains)
     t0 = time.time()
     prep = prepare(terms, res, y, X, prior)
-    y, X, p = prep["y"], prep["X"], prep["p"]
-    log_prior, rare, f, Zs = prep["log_prior"], prep["rare"], prep["f"], prep["Zs"]
-    if rare and verbose:
-        print("  [bayes] normal prior on theta (internal scale) for: %s" % ", ".join(rare),
+    if prep["rare"] and verbose:
+        print("  [bayes] normal prior on theta (internal scale) for: %s" % ", ".join(prep["rare"]),
               flush=True)
     th_hat = np.asarray(theta_hat, dtype=np.float64)
     ntot = len(th_hat)
-    free = np.ones(ntot, dtype=bool)
-    if fixed_idx:
-        free[np.asarray(fixed_idx, dtype=int)] = False
-    idx = np.flatnonzero(free)
+    idx = _free_indices(ntot, fixed_idx)
     d = len(idx)
-
-    # Whitening. Lw Lw' is the Laplace covariance: Hu^-1 at the posterior mode,
-    # or 2 H^-1 at the REML optimum. A Hessian that is not positive definite
-    # (REML optimum on a boundary) triggers a search for the posterior mode
-    # from theta_hat.
-    def laplace_factor(M, k):
-        try:
-            w, U_ = np.linalg.eigh(0.5 * (M + M.T))
-        except np.linalg.LinAlgError:
-            return None
-        if not np.all(w > 1e-10 * max(abs(w).max(), 1.0)):
-            return None
-        return U_ * np.sqrt(k / w)
-
-    Lw = None
-    if Hu is not None:
-        Lw = laplace_factor(np.asarray(Hu), 1.0)
-    elif H is not None:
-        Lw = laplace_factor(np.asarray(H)[np.ix_(idx, idx)], 2.0)
-    if Lw is None:
-        if verbose:
-            print("  [bayes] Hessian missing or not positive definite: searching for the posterior mode",
-                  flush=True)
-        th_hat, Hm, _ = posterior_mode(prep, th_hat, fixed_idx=fixed_idx, verbose=verbose)
-        Lw = laplace_factor(Hm, 1.0)
-    if Lw is None:
-        Lw = 0.1 * np.eye(d)
-        if verbose:
-            print("  [bayes] Hessian at the mode not positive definite: whitening by 0.1 I", flush=True)
-    base = jnp.asarray(th_hat)
-    jidx = jnp.asarray(idx)
-    center = jnp.asarray(th_hat[idx])
-    Lw_j = jnp.asarray(Lw)
-    Zr_j = prep["Zr"]
-
-    def theta_of_z(z):
-        return base.at[jidx].set(center + Lw_j @ z)
-
-    def logdens(z):
-        th = theta_of_z(z)
-        v = log_prior(th) - 0.5 * f(th, Zr_j)
-        return jnp.where(jnp.isfinite(v), v, -jnp.inf)
+    th_hat, Lw = _whitening(prep, th_hat, H, Hu, idx, fixed_idx, verbose)
+    logdens = _whitened_density(prep, th_hat, idx, Lw)
 
     # Starting points: one per superchain, overdispersed, shared by its M chains.
     rng = np.random.default_rng(seed)
     M = chains // K
-    z_sc = 2.0 * rng.standard_normal((K, d))
-    z_init = np.repeat(z_sc, M, axis=0)
+    z_init = np.repeat(2.0 * rng.standard_normal((K, d)), M, axis=0)
     if verbose:
         print("  [bayes] ChEES-HMC: %d chains (%d superchains x %d), %d warm-up + %d draws, "
               "%d free parameter(s) | preparation %.1f s"
@@ -541,76 +487,178 @@ def sample_posterior(terms, res, y, X, theta_hat, H=None, Hu=None, prior=None, c
                              target_accept=target_accept, max_leapfrog=max_leapfrog,
                              verbose=verbose)
     C, D = z.shape[0], z.shape[1]
-    tf = th_hat[idx][None, None, :] + np.einsum("ij,cdj->cdi", Lw, z)
     th_draws = np.tile(th_hat, (C, D, 1))
-    th_draws[:, :, idx] = tf
+    th_draws[:, :, idx] = th_hat[idx][None, None, :] + np.einsum("ij,cdj->cdi", Lw, z)
 
     # Variance components and expressions, draw by draw.
     t1 = time.time()
     flat_draws = th_draws.reshape(C * D, ntot)
+    comps = _component_draws(flat_draws, terms, res)
+    names = component_names(terms, res)
+    vp = _expression_draws(expressions, comps, C * D)
+    summary = _draw_summary(names, comps, expressions, vp, C, D, K)
+    if verbose:
+        print("  [bayes] components and expressions on %d draws: %.1f s"
+              % (C * D, time.time() - t1), flush=True)
+
+    effects = None
+    if n_effects and n_effects > 0:
+        effects = _effect_moments(flat_draws, terms, prep, res, n_effects, pev, verbose)
+
+    diag.update(chains=C, superchains=K, warmup=int(warmup), draws=D,
+                rhat_max=_max_finite(summary, "rhat"),
+                nested_rhat_max=_max_finite(summary, "nested_rhat"),
+                ess_min=float(min([r["ess"] for r in summary if np.isfinite(r["ess"])] or [np.nan])),
+                seconds=time.time() - t0, n_free=int(d))
+    return dict(theta=th_draws, components=comps, component_names=names,
+                expressions=vp, expression_names=[n for n, _ in expressions],
+                summary=summary, diagnostics=diag, prior=_prior_report(prep["p"], prep["rare"]),
+                effects=effects)
+
+
+def _check_sampler_args(lag, chains, superchains):
+    """Number of superchains K, after checking blackjax, the lag and C = M K."""
+    if not available():
+        raise RuntimeError("the Bayesian route requires blackjax: pip install blackjax "
+                           "(or rx_install_python(bayes = TRUE) from R)")
+    if lag is not None:
+        raise ValueError("the Bayesian route does not yet accept a spatial lag (rx_lag)")
+    K = max(1, int(superchains))
+    if chains % K:
+        raise ValueError("chains (%d) must be a multiple of superchains (%d)" % (chains, K))
+    return K
+
+
+def _free_indices(ntot, fixed_idx):
+    """Indices of the sampled parameters: all but fixed_idx."""
+    free = np.ones(ntot, dtype=bool)
+    if fixed_idx:
+        free[np.asarray(fixed_idx, dtype=int)] = False
+    return np.flatnonzero(free)
+
+
+def _laplace_factor(M, k):
+    """Lw with Lw Lw' = k M^-1, or None when M is not positive definite."""
+    try:
+        w, U_ = np.linalg.eigh(0.5 * (M + M.T))
+    except np.linalg.LinAlgError:
+        return None
+    if not np.all(w > 1e-10 * max(abs(w).max(), 1.0)):
+        return None
+    return U_ * np.sqrt(k / w)
+
+
+def _whitening(prep, th_hat, H, Hu, idx, fixed_idx, verbose):
+    """Centre and whitening factor of the sampler.
+
+    Lw Lw' is the Laplace covariance: Hu^-1 at the posterior mode, or 2 H^-1
+    at the REML optimum. A Hessian that is not positive definite (REML
+    optimum on a boundary) triggers a search for the posterior mode from
+    theta_hat, which then becomes the centre.
+    """
+    Lw = None
+    if Hu is not None:
+        Lw = _laplace_factor(np.asarray(Hu), 1.0)
+    elif H is not None:
+        Lw = _laplace_factor(np.asarray(H)[np.ix_(idx, idx)], 2.0)
+    if Lw is None:
+        if verbose:
+            print("  [bayes] Hessian missing or not positive definite: searching for the posterior mode",
+                  flush=True)
+        th_hat, Hm, _ = posterior_mode(prep, th_hat, fixed_idx=fixed_idx, verbose=verbose)
+        Lw = _laplace_factor(Hm, 1.0)
+    if Lw is None:
+        Lw = 0.1 * np.eye(len(idx))
+        if verbose:
+            print("  [bayes] Hessian at the mode not positive definite: whitening by 0.1 I", flush=True)
+    return th_hat, Lw
+
+
+def _whitened_density(prep, th_hat, idx, Lw):
+    """log p(theta(z) | y) up to a constant, in the whitened coordinates z."""
+    base = jnp.asarray(th_hat)
+    jidx = jnp.asarray(idx)
+    center = jnp.asarray(th_hat[idx])
+    Lw_j = jnp.asarray(Lw)
+    Zr_j = prep["Zr"]
+    log_prior, f = prep["log_prior"], prep["f"]
+
+    def logdens(z):
+        th = base.at[jidx].set(center + Lw_j @ z)
+        v = log_prior(th) - 0.5 * f(th, Zr_j)
+        return jnp.where(jnp.isfinite(v), v, -jnp.inf)
+    return logdens
+
+
+def _component_draws(flat_draws, terms, res):
+    """Variance components at each draw, vectorised when the components allow it."""
     try:
         comp_fn = jax.jit(jax.vmap(lambda th: components_from_theta(th, terms, res)))
-        comps = np.asarray(comp_fn(jnp.asarray(flat_draws)))
+        return np.asarray(comp_fn(jnp.asarray(flat_draws)))
     except Exception:            # components that cannot be vectorised (numpy ratios of levels)
         one = jax.jit(lambda th: components_from_theta(th, terms, res))
-        comps = np.stack([np.asarray(one(jnp.asarray(t_))) for t_ in flat_draws])
-    names = component_names(terms, res)
+        return np.stack([np.asarray(one(jnp.asarray(t_))) for t_ in flat_draws])
+
+
+def _expression_draws(expressions, comps, n_draws):
+    """vpredict-style expressions (V1, V2, ...) evaluated at each draw."""
     vp = []
     for (_name, expr) in expressions:
         env = {"sqrt": np.sqrt, "log": np.log, "exp": np.exp, "abs": np.abs}
         env.update({"V%d" % (i + 1): comps[:, i] for i in range(comps.shape[1])})
         vp.append(np.asarray(eval(expr, {"__builtins__": {}}, env), dtype=float)  # noqa: S307
-                  * np.ones(C * D))
-    vp = np.stack(vp, axis=1) if vp else np.zeros((C * D, 0))
-    summary = []
-    for i, name in enumerate(names):
-        summary.append(dict(name=name, **_summarise(comps[:, i].reshape(C, D), K)))
-    for j, (name, expr) in enumerate(expressions):
-        summary.append(dict(name=name, expression=expr, **_summarise(vp[:, j].reshape(C, D), K)))
+                  * np.ones(n_draws))
+    return np.stack(vp, axis=1) if vp else np.zeros((n_draws, 0))
+
+
+def _draw_summary(names, comps, expressions, vp, C, D, K):
+    """Posterior summary rows of the components, then of the expressions."""
+    summary = [dict(name=name, **_summarise(comps[:, i].reshape(C, D), K))
+               for i, name in enumerate(names)]
+    summary += [dict(name=name, expression=expr, **_summarise(vp[:, j].reshape(C, D), K))
+                for j, (name, expr) in enumerate(expressions)]
+    return summary
+
+
+def _max_finite(summary, key):
+    """Largest finite value of a summary column, NaN when there is none."""
+    v = [r[key] for r in summary if np.isfinite(r[key])]
+    return float(max(v)) if v else np.nan
+
+
+def _effect_moments(flat_draws, terms, prep, res, n_effects, pev, verbose):
+    """Posterior moments of beta and the random effects, by Rao-Blackwellisation."""
+    from .effects import dense_effects
+    t1 = time.time()
+    n_draws = flat_draws.shape[0]
+    k = int(min(n_effects, n_draws))
+    picks = np.unique(np.linspace(0, n_draws - 1, k).round().astype(int))
+    betas, vbetas, blup_draws, pev_draws = [], [], {}, {}
+    for s_ in picks:
+        e = dense_effects(flat_draws[s_], terms, prep["Zs"], res, prep["y"], prep["X"], blups=True,
+                          pev=list(pev) or False)
+        betas.append(e["beta"])
+        vbetas.append(e["vbeta"])
+        for nm, u in e["blups"].items():
+            blup_draws.setdefault(nm, []).append(u)
+        for nm, pv in (e.get("pev") or {}).items():
+            pev_draws.setdefault(nm, []).append(pv)
+    Bt = np.stack(betas)
+    bcov = np.mean(vbetas, axis=0) + (np.cov(Bt.T) if len(picks) > 1 else 0.0)
+    effects = dict(n=len(picks), beta_mean=Bt.mean(axis=0), beta_cov=np.atleast_2d(bcov),
+                   blup_mean={nm: np.mean(v, axis=0) for nm, v in blup_draws.items()},
+                   blup_sd={nm: np.sqrt(np.mean(pev_draws[nm], axis=0)
+                                        + np.var(blup_draws[nm], axis=0))
+                            for nm in pev_draws},
+                   seconds=time.time() - t1)
     if verbose:
-        print("  [bayes] components and expressions on %d draws: %.1f s"
-              % (C * D, time.time() - t1), flush=True)
+        print("  [bayes] moments of beta and the BLUPs on %d draws: %.1f s"
+              % (len(picks), effects["seconds"]), flush=True)
+    return effects
 
-    def max_finite(key):
-        v = [r[key] for r in summary if np.isfinite(r[key])]
-        return float(max(v)) if v else np.nan
 
-    # beta and the random effects, by Rao-Blackwellisation.
-    effects = None
-    if n_effects and n_effects > 0:
-        from .effects import dense_effects
-        t1 = time.time()
-        k = int(min(n_effects, C * D))
-        picks = np.unique(np.linspace(0, C * D - 1, k).round().astype(int))
-        betas, vbetas, blup_draws, pev_draws = [], [], {}, {}
-        for s_ in picks:
-            e = dense_effects(flat_draws[s_], terms, Zs, res, y, X, blups=True,
-                              pev=list(pev) or False)
-            betas.append(e["beta"])
-            vbetas.append(e["vbeta"])
-            for nm, u in e["blups"].items():
-                blup_draws.setdefault(nm, []).append(u)
-            for nm, pv in (e.get("pev") or {}).items():
-                pev_draws.setdefault(nm, []).append(pv)
-        Bt = np.stack(betas)
-        bcov = np.mean(vbetas, axis=0) + (np.cov(Bt.T) if len(picks) > 1 else 0.0)
-        effects = dict(n=len(picks), beta_mean=Bt.mean(axis=0), beta_cov=np.atleast_2d(bcov),
-                       blup_mean={nm: np.mean(v, axis=0) for nm, v in blup_draws.items()},
-                       blup_sd={nm: np.sqrt(np.mean(pev_draws[nm], axis=0)
-                                            + np.var(blup_draws[nm], axis=0))
-                                for nm in pev_draws},
-                       seconds=time.time() - t1)
-        if verbose:
-            print("  [bayes] moments of beta and the BLUPs on %d draws: %.1f s"
-                  % (len(picks), effects["seconds"]), flush=True)
-
-    diag.update(chains=C, superchains=K, warmup=int(warmup), draws=D,
-                rhat_max=max_finite("rhat"), nested_rhat_max=max_finite("nested_rhat"),
-                ess_min=float(min([r["ess"] for r in summary if np.isfinite(r["ess"])] or [np.nan])),
-                seconds=time.time() - t0, n_free=int(d))
-    prior_out = dict(sd=p["sd"], lkj=p["lkj"], loading=p["loading"], level=p["level"],
-                     generic=p["generic"], reference_scale=p["reference_scale"],
-                     terms=p.get("terms") or {}, theta_normal=rare)
-    return dict(theta=th_draws, components=comps, component_names=names,
-                expressions=vp, expression_names=[n for n, _ in expressions],
-                summary=summary, diagnostics=diag, prior=prior_out, effects=effects)
+def _prior_report(p, rare):
+    """The resolved prior, as returned to R."""
+    return dict(sd=p["sd"], lkj=p["lkj"], loading=p["loading"], level=p["level"],
+                generic=p["generic"], reference_scale=p["reference_scale"],
+                terms=p.get("terms") or {}, theta_normal=rare)
