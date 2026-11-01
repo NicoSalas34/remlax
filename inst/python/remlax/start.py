@@ -375,45 +375,72 @@ def _range_sweep(fun_jac, th0, terms, res, n, verbose=False, fixed_idx=None,
     for k, coord in pos:
         if k in fixes:
             continue
-        cands = _range_candidates(coord)
-        if cands.size == 0:
-            continue
-        cands = np.append(cands, th[k])
-        vals = []
-        for c in cands:
-            t = th.copy()
-            t[k] = c
-            try:
-                v = float(fun_jac(t)[0])
-            except Exception:
-                v = np.nan
-            n_eval += 1
-            vals.append(v if np.isfinite(v) else np.inf)
-        vals = np.asarray(vals)
-        order = [int(j) for j in np.argsort(vals) if np.isfinite(vals[j])][:max(int(n_garde), 1)]
-        if not order:
-            continue
-        best_th, best_v = th.copy(), vals[-1]
-        if fun_sc is None or maxiter_local <= 0:
-            j = order[0]
-            if vals[j] < best_v - 1e-10:
-                best_th[k], best_v = cands[j], vals[j]
-        else:
-            for j in order:
-                t = th.copy()
-                t[k] = cands[j]
-                try:
-                    r = minimize(fun_sc, t, jac=True, method="L-BFGS-B", bounds=bornes,
-                                 options=dict(maxiter=int(maxiter_local),
-                                              maxfun=20 * int(maxiter_local)))
-                    v = float(fun_jac(r.x)[0])
-                    n_eval += int(r.nfev) + 1
-                except Exception:
-                    continue
-                if np.isfinite(v) and v < best_v - 1e-10:
-                    best_th, best_v = np.asarray(r.x, dtype=np.float64), v
-        if verbose and best_v < vals[-1] - 1e-10:
-            print("  [range] start moved from %.4g to %.4g (-2logL %.6f -> %.6f)"
-                  % (np.exp(th[k]), np.exp(best_th[k]), vals[-1], best_v), flush=True)
-        th = best_th
+        th, n_k = _sweep_one_range(fun_jac, th, k, coord, fun_sc, bornes, n_garde,
+                                   maxiter_local, verbose)
+        n_eval += n_k
     return th, n_eval
+
+
+def _sweep_one_range(fun_jac, th, k, coord, fun_sc, bornes, n_garde, maxiter_local, verbose):
+    """Best start of the range parameter k, the others held. Returns (theta, n_eval)."""
+    cands = _range_candidates(coord)
+    if cands.size == 0:
+        return th, 0
+    cands = np.append(cands, th[k])
+    vals = _candidate_values(fun_jac, th, k, cands)
+    n_eval = len(cands)
+    order = [int(j) for j in np.argsort(vals) if np.isfinite(vals[j])][:max(int(n_garde), 1)]
+    if not order:
+        return th, n_eval
+    if fun_sc is None or maxiter_local <= 0:
+        best_th, best_v = _best_ranked(th, k, cands, vals, order[0])
+    else:
+        best_th, best_v, n_desc = _best_descended(fun_jac, fun_sc, th, k, cands, vals[-1], order,
+                                                  bornes, maxiter_local)
+        n_eval += n_desc
+    if verbose and best_v < vals[-1] - 1e-10:
+        print("  [range] start moved from %.4g to %.4g (-2logL %.6f -> %.6f)"
+              % (np.exp(th[k]), np.exp(best_th[k]), vals[-1], best_v), flush=True)
+    return best_th, n_eval
+
+
+def _candidate_values(fun_jac, th, k, cands):
+    """-2logL at each candidate of parameter k; +inf where it fails or is not finite."""
+    vals = []
+    for c in cands:
+        t = th.copy()
+        t[k] = c
+        try:
+            v = float(fun_jac(t)[0])
+        except Exception:
+            v = np.nan
+        vals.append(v if np.isfinite(v) else np.inf)
+    return np.asarray(vals)
+
+
+def _best_ranked(th, k, cands, vals, j):
+    """The best-ranked candidate j when it beats the current value (the last candidate)."""
+    best_th, best_v = th.copy(), vals[-1]
+    if vals[j] < best_v - 1e-10:
+        best_th[k], best_v = cands[j], vals[j]
+    return best_th, best_v
+
+
+def _best_descended(fun_jac, fun_sc, th, k, cands, v_now, order, bornes, maxiter_local):
+    """Short L-BFGS-B descents from the kept candidates; the best point reached."""
+    best_th, best_v = th.copy(), v_now
+    n_eval = 0
+    for j in order:
+        t = th.copy()
+        t[k] = cands[j]
+        try:
+            r = minimize(fun_sc, t, jac=True, method="L-BFGS-B", bounds=bornes,
+                         options=dict(maxiter=int(maxiter_local),
+                                      maxfun=20 * int(maxiter_local)))
+            v = float(fun_jac(r.x)[0])
+            n_eval += int(r.nfev) + 1
+        except Exception:
+            continue
+        if np.isfinite(v) and v < best_v - 1e-10:
+            best_th, best_v = np.asarray(r.x, dtype=np.float64), v
+    return best_th, best_v, n_eval
