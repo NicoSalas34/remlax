@@ -282,6 +282,32 @@ def _block_values(M, diag):
 # ------------------------------------------------------------------------------
 # The engine
 # ------------------------------------------------------------------------------
+
+class _Entries:
+    """Components of C as they are collected: rows, columns, values, and
+    whether theta moves them (variable)."""
+
+    def __init__(self):
+        self.I, self.J, self.X, self.var = [], [], [], []
+
+    def add(self, i, j, x, variable=False):
+        self.I.append(np.asarray(i, dtype=np.int64)); self.J.append(np.asarray(j, dtype=np.int64))
+        self.X.append(np.asarray(x, dtype=np.float64)); self.var.append(variable)
+        return len(self.I) - 1
+
+
+def _triu_trip(M):
+    """Nonzero upper triangle of M as (rows, columns, values)."""
+    T = sp.triu(sp.csr_matrix(M)).tocoo()
+    keep = T.data != 0
+    return T.row[keep], T.col[keep], T.data[keep]
+
+
+def _trait_pairs(t, full):
+    """Trait pairs (a, b), a <= b, of a term: all of them for a full Sigma, the diagonal otherwise."""
+    return [(a, b) for a in range(t) for b in range(a, t) if full or a == b]
+
+
 class MME:
     """The MME engine of one model. evaluate(theta) returns -2logL and, when
     full, its gradient and AI matrix in theta; outputs(theta) returns beta,
@@ -459,78 +485,96 @@ class MME:
         and _choose_inversion materialises them then."""
         self._blocks_deferred = False
         self._n_block_entries = 0
-        W, m, y = self.W, self.m, self.y
-        I_, J_, X_, var = [], [], [], []
-
-        def add(i, j, x, variable=False):
-            I_.append(np.asarray(i, dtype=np.int64)); J_.append(np.asarray(j, dtype=np.int64))
-            X_.append(np.asarray(x, dtype=np.float64)); var.append(variable)
-            return len(I_) - 1
-
-        def triu_trip(M):
-            T = sp.triu(sp.csr_matrix(M)).tocoo()
-            keep = T.data != 0
-            return T.row[keep], T.col[keep], T.data[keep]
+        ent = _Entries()
         for d in self.S:
-            if d.get("forme") == "grille":
-                d["ic"], d["Wy"], d["yPy"] = [], [], []
-                for P in d["parts"]:
-                    PW = P @ W
-                    d["ic"].append(add(*triu_trip(W.T @ PW)))
-                    d["Wy"].append(np.asarray(PW.T @ y).ravel())
-                    d["yPy"].append(float(y @ (P @ y)))
-                d["yPy"] = np.asarray(d["yPy"])
-                continue
-            if d["lvl"] == "id":
-                for mo in d["motifs"]:
-                    tg = len(mo["tau"])
-                    Wa = [W[mo["I"][:, a], :] for a in range(tg)]
-                    Ya = y[mo["I"]]
-                    mo["Wy"] = [np.asarray(Wa[a].T @ Ya) for a in range(tg)]
-                    mo["yy"] = Ya.T @ Ya
-                    mo["ic"] = -np.ones((tg, tg), dtype=np.int64)
-                    for a in range(tg):
-                        for b in range(a, tg):
-                            M = Wa[a].T @ Wa[b]
-                            if a != b:
-                                M = M + M.T
-                            mo["ic"][a, b] = mo["ic"][b, a] = add(*triu_trip(M))
-            else:
-                Ws = sp.csr_matrix(W[d["rows"], :])          # by rows: indices are columns
-                cols = np.unique(Ws.indices)
-                d["cols"], d["Ws"] = cols, Ws[:, cols].toarray()
-                ii, jj = np.triu_indices(len(cols))
-                d["triu"] = (ii, jj)
-                d["ic"] = add(cols[ii], cols[jj], np.zeros(len(ii)), True)
-                d["ys"] = y[d["rows"]]
+            self._section_components(d, ent)
         self._block_of = {}                  # component -> (term, part, a, b) of a full block
         for k_, d in enumerate(self.T):
-            t, q = d["t"], d["q"]
-            full = d["struct"] not in ("iid", "diag")
-            d["ic"] = -np.ones((t, t, len(d["parts"])), dtype=np.int64)
-            for h, P in enumerate(d["parts"]):
-                Pt = sp.csr_matrix(P).tocoo()
-                # Full block (dense kinship, kernel): in the dense inversion it
-                # is added to C in one piece (see _prepare_blocks).
-                full_block = Pt.nnz >= 0.5 * q * q and q >= 16
-                for a in range(t):
-                    for b in range(a, t):
-                        if not full and a != b:
-                            continue
-                        ia, ib = d["off"] + a * q, d["off"] + b * q
-                        if full_block and defer:
-                            empty = np.zeros(0)
-                            j = add(empty, empty, empty, d["forme"] == "dense")
-                            self._blocks_deferred = True
-                            self._n_block_entries += (q * (q + 1)) // 2 if a == b else q * q
-                        elif a == b:
-                            sel = Pt.row <= Pt.col
-                            j = add(ia + Pt.row[sel], ia + Pt.col[sel], Pt.data[sel], d["forme"] == "dense")
-                        else:
-                            j = add(ia + Pt.row, ib + Pt.col, Pt.data, d["forme"] == "dense")
-                        d["ic"][a, b, h] = d["ic"][b, a, h] = j
-                        if full_block:
-                            self._block_of[j] = (k_, h, a, b)
+            self._term_components(k_, d, ent, defer)
+        self._finalise_pattern(ent)
+
+    def _section_components(self, d, ent):
+        """Components of W' R^-1 W contributed by one residual section."""
+        if d.get("forme") == "grille":
+            self._grid_components(d, ent)
+        elif d["lvl"] == "id":
+            for mo in d["motifs"]:
+                self._motif_components(mo, ent)
+        else:
+            self._level_section_components(d, ent)
+
+    def _grid_components(self, d, ent):
+        W, y = self.W, self.y
+        d["ic"], d["Wy"], d["yPy"] = [], [], []
+        for P in d["parts"]:
+            PW = P @ W
+            d["ic"].append(ent.add(*_triu_trip(W.T @ PW)))
+            d["Wy"].append(np.asarray(PW.T @ y).ravel())
+            d["yPy"].append(float(y @ (P @ y)))
+        d["yPy"] = np.asarray(d["yPy"])
+
+    def _motif_components(self, mo, ent):
+        """One missing-trait pattern of an id residual: W_a' W_b for each pair of traits."""
+        W, y = self.W, self.y
+        tg = len(mo["tau"])
+        Wa = [W[mo["I"][:, a], :] for a in range(tg)]
+        Ya = y[mo["I"]]
+        mo["Wy"] = [np.asarray(Wa[a].T @ Ya) for a in range(tg)]
+        mo["yy"] = Ya.T @ Ya
+        mo["ic"] = -np.ones((tg, tg), dtype=np.int64)
+        for a in range(tg):
+            for b in range(a, tg):
+                M = Wa[a].T @ Wa[b]
+                if a != b:
+                    M = M + M.T
+                mo["ic"][a, b] = mo["ic"][b, a] = ent.add(*_triu_trip(M))
+
+    def _level_section_components(self, d, ent):
+        """A residual section with a level structure: one variable dense component."""
+        Ws = sp.csr_matrix(self.W[d["rows"], :])          # by rows: indices are columns
+        cols = np.unique(Ws.indices)
+        d["cols"], d["Ws"] = cols, Ws[:, cols].toarray()
+        ii, jj = np.triu_indices(len(cols))
+        d["triu"] = (ii, jj)
+        d["ic"] = ent.add(cols[ii], cols[jj], np.zeros(len(ii)), True)
+        d["ys"] = self.y[d["rows"]]
+
+    def _term_components(self, k_, d, ent, defer):
+        """Components Sigma^-1[a, b] K^-1 of one random term, part by part."""
+        t, q = d["t"], d["q"]
+        full = d["struct"] not in ("iid", "diag")
+        d["ic"] = -np.ones((t, t, len(d["parts"])), dtype=np.int64)
+        for h, P in enumerate(d["parts"]):
+            Pt = sp.csr_matrix(P).tocoo()
+            # Full block (dense kinship, kernel): in the dense inversion it
+            # is added to C in one piece (see _prepare_blocks).
+            full_block = Pt.nnz >= 0.5 * q * q and q >= 16
+            for a, b in _trait_pairs(t, full):
+                j = self._part_entry(d, Pt, a, b, full_block and defer, ent)
+                d["ic"][a, b, h] = d["ic"][b, a, h] = j
+                if full_block:
+                    self._block_of[j] = (k_, h, a, b)
+
+    def _part_entry(self, d, Pt, a, b, deferred, ent):
+        """Entry of the block (a, b) of one part; an empty placeholder when deferred."""
+        q = d["q"]
+        variable = d["forme"] == "dense"
+        if deferred:
+            empty = np.zeros(0)
+            j = ent.add(empty, empty, empty, variable)
+            self._blocks_deferred = True
+            self._n_block_entries += (q * (q + 1)) // 2 if a == b else q * q
+            return j
+        ia, ib = d["off"] + a * q, d["off"] + b * q
+        if a == b:
+            sel = Pt.row <= Pt.col
+            return ent.add(ia + Pt.row[sel], ia + Pt.col[sel], Pt.data[sel], variable)
+        return ent.add(ia + Pt.row, ib + Pt.col, Pt.data, variable)
+
+    def _finalise_pattern(self, ent):
+        """Upper pattern of C (CSC) and the position of each component in it."""
+        I_, J_, X_, var = ent.I, ent.J, ent.X, ent.var
+        m = self.m
         ii = np.concatenate(I_ + [np.arange(m)])
         jj = np.concatenate(J_ + [np.arange(m)])
         U = sp.csc_matrix((np.ones(len(ii)), (ii, jj)), shape=(m, m))
@@ -553,63 +597,84 @@ class MME:
         """Inversion route. auto: dense up to m = 1000 or when the pattern of C
         fills more than 30 % of a triangle, or when the sparse factor would
         fill more than half of it; sparse otherwise."""
-        m = self.m
         self.factor = None
         self._block_mode = False
         n_U = self.nU + getattr(self, "_n_block_entries", 0)       # deferred blocks included
-        if inversion == "auto" and m > 1000 and n_U <= 0.3 * m * (m + 1) / 2 \
-                and getattr(self, "_blocks_deferred", False):
-            self._components(defer=False)
-        if inversion in ("sparse", "hybrid") and getattr(self, "_blocks_deferred", False):
-            self._components(defer=False)
+        self._materialise_blocks(inversion, n_U)
         if inversion == "auto":
-            if m <= 1000 or n_U > 0.3 * m * (m + 1) / 2:
-                inversion = "dense"
-            else:
-                try:
-                    F = SparseFactor(self._pattern(), self.ci, self.cj)
-                    fill = F.off[-1] / (m * (m + 1) / 2)
-                except MemoryError:
-                    # SuperLU refuses a factor that fills too much: C is nearly full.
-                    F, fill = None, 1.0
-                inversion = "dense" if fill > 0.5 else "sparse"
-                if inversion == "sparse":
-                    self.factor = F
+            inversion = self._auto_inversion(n_U)
         elif inversion == "sparse":
             self.factor = SparseFactor(self._pattern(), self.ci, self.cj)
-        elif inversion == "hybrid":
-            # Dense separator (fixed effects and the global terms found by
-            # decoupage.py) and dense blocks in batches (mme_hybride.py); out of
-            # scope, back to the automatic choice.
-            from .mme_hybride import HybridFactor, dense_set, OutOfScope
-            from .decoupage import BlockSplit
-            if self._separateur is not None:
-                names = [tm["name"] for tm in self.terms]
-                glob = [names.index(nm) for nm in self._separateur]
-            else:
-                glob = BlockSplit(self.terms, self.res, self._n_obs0).search(
-                    espace="niveaux", p=self.p_sortie)["globaux"]
-            try:
-                self.factor = HybridFactor(self.ci, self.cj, m,
-                                              dense_set(self.T, self.p_sortie, glob),
-                                              verbose=self.verbose)
-            except OutOfScope as e:
-                if self.verbose:
-                    print("  [mme] hybrid out of scope (%s) -> automatic inversion" % e, flush=True)
-                return self._choose_inversion("auto")
+        elif inversion == "hybrid" and not self._hybrid_factor():
+            return self._choose_inversion("auto")
         self.inversion = inversion
         if inversion == "dense":
-            self._jci, self._jcj = jnp.asarray(self.ci), jnp.asarray(self.cj)
-            # On CPU, dense algebra goes through LAPACK (SciPy), not XLA: C
-            # formed by indexing, factorised by dpotrf, inverted from the factor
-            # by dpotri. On GPU, XLA (cuSOLVER) stays the right choice.
-            try:
-                dev = next(iter(jnp.zeros(()).devices()))
-                self._dense_cpu = dev.platform == "cpu"
-            except Exception:
-                self._dense_cpu = False
-            if self._block_of:
-                self._prepare_blocks()
+            self._prepare_dense()
+
+    def _sparse_candidate(self, n_U):
+        """Whether C is large and sparse enough for the automatic choice to try a sparse factor."""
+        m = self.m
+        return m > 1000 and n_U <= 0.3 * m * (m + 1) / 2
+
+    def _materialise_blocks(self, inversion, n_U):
+        """Enter the deferred full blocks when the route may be sparse or hybrid."""
+        if not getattr(self, "_blocks_deferred", False):
+            return
+        if (inversion == "auto" and self._sparse_candidate(n_U)) or inversion in ("sparse", "hybrid"):
+            self._components(defer=False)
+
+    def _auto_inversion(self, n_U):
+        """dense or sparse, from the size of C and the fill of its sparse factor."""
+        if not self._sparse_candidate(n_U):
+            return "dense"
+        m = self.m
+        try:
+            F = SparseFactor(self._pattern(), self.ci, self.cj)
+            fill = F.off[-1] / (m * (m + 1) / 2)
+        except MemoryError:
+            # SuperLU refuses a factor that fills too much: C is nearly full.
+            F, fill = None, 1.0
+        if fill > 0.5:
+            return "dense"
+        self.factor = F
+        return "sparse"
+
+    def _hybrid_factor(self):
+        """Hybrid factor: dense separator and dense blocks in batches.
+
+        The separator holds the fixed effects and the global terms found by
+        decoupage.py (mme_hybride.py). Returns False when the model is out of
+        scope, so the caller falls back to the automatic choice."""
+        from .mme_hybride import HybridFactor, dense_set, OutOfScope
+        from .decoupage import BlockSplit
+        if self._separateur is not None:
+            names = [tm["name"] for tm in self.terms]
+            glob = [names.index(nm) for nm in self._separateur]
+        else:
+            glob = BlockSplit(self.terms, self.res, self._n_obs0).search(
+                espace="niveaux", p=self.p_sortie)["globaux"]
+        try:
+            self.factor = HybridFactor(self.ci, self.cj, self.m,
+                                          dense_set(self.T, self.p_sortie, glob),
+                                          verbose=self.verbose)
+        except OutOfScope as e:
+            if self.verbose:
+                print("  [mme] hybrid out of scope (%s) -> automatic inversion" % e, flush=True)
+            return False
+        return True
+
+    def _prepare_dense(self):
+        self._jci, self._jcj = jnp.asarray(self.ci), jnp.asarray(self.cj)
+        # On CPU, dense algebra goes through LAPACK (SciPy), not XLA: C
+        # formed by indexing, factorised by dpotrf, inverted from the factor
+        # by dpotri. On GPU, XLA (cuSOLVER) stays the right choice.
+        try:
+            dev = next(iter(jnp.zeros(()).devices()))
+            self._dense_cpu = dev.platform == "cpu"
+        except Exception:
+            self._dense_cpu = False
+        if self._block_of:
+            self._prepare_blocks()
 
     # --------------------------------------------------- dense inversion by blocks
     def _prepare_blocks(self):
