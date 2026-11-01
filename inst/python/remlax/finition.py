@@ -109,97 +109,151 @@ def finish(fun_jac, theta, lo, hi, hessian, maxit=300, tol_dec=1e-6, tol_gain=1e
     fun_jac(theta) -> (-2logL, gradient) on the natural scale; hessian(theta)
     -> H (p x p). lo, hi: bounds (vectors). counter: the dict whose "n_eval"
     counts the evaluations. Returns (theta, info)."""
-    t0 = time.time()
-    theta = np.clip(np.asarray(theta, dtype=np.float64), lo, hi)
-    n_eval = [0]
+    run = _Finish(fun_jac, hessian, lo, hi, counter, verbose, tol_dec=tol_dec,
+                  tol_gain=tol_gain, delta_max=delta_max, floor_window=floor_window,
+                  floor_tol=floor_tol)
+    return run.run(theta, maxit, delta0)
 
-    def evaluate(th):
-        n_eval[0] += 1
-        if counter is not None:
-            counter["n_eval"] = counter.get("n_eval", 0) + 1
-        v, g = fun_jac(th)
+
+class _Finish:
+    """State of one trust-region Newton finish: theta, -2logL, gradient, H, Delta."""
+
+    def __init__(self, fun_jac, hessian, lo, hi, counter, verbose, tol_dec, tol_gain,
+                 delta_max, floor_window, floor_tol):
+        self.t0 = time.time()
+        self.fun_jac, self.hessian, self.lo, self.hi = fun_jac, hessian, lo, hi
+        self.counter, self.verbose = counter, verbose
+        self.tol_dec, self.tol_gain, self.delta_max = tol_dec, tol_gain, delta_max
+        self.floor_window, self.floor_tol = floor_window, floor_tol
+        self.n_eval, self.n_hess = 0, 0
+
+    def say(self, fmt, *args):
+        if self.verbose:
+            print(fmt % args, flush=True)
+
+    def evaluate(self, th):
+        self.n_eval += 1
+        if self.counter is not None:
+            self.counter["n_eval"] = self.counter.get("n_eval", 0) + 1
+        v, g = self.fun_jac(th)
         return float(v), np.asarray(g, dtype=np.float64)
 
-    f, g = evaluate(theta)
-    H = hessian(theta); n_hess = 1; fresh = True
-    delta = delta0
-    poor, small = 0, 0
-    msg, ok = "maxit reached", False
+    def refresh_hessian(self):
+        self.H = self.hessian(self.theta)
+        self.n_hess += 1
+        self.fresh = True
 
-    def to_floor(theta, f, g):
-        """Sets to the floor the free variances that the gradient pushes down."""
-        cand = (theta > lo + 1e-10) & (theta < lo + floor_window) & (g > 0)
+    def to_floor(self):
+        """Sets to the floor the free variances that the gradient pushes down.
+
+        Kept when -2logL rises by no more than floor_tol. Returns how many."""
+        lo = self.lo
+        cand = (self.theta > lo + 1e-10) & (self.theta < lo + self.floor_window) & (self.g > 0)
         if not cand.any():
-            return theta, f, g, 0
-        th2 = theta.copy(); th2[cand] = lo[cand]
-        f2, g2 = evaluate(th2)
-        if np.isfinite(f2) and f2 <= f + floor_tol:
-            return th2, f2, g2, int(cand.sum())
-        return theta, f, g, 0
+            return 0
+        th2 = self.theta.copy(); th2[cand] = lo[cand]
+        f2, g2 = self.evaluate(th2)
+        if np.isfinite(f2) and f2 <= self.f + self.floor_tol:
+            self.theta, self.f, self.g = th2, f2, g2
+            return int(cand.sum())
+        return 0
 
-    theta, f, g, n_fl = to_floor(theta, f, g)
-    if verbose:
-        print("  [finish] start -2logL %.6f | %d parameter(s) set to the floor | Hessian %d gradients"
-              % (f, n_fl, 2 * len(theta)), flush=True)
-    for it in range(maxit):
-        L = _free(theta, g, lo, hi)
-        gL, HL = g[L], H[np.ix_(L, L)]
-        dec = decrement(gL, HL)
-        if dec < tol_dec and small >= 1:
-            # Before concluding: set vanishing variances to the floor (one
-            # evaluation); if some are, the problem has changed face.
-            theta, f, g, n_fl = to_floor(theta, f, g)
-            if n_fl:
-                if verbose:
-                    print("  [finish] %d parameter(s) set to the floor" % n_fl, flush=True)
-                small = 0
-                continue
-            if fresh:
-                msg, ok = "decrement %.2e < %.0e" % (dec, tol_dec), True
+    def run(self, theta, maxit, delta0):
+        self.theta = np.clip(np.asarray(theta, dtype=np.float64), self.lo, self.hi)
+        self.f, self.g = self.evaluate(self.theta)
+        self.refresh_hessian()
+        self.delta = delta0
+        self.poor, self.small = 0, 0
+        msg, ok = "maxit reached", False
+        n_fl = self.to_floor()
+        self.say("  [finish] start -2logL %.6f | %d parameter(s) set to the floor | Hessian %d gradients",
+                 self.f, n_fl, 2 * len(self.theta))
+        for it in range(maxit):
+            stop = self.iterate(it)
+            if stop:
+                msg, ok = stop
                 break
-            H = hessian(theta); n_hess += 1; fresh = True        # confirm with a fresh Hessian
-            continue
-        dL, pred = _trust_region_step(gL, HL, delta)
-        d = np.zeros_like(theta); d[L] = dL
-        th_new = np.clip(theta + d, lo, hi)
-        s = th_new - theta
-        f_new, g_new = evaluate(th_new)
-        gain = f - f_new if np.isfinite(f_new) else -np.inf
+        info = self.report(msg, ok)
+        return self.theta, info
+
+    def iterate(self, it):
+        """One iteration. Returns (message, success) when the finish stops."""
+        L = _free(self.theta, self.g, self.lo, self.hi)
+        gL, HL = self.g[L], self.H[np.ix_(L, L)]
+        dec = decrement(gL, HL)
+        if dec < self.tol_dec and self.small >= 1:
+            return self.near_stop(dec)
+        gain, rho = self.step(L, gL, HL)
+        self.say("  [finish] %3d | -2logL %.8f | gain %.2e | rho %6.2f | Delta %.2e | decrement %.2e | %d free | %.0f s",
+                 it + 1, self.f, gain, rho, self.delta, dec, int(L.sum()), time.time() - self.t0)
+        if self.poor >= 2:
+            self.rebuild()
+        if self.delta <= 1e-8 and self.fresh:
+            return "trust region collapsed (Delta %.1e)" % self.delta, dec < 1e-3
+        return None
+
+    def near_stop(self, dec):
+        """Small decrement after small gains: floor, then stop on a fresh Hessian."""
+        # Before concluding: set vanishing variances to the floor (one
+        # evaluation); if some are, the problem has changed face.
+        n_fl = self.to_floor()
+        if n_fl:
+            self.say("  [finish] %d parameter(s) set to the floor", n_fl)
+            self.small = 0
+            return None
+        if self.fresh:
+            return "decrement %.2e < %.0e" % (dec, self.tol_dec), True
+        self.refresh_hessian()        # confirm with a fresh Hessian
+        return None
+
+    def step(self, L, gL, HL):
+        """Trust-region step on the free parameters, accepted when it gains."""
+        dL, pred = _trust_region_step(gL, HL, self.delta)
+        d = np.zeros_like(self.theta); d[L] = dL
+        th_new = np.clip(self.theta + d, self.lo, self.hi)
+        s = th_new - self.theta
+        f_new, g_new = self.evaluate(th_new)
+        gain = self.f - f_new if np.isfinite(f_new) else -np.inf
         rho = gain / pred if pred > 0 else -1.0
-        if rho < 0.25:
-            delta = max(0.25 * np.linalg.norm(s), 1e-8)
-        elif rho > 0.75 and np.linalg.norm(dL) >= 0.99 * delta:
-            delta = min(2.0 * delta, delta_max)
+        self.update_radius(rho, s, dL)
         if gain > 0:
-            y = g_new - g
-            # SR1 update of H, kept when the denominator is not degenerate.
-            r = y - H @ s
-            den = r @ s
-            if abs(den) > 1e-8 * np.linalg.norm(r) * np.linalg.norm(s):
-                H = H + np.outer(r, r) / den
-                fresh = False
-            theta, f, g = th_new, f_new, g_new
-            small = small + 1 if gain < tol_gain else 0
-            poor = 0 if rho >= 0.25 else poor + 1
+            self.accept(th_new, f_new, g_new, s, gain, rho)
         else:
-            poor += 1
-        if verbose:
-            print("  [finish] %3d | -2logL %.8f | gain %.2e | rho %6.2f | Delta %.2e | decrement %.2e | %d free | %.0f s"
-                  % (it + 1, f, gain, rho, delta, dec, int(L.sum()), time.time() - t0), flush=True)
-        if poor >= 2:
-            # The quadratic model no longer predicts: fresh Hessian, and floor.
-            theta, f, g, n_fl = to_floor(theta, f, g)
-            H = hessian(theta); n_hess += 1; fresh = True; poor = 0
-            delta = max(delta, 1e-3)
-            if verbose and n_fl:
-                print("  [finish] %d parameter(s) set to the floor" % n_fl, flush=True)
-        if delta <= 1e-8 and fresh:
-            msg, ok = "trust region collapsed (Delta %.1e)" % delta, dec < 1e-3
-            break
-    info = dict(success=ok, message="finish: %s" % msg, n_eval=n_eval[0], n_hessians=n_hess,
-                decrement=decrement(g[_free(theta, g, lo, hi)], H[np.ix_(*(2 * [_free(theta, g, lo, hi)]))]),
-                seconds=time.time() - t0)
-    if verbose:
-        print("  [finish] end: %s | -2logL %.8f | %d evaluations, %d Hessians | %.0f s"
-              % (msg, f, n_eval[0], n_hess, info["seconds"]), flush=True)
-    return theta, info
+            self.poor += 1
+        return gain, rho
+
+    def update_radius(self, rho, s, dL):
+        if rho < 0.25:
+            self.delta = max(0.25 * np.linalg.norm(s), 1e-8)
+        elif rho > 0.75 and np.linalg.norm(dL) >= 0.99 * self.delta:
+            self.delta = min(2.0 * self.delta, self.delta_max)
+
+    def accept(self, th_new, f_new, g_new, s, gain, rho):
+        y = g_new - self.g
+        # SR1 update of H, kept when the denominator is not degenerate.
+        r = y - self.H @ s
+        den = r @ s
+        if abs(den) > 1e-8 * np.linalg.norm(r) * np.linalg.norm(s):
+            self.H = self.H + np.outer(r, r) / den
+            self.fresh = False
+        self.theta, self.f, self.g = th_new, f_new, g_new
+        self.small = self.small + 1 if gain < self.tol_gain else 0
+        self.poor = 0 if rho >= 0.25 else self.poor + 1
+
+    def rebuild(self):
+        """The quadratic model no longer predicts: fresh Hessian, and floor."""
+        n_fl = self.to_floor()
+        self.refresh_hessian()
+        self.poor = 0
+        self.delta = max(self.delta, 1e-3)
+        if n_fl:
+            self.say("  [finish] %d parameter(s) set to the floor", n_fl)
+
+    def report(self, msg, ok):
+        L = _free(self.theta, self.g, self.lo, self.hi)
+        info = dict(success=ok, message="finish: %s" % msg, n_eval=self.n_eval,
+                    n_hessians=self.n_hess, decrement=decrement(self.g[L], self.H[np.ix_(L, L)]),
+                    seconds=time.time() - self.t0)
+        self.say("  [finish] end: %s | -2logL %.8f | %d evaluations, %d Hessians | %.0f s",
+                 msg, self.f, self.n_eval, self.n_hess, info["seconds"])
+        return info
