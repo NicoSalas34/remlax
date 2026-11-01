@@ -499,57 +499,90 @@ def level_params_report(theta_lv, kind, order=0, opts=None, q=None, parts=None):
                  factors of the same family are the norm.
     """
     if kind == "sep":
-        out, o = {}, 0
-        for idx, (k, qi) in enumerate(parts or [], start=1):
-            pk = n_level_params(k)
-            if pk:
-                sub = level_params_report(theta_lv[o:o + pk], k, order, q=qi)
-                for nm, v in (sub or {}).items():
-                    out["%s_%d_%s" % (k, idx, nm)] = v
-            o += pk
-        return out
-
-    th = np.asarray(theta_lv, dtype=float)
-    absta = lambda j: float(np.clip(np.abs(np.tanh(th[j])), 1e-12, 1 - 1e-12))  # noqa: E731
-    if kind == "ar1ar1":
-        return {"phi": [float(np.tanh(th[0])), float(np.tanh(th[1]))]}
-    if kind == "cor":
-        if q is None:
-            raise ValueError(
-                "level_params_report(kind='cor') requires q. The uniform correlation "
-                "is rescaled to (-1/(q-1), 1), so tanh(theta) is "
-                "not the value of the model.")
-        lo = -1.0 / max(int(q) - 1, 1)
-        return {"phi": [float(lo + (np.tanh(th[0]) + 1.0) * 0.5 * (1.0 - lo))],
-                "lower_bound": [float(lo)]}
-    if kind in ("ar1", "sar", "ma1"):
-        return {"phi": [float(np.tanh(th[0]))]}
-    if kind in ("exp", "gau"):
-        return {"phi": [absta(0)], "sign_not_identified": [1.0]}
-    if kind in ("ar2", "ar3"):
-        p = 2 if kind == "ar2" else 3
-        return {"phi": [float(v) for v in np.asarray(_levinson_phi(jnp.tanh(jnp.asarray(th[:p]))))],
-                "pacf": [float(np.tanh(v)) for v in th[:p]]}
-    if kind in ("ma2", "arma"):
-        return {"phi": [float(np.tanh(v)) for v in th[:2]]}
-    if kind in ("aexp", "agau"):
-        return {"phi": [absta(0), absta(1)], "sign_not_identified": [1.0]}
-    if kind in ("iexp", "igau", "ieuc"):
-        return {"phi": [absta(0)], "sign_not_identified": [1.0]}
-    if kind in ("sph", "cir", "lvr"):
-        return {"range": [float(np.exp(th[0]))]}
-    if kind == "mtrn":
-        o = opts or {}
-        out, k = {}, 0
-        for p in MTRN_PARAMS:
-            if float(o.get("est_" + p, 1.0 if p == "phi" else 0.0)) > 0.5:
-                out[p] = [float(th[k]) if p == "alpha" else float(np.exp(th[k]))]
-                k += 1
-        return out
-    if kind == "own":
-        return {"own": [float(v) for v in th]}
-    if kind == "corg":
+        return _report_sep(theta_lv, order, parts)
+    report = _LEVEL_REPORTS.get(kind)
+    if report is None:
         return {}
-    if kind == "corb":
-        return {"phi": [float(np.tanh(v)) for v in th[:int(order)]]}
-    return {}
+    return report(np.asarray(theta_lv, dtype=float), order=order, opts=opts, q=q)
+
+
+def _report_sep(theta_lv, order, parts):
+    """Each factor of a separable product, named <family>_<position>_<parameter>."""
+    out, o = {}, 0
+    for idx, (k, qi) in enumerate(parts or [], start=1):
+        pk = n_level_params(k)
+        if pk:
+            sub = level_params_report(theta_lv[o:o + pk], k, order, q=qi)
+            for nm, v in (sub or {}).items():
+                out["%s_%d_%s" % (k, idx, nm)] = v
+        o += pk
+    return out
+
+
+def _abs_tanh(th, j):
+    """|tanh(theta_j)| kept inside (0, 1): a metric family, whose sign is not identified."""
+    return float(np.clip(np.abs(np.tanh(th[j])), 1e-12, 1 - 1e-12))
+
+
+def _report_cor(th, q=None, **_):
+    if q is None:
+        raise ValueError(
+            "level_params_report(kind='cor') requires q. The uniform correlation "
+            "is rescaled to (-1/(q-1), 1), so tanh(theta) is "
+            "not the value of the model.")
+    lo = -1.0 / max(int(q) - 1, 1)
+    return {"phi": [float(lo + (np.tanh(th[0]) + 1.0) * 0.5 * (1.0 - lo))],
+            "lower_bound": [float(lo)]}
+
+
+def _report_arp(th, p):
+    """AR(p) by its partial autocorrelations: phi through Levinson, and the pacf."""
+    return {"phi": [float(v) for v in np.asarray(_levinson_phi(jnp.tanh(jnp.asarray(th[:p]))))],
+            "pacf": [float(np.tanh(v)) for v in th[:p]]}
+
+
+def _report_mtrn(th, opts=None, **_):
+    """The estimated Matern parameters only, in the canonical order MTRN_PARAMS."""
+    o = opts or {}
+    out, k = {}, 0
+    for p in MTRN_PARAMS:
+        if float(o.get("est_" + p, 1.0 if p == "phi" else 0.0)) > 0.5:
+            out[p] = [float(th[k]) if p == "alpha" else float(np.exp(th[k]))]
+            k += 1
+    return out
+
+
+def _report_tanh1(th, **_):
+    return {"phi": [float(np.tanh(th[0]))]}
+
+
+def _report_tanh2(th, **_):
+    return {"phi": [float(np.tanh(v)) for v in th[:2]]}
+
+
+def _report_metric1(th, **_):
+    return {"phi": [_abs_tanh(th, 0)], "sign_not_identified": [1.0]}
+
+
+def _report_metric2(th, **_):
+    return {"phi": [_abs_tanh(th, 0), _abs_tanh(th, 1)], "sign_not_identified": [1.0]}
+
+
+_LEVEL_REPORTS = {
+    "ar1ar1": lambda th, **_: {"phi": [float(np.tanh(th[0])), float(np.tanh(th[1]))]},
+    "cor": _report_cor,
+    "ar1": _report_tanh1, "sar": _report_tanh1, "ma1": _report_tanh1,
+    "exp": _report_metric1, "gau": _report_metric1,
+    "iexp": _report_metric1, "igau": _report_metric1, "ieuc": _report_metric1,
+    "aexp": _report_metric2, "agau": _report_metric2,
+    "ar2": lambda th, **_: _report_arp(th, 2),
+    "ar3": lambda th, **_: _report_arp(th, 3),
+    "ma2": _report_tanh2, "arma": _report_tanh2,
+    "sph": lambda th, **_: {"range": [float(np.exp(th[0]))]},
+    "cir": lambda th, **_: {"range": [float(np.exp(th[0]))]},
+    "lvr": lambda th, **_: {"range": [float(np.exp(th[0]))]},
+    "mtrn": _report_mtrn,
+    "own": lambda th, **_: {"own": [float(v) for v in th]},
+    "corg": lambda th, **_: {},
+    "corb": lambda th, order=0, **_: {"phi": [float(np.tanh(v)) for v in th[:int(order)]]},
+}
