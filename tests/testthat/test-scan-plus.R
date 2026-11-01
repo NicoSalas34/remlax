@@ -96,3 +96,26 @@ test_that("rx_scan_exact : effet et erreur-type egaux a un ajustement direct", {
                  tolerance = 1e-6, info = loco)
   }
 })
+
+test_that("rx_scan_exact(batch = ) : memes tests que les reajustements un par un", {
+  skip_si_pas_de_jax()
+  j <- .jeu_loco()
+  fa <- list(backend = "cpu", hessian = FALSE)
+  K <- j$K_of(j$M)
+  f0 <- do.call(rx_fit, c(list(j$build(K), verbose = FALSE), fa))
+  sc <- rx_scan(f0, j$build(K), j$M, map = j$map, incidences = c(dir = "gen"),
+                tests = "dir", maf = NULL, backend = "cpu", verbose = FALSE)
+  for (loco in c(FALSE, TRUE)) {
+    un <- rx_scan_exact(sc, "dir", j$build, j$K_of, j$M, j$map, c(dir = "gen"),
+                        top = 5, loco = loco, fit_args = fa, verbose = FALSE)
+    lot <- rx_scan_exact(sc, "dir", j$build, j$K_of, j$M, j$map, c(dir = "gen"),
+                         top = 5, loco = loco, batch = 2L, backend = "cpu", verbose = FALSE)
+    expect_identical(lot$snp, un$snp, info = loco)
+    expect_true(all(lot$converged), info = loco)
+    # le lot part du modele nul et va au moins aussi loin que rx_fit
+    expect_true(all(lot$logLik >= un$logLik - 1e-6), info = loco)
+    expect_equal(lot$chi2_exact, un$chi2_exact, tolerance = 1e-5, info = loco)
+    expect_equal(lot$beta_dir, un$beta_dir, tolerance = 1e-5, info = loco)
+    expect_equal(lot$se_dir, un$se_dir, tolerance = 1e-5, info = loco)
+  }
+})

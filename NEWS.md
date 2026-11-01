@@ -14,6 +14,16 @@
 * `rx_scan()` accepts a matrix of neighbour weights for the `ind`/`sim`
   family when the null model has no neighbour term.
 
+* `rx_scan_exact(batch = )`: the exact refits of the top SNPs run together
+  on the device (refit_batch.py), `batch` SNPs per call, one null model per
+  chromosome. Each refit is REML with the SNP columns appended to X; the
+  likelihood depends on X only through its orthonormal basis, so one traced
+  function serves every SNP and `jax.vmap` runs a batch at once. Newton
+  steps with the exact Hessian, made positive definite, inside the box
+  bounds of `rx_fit()`. Same Wald test as the one-by-one path (tests
+  against `fit_reml` SNP by SNP, univariate, multi-trait `@het` and
+  conditional tests). Dense engine only, no prior weights, no spatial lag.
+
 * `rx_scan()` on a GPU: the `sim` family (the only step in dimension n,
   one n x n product per SNP) now runs on the device. Before, `backend =
   "gpu"` placed only the null fit on the GPU, and the `sim` products stayed

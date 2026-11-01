@@ -10,7 +10,7 @@ rx_scan_loco(build, K_of, markers, map, incidences,
              fit_args = list(), theta_init = NULL, verbose = TRUE, ...)
 rx_scan_exact(res, test, build, K_of, markers, map, incidences,
               top = 10L, loco = TRUE, fit_args = list(), theta_init = NULL,
-              verbose = TRUE, ...)
+              verbose = TRUE, batch = NULL, backend = c("auto", "gpu", "cpu"), ...)
 }
 \arguments{
 \item{build}{function \verb{(K, X_sup = NULL)} returning an \link{rx_model}.}
@@ -32,6 +32,15 @@ genetic term. Doses must be centred when the \code{ind} family is tested.}
 the genome-wide null.}
 
 \item{verbose}{print one line per chromosome or per refitted SNP.}
+
+\item{batch}{\code{NULL} (default) refits the SNPs one by one with \code{\link[=rx_fit]{rx_fit()}}.
+An integer refits them together on the device, \code{batch} SNPs per call
+(refit_batch.py): one null model per chromosome, then Newton steps with
+the exact Hessian, vectorised over SNPs. Dense engine only, no prior
+weights, no spatial lag; \code{fit_args} is not used. Memory grows as
+\verb{batch x n^2 x length(theta)}: 64 fits an A100 for n of a few thousand.}
+
+\item{backend}{device of the batched refits: \code{"auto"}, \code{"gpu"} or \code{"cpu"}.}
 
 \item{...}{further arguments passed to \code{\link[=rx_scan]{rx_scan()}}, and the former argument
 names (\code{construire}, \code{K_de}, \code{marqueurs}, \code{carte}, \code{codage}), still

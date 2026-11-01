@@ -83,5 +83,11 @@ test_that("rx_scan on a multi-trait model matches a dense GLS at fixed V", {
     expect_equal(ex$chi2_exact, drop(t(Lb) %*% solve(L %*% Vb %*% t(L), Lb)), tolerance = 1e-6)
     expect_equal(ex$df, nrow(L))
     expect_equal(ex$p_fixed_V, res[[paste0("p_", tst)]][j])
+    # batched refit on the device: same Wald test
+    eb <- rx_scan_exact(res, tst, build, function(Mx) K, M, map, c(dir = "g", ind = "nb"),
+                        top = 1L, loco = FALSE, verbose = FALSE, batch = 2L, backend = "cpu")
+    expect_true(eb$converged)
+    expect_gte(eb$logLik, fh$logLik - 1e-6)
+    expect_equal(eb$chi2_exact, ex$chi2_exact, tolerance = 1e-5)
   }
 })

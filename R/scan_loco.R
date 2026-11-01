@@ -59,7 +59,8 @@ rx_scan_loco <- function(build, K_of, markers, map, incidences,
 
 rx_scan_exact <- function(res, test, build, K_of, markers, map, incidences,
                           top = 10L, loco = TRUE, fit_args = list(), theta_init = NULL,
-                          verbose = TRUE, ...) {
+                          verbose = TRUE, batch = NULL, backend = c("auto", "gpu", "cpu"),
+                          ...) {
   .rx_renamed_args(environment(), list(...),
                    c(construire = "build", K_de = "K_of", marqueurs = "markers", carte = "map"),
                    "rx_scan_exact")
@@ -79,6 +80,13 @@ rx_scan_exact <- function(res, test, build, K_of, markers, map, incidences,
     if (is.null(K_cache[[cc]]))
       K_cache[[cc]] <- K_of(markers[, as.character(map$chr) != cc, drop = FALSE])
     K_cache[[cc]]
+  }
+  if (!is.null(batch)) {
+    out <- .rx_scan_exact_batch(res, col, ord, build, K_for, K_all, loco, Zf, des, trait_codes,
+                                markers, map, theta_init, as.integer(batch),
+                                match.arg(backend), verbose)
+    attr(out, "test") <- test
+    return(out)
   }
   rows <- lapply(ord, function(i) {
     j <- .rx_scan_marker_index(res$snp[i], map, markers)
@@ -212,12 +220,7 @@ rx_scan_exact <- function(res, test, build, K_of, markers, map, incidences,
 # re-estimated variance components, the tested estimates and their standard
 # errors, and the log-likelihood and convergence of the refit.
 .rx_refit_snp <- function(build, K, Zf, des, trait_codes, doses, fit_args, theta_init) {
-  sf <- list()
-  for (f in names(Zf)) sf[[f]] <- as.numeric(Zf[[f]] %*% doses)
-  if (any(vapply(des$cols, `[[`, "", "fam") == "sim")) sf$sim <- sf$dir * sf$ind
-  S <- do.call(cbind, lapply(des$cols, function(cl)
-    if (cl$k == 0L) sf[[cl$fam]] else sf[[cl$fam]] * (trait_codes == cl$k)))
-  colnames(S) <- paste0("snp_", vapply(des$cols, function(cl) paste0(cl$fam, "_", cl$k), ""))
+  S <- .rx_snp_columns(Zf, des, trait_codes, doses)
   t0 <- Sys.time()
   f <- do.call(rx_fit, c(list(build(K, X_sup = S), theta_init = theta_init, verbose = FALSE),
                          fit_args))
@@ -237,6 +240,84 @@ rx_scan_exact <- function(res, test, build, K_of, markers, map, incidences,
     out[[paste0("se_", des$labels[a])]] <- sqrt(LVL[a, a])
   }
   out
+}
+
+# Columns of one SNP in the refit model: per-trait columns D_k s_f, or the
+# common column s_f, with s_sim = s_dir * s_ind.
+.rx_snp_columns <- function(Zf, des, trait_codes, doses) {
+  sf <- list()
+  for (f in names(Zf)) sf[[f]] <- as.numeric(Zf[[f]] %*% doses)
+  if (any(vapply(des$cols, `[[`, "", "fam") == "sim")) sf$sim <- sf$dir * sf$ind
+  S <- do.call(cbind, lapply(des$cols, function(cl)
+    if (cl$k == 0L) sf[[cl$fam]] else sf[[cl$fam]] * (trait_codes == cl$k)))
+  colnames(S) <- paste0("snp_", vapply(des$cols, function(cl) paste0(cl$fam, "_", cl$k), ""))
+  S
+}
+
+# Batched refits (refit_batch.py): the top SNPs grouped by the kinship they
+# use (one group per chromosome with LOCO), one null model and one solver
+# call per group, the SNPs of a group refitted together on the device.
+.rx_scan_exact_batch <- function(res, col, ord, build, K_for, K_all, loco, Zf, des,
+                                 trait_codes, markers, map, theta_init, batch, backend,
+                                 verbose) {
+  j_of <- vapply(res$snp[ord], .rx_scan_marker_index, 0L, map = map, markers = markers)
+  grp <- if (loco) as.character(map$chr[j_of]) else rep("all", length(ord))
+  rows <- vector("list", length(ord))
+  for (g in unique(grp)) {
+    sel <- which(grp == g)
+    K <- if (loco) K_for(g) else K_all
+    S <- lapply(j_of[sel], function(j) .rx_snp_columns(Zf, des, trait_codes, markers[, j]))
+    t0 <- Sys.time()
+    r <- .rx_refit_batch_call(build(K), S, des$L, theta_init, batch, backend, verbose)
+    secs <- as.numeric(difftime(Sys.time(), t0, units = "secs")) / length(sel)
+    for (a in seq_along(sel)) {
+      i <- ord[sel[a]]; j <- j_of[sel[a]]
+      out <- data.frame(snp = res$snp[i], chr = map$chr[j],
+                        pos = if (!is.null(map$pos)) map$pos[j] else NA,
+                        p_fixed_V = res[[col]][i], chi2_exact = r$chi2_exact[a], df = r$df[a],
+                        p_exact = r$p_exact[a], logLik = r$logLik[a],
+                        converged = r$converged[a] == 1, seconds = secs, check.names = FALSE)
+      for (b in seq_along(des$labels)) {
+        out[[paste0("beta_", des$labels[b])]] <- r[[paste0("Lb_", b)]][a]
+        out[[paste0("se_", des$labels[b])]] <- r[[paste0("se_", b)]][a]
+      }
+      rows[[sel[a]]] <- out
+      if (verbose) message(sprintf("  rx_scan_exact: %s  p fixed V %.2e  p exact %.2e",
+                                   res$snp[i], out$p_fixed_V, out$p_exact))
+    }
+  }
+  out <- do.call(rbind, rows); rownames(out) <- NULL
+  out
+}
+
+# One call of refit_batch_cli on the null model `model` and the SNP columns S
+# (a list of n x k matrices). Returns the results table, one row per SNP.
+.rx_refit_batch_call <- function(model, S, L, theta_init, batch, backend, verbose) {
+  dir <- tempfile("rx_refit_")
+  on.exit(unlink(dir, recursive = TRUE), add = TRUE)
+  dir.create(dir, recursive = TRUE)
+  dir <- normalizePath(dir, mustWork = TRUE)
+  rx_export(model, dir)
+  k <- ncol(S[[1]]); n <- nrow(S[[1]])
+  .rx_write_f64(file.path(dir, "refit_S.bin"), unlist(lapply(S, as.numeric)))
+  .rx_write_f64(file.path(dir, "refit_L.bin"), as.numeric(L))
+  if (!is.null(theta_init)) .rx_write_f64(file.path(dir, "in_theta.bin"), theta_init)
+  writeLines(jsonlite::toJSON(list(n = n, k = k, n_snp = length(S), r = nrow(L)),
+                              auto_unbox = TRUE), file.path(dir, "refit_meta.json"))
+  py <- rx_python_cmd()
+  .rx_python_require(py)
+  args <- c(shQuote(c(.rx_launcher(), "refit_batch_cli")), shQuote(dir),
+            "--backend", backend, "--batch", as.character(batch))
+  if (!verbose) args <- c(args, "--quiet")
+  code <- .rx_system2(py, args, stdout = "", stderr = "", env = character(0))
+  if (!identical(as.integer(code), 0L))
+    stop("rx_scan_exact: the batched refit returned the code ", code, call. = FALSE)
+  utils::read.csv(file.path(dir, "refit_results.csv"), stringsAsFactors = FALSE)
+}
+
+.rx_write_f64 <- function(path, x) {
+  con <- file(path, "wb"); on.exit(close(con))
+  writeBin(as.double(x), con, size = 8)
 }
 
 # Did a fit converge (relative gradient or Newton decrement criterion)?

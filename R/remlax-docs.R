@@ -1299,6 +1299,13 @@ NULL
 #' @param theta_init starting values of the refits, for instance the `theta` of
 #'   the genome-wide null.
 #' @param verbose print one line per chromosome or per refitted SNP.
+#' @param batch `NULL` (default) refits the SNPs one by one with [rx_fit()].
+#'   An integer refits them together on the device, `batch` SNPs per call
+#'   (refit_batch.py): one null model per chromosome, then Newton steps with
+#'   the exact Hessian, vectorised over SNPs. Dense engine only, no prior
+#'   weights, no spatial lag; `fit_args` is not used. Memory grows as
+#'   `batch x n^2 x length(theta)`: 64 fits an A100 for n of a few thousand.
+#' @param backend device of the batched refits: `"auto"`, `"gpu"` or `"cpu"`.
 #' @param ... further arguments passed to [rx_scan()], and the former argument
 #'   names (`construire`, `K_de`, `marqueurs`, `carte`, `codage`), still
 #'   accepted with a deprecation warning.
@@ -1338,7 +1345,7 @@ NULL
 #'              fit_args = list(), theta_init = NULL, verbose = TRUE, ...)
 #' rx_scan_exact(res, test, build, K_of, markers, map, incidences,
 #'               top = 10L, loco = TRUE, fit_args = list(), theta_init = NULL,
-#'               verbose = TRUE, ...)
+#'               verbose = TRUE, batch = NULL, backend = c("auto", "gpu", "cpu"), ...)
 #' @section Experimental:
 #' The leave-one-chromosome-out scan and the exact refit is experimental: it has been used on few data sets so far, and its
 #' interface may change in a future version without a deprecation period.
