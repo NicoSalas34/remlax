@@ -220,6 +220,12 @@ class _Finish:
             self.accept(th_new, f_new, g_new, s, gain, rho)
         else:
             self.poor += 1
+            # A step refused while the model itself predicts less than
+            # tol_gain has nothing left to find. It counts as a small gain,
+            # otherwise a step that lands on the optimum with a large gain
+            # leaves small at 0 and the finish cycles until maxit.
+            if pred < self.tol_gain:
+                self.small += 1
         return gain, rho
 
     def update_radius(self, rho, s, dL):

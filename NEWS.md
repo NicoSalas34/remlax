@@ -14,6 +14,14 @@
 * `rx_scan()` accepts a matrix of neighbour weights for the `ind`/`sim`
   family when the null model has no neighbour term.
 
+* `finish = "trust"`: the trust-region Newton finish now stops when a step
+  lands on the optimum while its gain is still large. The following steps
+  gained nothing, so the small-gain counter stayed at 0 and the finish
+  cycled until maxit, recomputing the Hessian every two steps (301
+  evaluations and 150 Hessians on a two-parameter flat valley, against 4 and
+  2 now). A refused step whose predicted gain is below `tol_gain` now counts
+  as a small gain. The default finish (`"newton"`) is unchanged.
+
 * The likelihood is computed on y centred on the span of X, in every engine
   (dense, low-memory, blocks, AI, mixed model equations; with a spatial lag,
   y* is centred after its transform for the REML criteria). REML is

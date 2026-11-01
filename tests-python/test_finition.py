@@ -42,6 +42,27 @@ def test_finir_direction_plate_et_plancher():
     assert fj(x)[0] - (1e-6 * 0 + np.exp(-24)) < 1e-5  # gain restant negligeable
 
 
+def test_finir_s_arrete_quand_un_pas_atteint_l_optimum_exactement():
+    """f = (x0 + x1 - 1)^2, hessien par differences finies comme dans le
+    moteur : un pas tombe sur la vallee d'optimums avec un gain encore grand,
+    puis les pas suivants ne gagnent plus rien (gain nul ou de l'ordre de
+    l'arrondi). La finition doit conclure sur le decrement, sans tourner
+    jusqu'a maxit en recalculant le hessien tous les deux pas."""
+    def fj(x):
+        r = x[0] + x[1] - 1
+        return r ** 2, np.array([2 * r, 2 * r])
+
+    def hess(x, eps=1e-5):
+        H = np.column_stack([(fj(x + e)[1] - fj(x - e)[1]) / (2 * eps) for e in eps * np.eye(2)])
+        return 0.5 * (H + H.T)
+    lo, hi = np.full(2, -50.0), np.full(2, 50.0)
+    x, info = finish(fj, np.array([3.0, -4.0]), lo, hi, hess, verbose=False)
+    assert info["success"], info["message"]
+    assert info["message"].startswith("finish: decrement")
+    assert info["n_eval"] < 10 and info["n_hessians"] <= 3
+    assert abs(x[0] + x[1] - 1) < 1e-12
+
+
 def test_decrement():
     H = np.diag([2.0, 1e-20])
     # direction plate sans pente : negligee
