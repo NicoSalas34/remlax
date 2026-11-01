@@ -24,7 +24,7 @@ def _parse_args(argv):
     ap = argparse.ArgumentParser(prog="refit_batch_cli")
     ap.add_argument("bundle")
     ap.add_argument("--backend", default="auto", choices=["auto", "gpu", "cpu"])
-    ap.add_argument("--batch", type=int, default=64)
+    ap.add_argument("--batch", type=int, default=0, help="0: from the device memory")
     ap.add_argument("--maxit", type=int, default=50)
     ap.add_argument("--tol", type=float, default=1e-9)
     ap.add_argument("--quiet", action="store_true")
@@ -89,11 +89,13 @@ def main(argv=None):
         th0 = fit_reml(terms, res, y, X, verbose=False, hessian=False, blups=False)["theta"]
     bornes, th0 = _bounds(th0, len(th0), -12.0, 12.0, terms, res, y, None)
     lo = np.array([x[0] for x in bornes]); hi = np.array([x[1] for x in bornes])
+    from remlax.refit_batch import auto_batch
+    batch = a.batch or auto_batch(S.shape[1])
     if not a.quiet:
         print("[refit] %s (%s) | %d SNP, n = %d, %d parameter(s), batch %d"
-              % (plat, dev, S.shape[0], S.shape[1], len(th0), a.batch), flush=True)
+              % (plat, dev, S.shape[0], S.shape[1], len(th0), batch), flush=True)
     r = refit_batch(terms, res, y, X, S, L, th0, lo, hi, maxit=a.maxit, tol=a.tol,
-                    batch=a.batch, verbose=not a.quiet)
+                    batch=batch, verbose=not a.quiet)
     _write(os.path.join(a.bundle, "refit_results.csv"), r, L)
     if not a.quiet:
         print("[refit] %d of %d converged in %.1f s"

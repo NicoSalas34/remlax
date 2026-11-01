@@ -1300,11 +1300,11 @@ NULL
 #'   the genome-wide null.
 #' @param verbose print one line per chromosome or per refitted SNP.
 #' @param batch `NULL` (default) refits the SNPs one by one with [rx_fit()].
-#'   An integer refits them together on the device, `batch` SNPs per call
-#'   (refit_batch.py): one null model per chromosome, then Newton steps with
+#'   An integer refits them together on the device, `batch` SNPs per call,
+#'   or as many as fit in the device memory with `0` (refit_batch.py): one null model per chromosome, then Newton steps with
 #'   the exact Hessian, vectorised over SNPs. Dense engine only, no prior
 #'   weights, no spatial lag; `fit_args` is not used. Memory grows as
-#'   `batch x n^2 x length(theta)`: 64 fits an A100 for n of a few thousand.
+#'   `batch x n^2` (about 0.7 GB per SNP at n = 1900).
 #' @param backend device of the batched refits: `"auto"`, `"gpu"` or `"cpu"`.
 #' @param ... further arguments passed to [rx_scan()], and the former argument
 #'   names (`construire`, `K_de`, `marqueurs`, `carte`, `codage`), still

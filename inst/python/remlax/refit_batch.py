@@ -10,7 +10,10 @@ depends on X_s through its orthonormal basis Q_s and the constant
 the device.
 
 Optimiser, per SNP. Newton with the exact Hessian (theta is short, so
-jax.hessian is cheap next to the n^3 of a Cholesky). The Hessian restricted
+its len(theta) Hessian-vector products are cheap next to the n^3 of a
+Cholesky). The directions of the Hessian and the step lengths are
+evaluated one after the other (lax.map) while the SNPs stay vectorised, so
+memory holds one set of n x n matrices per SNP. The Hessian restricted
 to the free parameters is made positive definite by its absolute
 eigenvalues; the step norm is capped at max_step; the best of the step
 lengths 1, 1/2, ..., 1/32 and 0 is kept, within the box bounds of fit_reml.
@@ -66,8 +69,15 @@ def _qr_batch(X, S):
 def _newton_step(f, lo, hi, max_step, tol):
     """One Newton step for one SNP, to be vmapped. Returns (theta, f, decrement)."""
     vg = jax.value_and_grad(f)
-    hess = jax.hessian(f)
+    grad = jax.grad(f)
     steps = jnp.asarray(STEPS)
+
+    def hess(theta, Q, ldR, Zr):
+        # One direction at a time (lax.map): under vmap over SNPs, only one
+        # forward-over-reverse pass per SNP is alive, not len(theta) of them.
+        def col(e):
+            return jax.jvp(lambda t: grad(t, Q, ldR, Zr), (theta,), (e,))[1]
+        return jax.lax.map(col, jnp.eye(theta.shape[0], dtype=theta.dtype))
 
     def step(theta, Q, ldR, Zr, done):
         f0, g = vg(theta, Q, ldR, Zr)
@@ -84,7 +94,7 @@ def _newton_step(f, lo, hi, max_step, tol):
         nd = jnp.linalg.norm(d)
         d = d * jnp.minimum(1.0, max_step / jnp.maximum(nd, 1e-300))
         cand = jnp.clip(theta[None, :] + steps[:, None] * d[None, :], lo, hi)
-        fc = jax.vmap(lambda t: f(t, Q, ldR, Zr))(cand)
+        fc = jax.lax.map(lambda t: f(t, Q, ldR, Zr), cand)    # one step length at a time
         fc = jnp.where(jnp.isfinite(fc), fc, jnp.inf)
         j = jnp.argmin(fc)
         better = fc[j] < f0
@@ -115,14 +125,31 @@ def _wald(V_of, Zr, theta, Qn, R, y, k, L):
     return b, Vb, Lb, jnp.sqrt(jnp.diag(LVL)), chi2
 
 
+# Peak memory of one SNP in a batch, in n x n float64 matrices (measured on
+# an A100: batch 64 fits at n = 1900, batch 128 does not).
+MATRICES_PER_SNP = 24
+
+
+def auto_batch(n, fraction=0.7):
+    """SNPs per device call that fit in `fraction` of the device memory."""
+    import jax
+    per_snp = MATRICES_PER_SNP * 8.0 * n * n
+    try:
+        limit = jax.devices()[0].memory_stats()["bytes_limit"]
+    except Exception:                       # CPU devices do not report a limit
+        limit = 16e9
+    return int(max(1, min(256, fraction * limit // per_snp)))
+
+
 def refit_batch(terms, res, y, X, S, L, theta0, lo, hi, maxit=50, tol=1e-9,
-                max_step=1.0, batch=64, verbose=False):
+                max_step=1.0, batch=None, verbose=False):
     """REML refits with the SNP columns S[s] (n x k) appended to X, for every s.
 
     S     : array (n_snp, n, k), the columns of each SNP (raw scale).
     L     : (r, k) tested hypothesis L b = 0 on the SNP coefficients.
     theta0: start (the null fit); lo, hi: box bounds of theta (fit._bounds).
-    batch : SNPs per device call; memory grows as batch x n^2 x len(theta).
+    batch : SNPs per device call, None for auto_batch(n). Memory grows as
+            batch x n^2: about 0.7 GB per SNP at n = 1900.
     Returns a dict of arrays with one row per SNP."""
     y = np.asarray(y, dtype=np.float64)
     X = np.atleast_2d(np.asarray(X, dtype=np.float64))
@@ -132,6 +159,7 @@ def refit_batch(terms, res, y, X, S, L, theta0, lo, hi, maxit=50, tol=1e-9,
     L = np.atleast_2d(np.asarray(L, dtype=np.float64))
     n_snp, n, k = S.shape
     f, Zr, V_of = make_batch_neg2(terms, res, y)
+    batch = auto_batch(n) if not batch else int(batch)
     lo_j, hi_j = jnp.asarray(lo, dtype=jnp.float64), jnp.asarray(hi, dtype=jnp.float64)
     step = jax.jit(jax.vmap(_newton_step(f, lo_j, hi_j, max_step, tol),
                             in_axes=(0, 0, 0, None, 0)))

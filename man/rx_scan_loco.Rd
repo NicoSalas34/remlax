@@ -34,11 +34,11 @@ the genome-wide null.}
 \item{verbose}{print one line per chromosome or per refitted SNP.}
 
 \item{batch}{\code{NULL} (default) refits the SNPs one by one with \code{\link[=rx_fit]{rx_fit()}}.
-An integer refits them together on the device, \code{batch} SNPs per call
-(refit_batch.py): one null model per chromosome, then Newton steps with
+An integer refits them together on the device, \code{batch} SNPs per call,
+or as many as fit in the device memory with \code{0} (refit_batch.py): one null model per chromosome, then Newton steps with
 the exact Hessian, vectorised over SNPs. Dense engine only, no prior
 weights, no spatial lag; \code{fit_args} is not used. Memory grows as
-\verb{batch x n^2 x length(theta)}: 64 fits an A100 for n of a few thousand.}
+\verb{batch x n^2} (about 0.7 GB per SNP at n = 1900).}
 
 \item{backend}{device of the batched refits: \code{"auto"}, \code{"gpu"} or \code{"cpu"}.}
 
