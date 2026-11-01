@@ -14,6 +14,21 @@
 * `rx_scan()` accepts a matrix of neighbour weights for the `ind`/`sim`
   family when the null model has no neighbour term.
 
+* Co-GWAS, `rx_cogwas()`: every focal locus crossed with every neighbour
+  locus, the neighbours possibly of another species with their own
+  markers. The covariate of a pair is the focal dose at locus a times the
+  neighbour dose at locus b; with the same locus and species it is the
+  `sim` covariate. Tests `"pair"`, `"pair|dir"`, `"pair|ind"`,
+  `"pair|dir+ind"` at fixed V. Every term is computed exactly in genotype
+  space (q_ind^2 per pair instead of n^2), as large matrix products on the
+  device. Returns the top pairs per test, the smallest p-value per locus
+  and the genomic control lambda over all pairs. On an A100, for 1 900
+  plants, 181 focal lines and 106 neighbour families: 0.022 s per 10^6
+  pairs (two tests), so 8.3e9 pairs in about 3 minutes; 13 times faster
+  than 16 CPU cores.
+* `rx_ld_prune()`: greedy LD pruning by r^2 within a window of SNPs, per
+  chromosome, to reduce the number of pairs before a co-GWAS.
+
 * `rx_scan_exact(batch = )`: the exact refits of the top SNPs run together
   on the device (refit_batch.py), `batch` SNPs per call, one null model per
   chromosome. Each refit is REML with the SNP columns appended to X; the
