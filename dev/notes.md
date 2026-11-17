@@ -356,7 +356,7 @@ package (`.Rbuildignore`).
 - Compiled Sigma functions cached by structure: 0.7 s per fit saved in the
   server on a two-term iid model.
 
-### Python safety net (remlax-validation/refacto/golden_py.py)
+### Python safety net (remlax-validation/correctness/golden/golden_py.py)
 
 - Engine values at fixed theta (dense, low-memory, blocks, the three MME
   inversions), MME outputs and whole AI fits, compared to the bit.

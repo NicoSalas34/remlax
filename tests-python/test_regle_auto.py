@@ -1,13 +1,13 @@
 """Automatic choice of engine and optimiser (engine = "auto", optimizer = "auto").
 
-The rule follows the absolute benchmark of remlax-validation (banc_kmmr/absolu,
+The rule follows the absolute benchmark of remlax-validation (speed/absolute,
 fig_rule): one evaluation of the dense MME costs less than one of the V form
 while dim(C) / n stays at or below 4, on 8 CPU cores as on an A100. Above, the
 V form is cheaper (16 000 genotypes predicted from 1 000 plants: 128 s in MME
 against 15 s in V on CPU). AI-REML is chosen on both engines: on the same
 benchmark the V form with AI beat L-BFGS-B on every case but one, and
 L-BFGS-B declared convergence 2.3e-3 below the optimum on a us(8) of nearly
-rank 2 (verif_simulations, boundary_us8_near_rank2).
+rank 2 (correctness/simulations, boundary_us8_near_rank2).
 """
 import numpy as np
 

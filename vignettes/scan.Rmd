@@ -354,7 +354,7 @@ tetes <- rx_scan_exact(loco, "ind", build, K_of, M, map, incid, top = 8,
                        fit_args = list(backend = "cpu"))
 ```
 
-The example of `demo/test_gwas_dge_ige.R` (remlax-validation) has 300
+The example of `studies/demos/gwas_dge_ige.R` (remlax-validation) has 300
 genotypes with 4 replicates, 5 chromosomes of 500 SNPs with linkage
 disequilibrium and two subpopulations. Polygenic DGE and IGE are correlated,
 with one causal SNP of direct effect on chromosome 2 and one of indirect effect

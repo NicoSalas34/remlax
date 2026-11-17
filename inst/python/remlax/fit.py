@@ -80,7 +80,7 @@ def fit_reml(terms, res, y, X, *args, weights=None, **kwargs):
 
 # Largest number of random-effect levels per observation for which the
 # automatic choice takes the MME engine. On the absolute benchmark of
-# remlax-validation (banc_kmmr/absolu, fig_rule), one evaluation of the dense
+# remlax-validation (speed/absolute, figures/fig_rule), one evaluation of the dense
 # MME costs less than one of the V form up to dim(C) / n = 4, on 8 CPU cores
 # as on an A100; above, the V form is cheaper (dim(C) / n = 16: 128 s against
 # 15 s on CPU).

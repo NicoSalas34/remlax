@@ -7,7 +7,7 @@ jax.default_device, une fois par peripherique, sur STRICTEMENT les memes
 tableaux d'entree.
 
 Le script tests-python/parite_gpu.py fait la meme chose sur les 34 paquets
-serialises du catalogue (validation/results, cpu_gpu_parity) ; ce test est la
+serialises du catalogue (correctness/reference_software, cpu_gpu_parity) ; ce test est la
 version courte, collectable par pytest.
 """
 import numpy as np

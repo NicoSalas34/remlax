@@ -170,7 +170,7 @@ remlax's value and never passes it.
 ## Engines and optimisers checked by simulation
 
 The mixed model equations engine and the average information optimiser are
-checked by a separate simulation suite, `verif_simulations` in
+checked by a separate simulation suite, `correctness/simulations` in
 [remlax-validation](https://github.com/NicoSalas34/remlax-validation). It
 covers 37 model types, from one random factor to multi-trait `fa` models,
 separable residual fields, pedigrees and direct and indirect genetic effects.

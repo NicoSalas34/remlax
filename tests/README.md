@@ -1,5 +1,9 @@
 # Test matrix: feature -> test
 
+Paths under `remlax-validation` are those of its layout before 2026-11-17.
+`docs/history.md` in remlax-validation maps them to the current folders
+(for instance `tests/R/` is now `correctness/reference_software/suites/`).
+
 One line per feature of remlax. `existing` names the tests that covered the feature before 2026-09-27 (pytest suites, R scripts under `remlax-validation: tests/R/`, the testthat suite of `./`, and the recorded catalogue `validation/results/checks_2026-09-01.csv`). `new` names the tests added on 2026-09-27. R scripts under `remlax-validation: tests/R/` are not run by CI: several need asreml or a cluster, so they count as existing coverage with that caveat.
 
 Status: `covered (existing)`, `covered (new)`, `covered (existing + new)`, `not covered`.

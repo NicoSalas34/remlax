@@ -37,7 +37,7 @@ def test_a_converged_ai_fit_meets_the_gradient_criterion(engine, seed):
 def _plan_weak(seed):
     """A well identified factor and a weak one (variance 0.01, standard error
     about twice as large), as sigma2 D in the A+D+AA pig model of
-    remlax-validation/published_data, where AI stopped 1.2e-3 away from asreml
+    remlax-validation/correctness/published_data, where AI stopped 1.2e-3 away from asreml
     and gaston with a decrement threshold of 1e-6."""
     rng = np.random.default_rng(seed)
     q, rep, qw = 40, 3, 60

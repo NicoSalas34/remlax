@@ -120,4 +120,4 @@ and `fit.py` falls back to the dense engine.
   solver to one CPU core; XLA on CPU is not deterministic across runs
   otherwise.
 - remlax-validation holds the campaigns against asreml, lme4, sommer, nlme and
-  pbkrtest, and the simulation checks (`verif_simulations`).
+  pbkrtest, and the simulation checks (`correctness/simulations`).
