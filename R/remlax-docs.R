@@ -27,7 +27,7 @@
 #' interface and the solver always come from the same version.
 #'
 #' @section Engines:
-#' `rx_fit(engine = "dense")`, the default, forms the marginal covariance `V`
+#' `rx_fit(engine = "dense")` forms the marginal covariance `V`
 #' (`n x n`) and differentiates the likelihood with JAX, on CPU or GPU; it
 #' covers every structure of the package. `rx_fit(engine = "mme")`, also
 #' reached by [rx_fit_mme()], works on Henderson's mixed model equations, with
@@ -36,14 +36,17 @@
 #' back to the dense engine. `rx_fit(engine = "blocks")` writes `V` as a block
 #' diagonal matrix plus a low-rank part and processes the blocks in batches.
 #' All engines take the same [rx_model] object and maximise the same
-#' likelihood.
+#' likelihood. The default, `engine = "auto"`, takes the mixed model equations
+#' when the model is in their scope with at most 4 random-effect levels per
+#' observation, and the dense engine otherwise.
 #'
 #' @section Two optimisers:
-#' `optimizer = "lbfgsb"` (default) runs L-BFGS-B on the unconstrained
+#' `optimizer = "lbfgsb"` runs L-BFGS-B on the unconstrained
 #' parameters `theta`, then regularised Newton polishing. `optimizer = "ai"`
 #' runs average information REML with steps taken on the variance scale, as in
 #' ASReml; it hands over to L-BFGS-B when it cannot certify its optimum. Both
-#' report the same convergence diagnostics.
+#' report the same convergence diagnostics. The default, `optimizer = "auto"`,
+#' takes AI-REML, and L-BFGS-B with a spatial lag or the blocks engine.
 #'
 #' @section Finding Python:
 #' [rx_python_cmd()] returns the interpreter: `RX_PY`, then `IGE_JAX_CMD`, then
@@ -207,8 +210,9 @@ NULL
 #' @param verbose pass the solver's output through: one line per optimiser
 #'   iteration and one per Newton polishing step.
 #' @param keep keep `dir` after the fit.
-#' @param optimizer `"lbfgsb"` (default), `"ai"` or `"auto"`
-#'   (`"ai"` with the mixed model equations engine, `"lbfgsb"` otherwise). `"ai"` is
+#' @param optimizer `"auto"` (default), `"ai"` or `"lbfgsb"`. `"auto"` takes
+#'   `"ai"`, except with a spatial lag or the blocks engine, which take
+#'   `"lbfgsb"`. `"ai"` is
 #'   AI-REML with steps taken on the variance scale (the entries of each
 #'   `Sigma`), as in ASReml. A `us` block whose optimum is rank deficient is
 #'   handled by an active set on the positive semidefinite cone. When halving
@@ -218,11 +222,14 @@ NULL
 #'   hands over to L-BFGS-B. The default can be set with
 #'   `options(remlax.optimizer = )` or the environment variable
 #'   `RX_OPTIMIZER`.
-#' @param engine `"dense"` (default), `"mme"`, `"blocks"` or `"auto"`. `"auto"`
-#'   takes the mixed model equations engine when the model is in its scope, else
-#'   the dense engine (in low memory mode above n = 5000); with
-#'   `optimizer = "auto"` it is the fastest combination on the benchmarks against
-#'   kmmr and ASReml-R. `"dense"`, `"mme"` and `"blocks"` select the marginal
+#' @param engine `"auto"` (default), `"dense"`, `"mme"` or `"blocks"`. `"auto"`
+#'   takes the mixed model equations engine when the model is in its scope and
+#'   has at most 4 random-effect levels per observation, else the dense engine
+#'   (in low memory mode above n = 5000). On the benchmark of remlax-validation,
+#'   one evaluation of the mixed model equations costs less than one of `V` up
+#'   to 4 levels per observation, on CPU as on GPU, and more above. With
+#'   `optimizer = "auto"` it was the fastest combination on the benchmarks
+#'   against kmmr and ASReml-R. `"dense"`, `"mme"` and `"blocks"` select the marginal
 #'   covariance `V`, the mixed model equations `C`, or `V` processed block by
 #'   block (experimental). `"blocks"` finds by itself the terms that link otherwise
 #'   independent groups of observations (for instance genetic terms across
@@ -315,8 +322,8 @@ NULL
 #'        fixed_theta = NULL, floor = -12, ceil = 12,
 #'        verbose = TRUE, keep = FALSE,
 #'        optimizer = getOption("remlax.optimizer",
-#'                              Sys.getenv("RX_OPTIMIZER", "lbfgsb")),
-#'        engine = getOption("remlax.engine", Sys.getenv("RX_ENGINE", "dense")),
+#'                              Sys.getenv("RX_OPTIMIZER", "auto")),
+#'        engine = getOption("remlax.engine", Sys.getenv("RX_ENGINE", "auto")),
 #'        inversion = c("auto", "dense", "sparse", "hybrid"), bayes = NULL,
 #'        memory = getOption("remlax.memory", Sys.getenv("RX_MEMORY", "standard")),
 #'        finish = getOption("remlax.finish", Sys.getenv("RX_FINISH", "newton")))

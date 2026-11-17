@@ -12,8 +12,8 @@ rx_fit(model, backend = c("auto", "gpu", "cpu"), dir = NULL,
        fixed_theta = NULL, floor = -12, ceil = 12,
        verbose = TRUE, keep = FALSE,
        optimizer = getOption("remlax.optimizer",
-                             Sys.getenv("RX_OPTIMIZER", "lbfgsb")),
-       engine = getOption("remlax.engine", Sys.getenv("RX_ENGINE", "dense")),
+                             Sys.getenv("RX_OPTIMIZER", "auto")),
+       engine = getOption("remlax.engine", Sys.getenv("RX_ENGINE", "auto")),
        inversion = c("auto", "dense", "sparse", "hybrid"), bayes = NULL,
        memory = getOption("remlax.memory", Sys.getenv("RX_MEMORY", "standard")),
        finish = getOption("remlax.finish", Sys.getenv("RX_FINISH", "newton")))
@@ -77,8 +77,9 @@ iteration and one per Newton polishing step.}
 
 \item{keep}{keep \code{dir} after the fit.}
 
-\item{optimizer}{\code{"lbfgsb"} (default), \code{"ai"} or \code{"auto"}
-(\code{"ai"} with the mixed model equations engine, \code{"lbfgsb"} otherwise). \code{"ai"} is
+\item{optimizer}{\code{"auto"} (default), \code{"ai"} or \code{"lbfgsb"}. \code{"auto"} takes
+\code{"ai"}, except with a spatial lag or the blocks engine, which take
+\code{"lbfgsb"}. \code{"ai"} is
 AI-REML with steps taken on the variance scale (the entries of each
 \code{Sigma}), as in ASReml. A \code{us} block whose optimum is rank deficient is
 handled by an active set on the positive semidefinite cone. When halving
@@ -89,11 +90,14 @@ hands over to L-BFGS-B. The default can be set with
 \code{options(remlax.optimizer = )} or the environment variable
 \code{RX_OPTIMIZER}.}
 
-\item{engine}{\code{"dense"} (default), \code{"mme"}, \code{"blocks"} or \code{"auto"}. \code{"auto"}
-takes the mixed model equations engine when the model is in its scope, else
-the dense engine (in low memory mode above n = 5000); with
-\code{optimizer = "auto"} it is the fastest combination on the benchmarks against
-kmmr and ASReml-R. \code{"dense"}, \code{"mme"} and \code{"blocks"} select the marginal
+\item{engine}{\code{"auto"} (default), \code{"dense"}, \code{"mme"} or \code{"blocks"}. \code{"auto"}
+takes the mixed model equations engine when the model is in its scope and
+has at most 4 random-effect levels per observation, else the dense engine
+(in low memory mode above n = 5000). On the benchmark of remlax-validation,
+one evaluation of the mixed model equations costs less than one of \code{V} up
+to 4 levels per observation, on CPU as on GPU, and more above. With
+\code{optimizer = "auto"} it was the fastest combination on the benchmarks
+against kmmr and ASReml-R. \code{"dense"}, \code{"mme"} and \code{"blocks"} select the marginal
 covariance \code{V}, the mixed model equations \code{C}, or \code{V} processed block by
 block (experimental). \code{"blocks"} finds by itself the terms that link otherwise
 independent groups of observations (for instance genetic terms across

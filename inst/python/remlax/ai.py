@@ -36,6 +36,7 @@ from .residual import section_matvec
 from .model import assemble_V_by_support
 from .structures import chol_sigma, n_params
 from .levels import level_chol
+from .diagnostics import GRAD_REL_THRESHOLD, _projected_gradient
 
 # Decrement (units of -2logL) under which an AI loop may declare convergence
 # without polishing: the threshold of the final diagnostic
@@ -49,6 +50,17 @@ N_HALF_STEPS = 6
 # interleaves EM iterations; dev/notes.md).
 SALVO_ITER = 20
 SALVOS_MAX = 5
+# Extra AI steps once the decrement is met, while the relative gradient of the
+# final diagnostic (diagnostics.GRAD_REL_THRESHOLD) is not: AI skips the Newton
+# polishing, so it must itself end where the diagnostics declare convergence.
+FINISH_ITER = 5
+# Decrement (units of -2logL) under which AI stops. AI skips the Newton
+# polishing, so this threshold sets how close the variance components come to
+# the optimum: with 1e-6, a weakly identified component (standard error twice
+# its value) stayed 1e-3 away in relative terms from asreml and gaston on the
+# published pig and tilapia data sets. Near the optimum AI converges fast, so
+# 1e-9 costs one or two more factorisations.
+AI_TOL_DECREMENT = 1e-9
 # Step limits (see _AIRemlVar.try_step): a variance divided by at most 10 per
 # step, a level parameter (rho on the atanh scale, range in log) moved by at
 # most 0.5. The trust-region ratio test (actual gain >= RATIO_MIN x predicted
@@ -382,7 +394,7 @@ def _phi_to_theta(phi, blocks, xp=jnp):
     return xp.concatenate(out) if out else xp.zeros(0)
 
 
-def ai_reml_var(fga, th0, bornes, terms, res, maxiter=200, tol_dec=1e-6, verbose=True,
+def ai_reml_var(fga, th0, bornes, terms, res, maxiter=200, tol_dec=None, verbose=True,
                 counter=None, us_floor=1e-10, fun_sc=None, f_only=None):
     """AI-REML with the step taken in the variance scale.
 
@@ -393,6 +405,8 @@ def ai_reml_var(fga, th0, bornes, terms, res, maxiter=200, tol_dec=1e-6, verbose
     Newton polishing). counter: the dict whose "n_eval" counts the
     evaluations; fun_sc: the scaled objective for the L-BFGS-B salvos; f_only:
     the value alone, for the step trials. Returns (theta, info)."""
+    if tol_dec is None:
+        tol_dec = AI_TOL_DECREMENT
     return _AIRemlVar(fga, th0, bornes, terms, res, tol_dec, verbose, counter,
                       us_floor, fun_sc, f_only).run(maxiter)
 
@@ -433,6 +447,7 @@ class _AIRemlVar:
         self.f, self.g_t, self.A_t = self.evaluate(self.theta)
         self.n_it = 0
         self.n_salvos = 0
+        self.n_finish = 0
         self.n_clamped = np.zeros(p, dtype=np.int64)   # accepted steps in a row where the clamp acted
         self.mu_mem = None                             # LM damping kept from the previous iteration
         self.last_clamped = np.zeros(p, dtype=bool)
@@ -466,6 +481,14 @@ class _AIRemlVar:
             self.counter["n_eval"] += 1
         f_, g_, A_ = self.fga(jnp.asarray(th))
         return float(f_), np.asarray(g_, dtype=np.float64), np.asarray(A_, dtype=np.float64)
+
+    def _grad_rel(self):
+        """Relative projected gradient at the current point, as the final
+        diagnostic computes it (diagnostics._projected_gradient)."""
+        fixed = self.lo >= self.hi
+        _, gr = _projected_gradient(self.g_t, self.theta, self.lo, self.hi, 1e-7,
+                                    list(np.flatnonzero(fixed)), fixed, self.f)
+        return gr if np.isfinite(gr) else np.inf
 
     def _salvo(self, why):
         """SALVO_ITER L-BFGS-B iterations from theta; True when -2logL drops."""
@@ -719,6 +742,7 @@ class _AIRemlVar:
             wr = np.where(w > lam, w, lam)
             step_l = -(Vv @ ((Vv.T @ gf) / wr))
             dec = -0.5 * float(gf @ step_l)
+            finishing = False
             if dec < self.tol_dec:
                 if n_faces:
                     # KKT point on the edge of the cone: stationary on the whole
@@ -726,11 +750,19 @@ class _AIRemlVar:
                     # outwards along the null directions.
                     msg, ok = ("AI decrement under the threshold, optimum on the edge of the cone "
                                "(%d us block(s) of incomplete rank)" % n_faces), True
-                else:
+                    break
+                if self._grad_rel() < GRAD_REL_THRESHOLD or self.n_finish >= FINISH_ITER:
                     msg, ok = "AI decrement under the threshold", True
-                break
+                    break
+                # The decrement is met but not the relative gradient that the
+                # diagnostics read: a few more AI steps, one factorisation each.
+                finishing = True
+                self.n_finish += 1
             step = self._dphi_of(step_l, T, faces)
             acc, alpha, mu = self._search(step_l, step, w, Vv, gf, T, faces, g, A)
+            if acc is None and finishing:
+                msg, ok = "AI decrement under the threshold (no further admissible step)", True
+                break
             if acc is None:
                 if dec >= SUCCESS_DECREMENT and self._salvo("no admissible step (decrement %.1e)" % dec):
                     small = 0

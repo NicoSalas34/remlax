@@ -78,19 +78,39 @@ def fit_reml(terms, res, y, X, *args, weights=None, **kwargs):
     return _fit_weighted(terms, res, y, X, weights, args, kwargs)
 
 
+# Largest number of random-effect levels per observation for which the
+# automatic choice takes the MME engine. On the absolute benchmark of
+# remlax-validation (banc_kmmr/absolu, fig_rule), one evaluation of the dense
+# MME costs less than one of the V form up to dim(C) / n = 4, on 8 CPU cores
+# as on an A100; above, the V form is cheaper (dim(C) / n = 16: 128 s against
+# 15 s on CPU).
+MME_MAX_DIMC_OVER_N = 4.0
+
+
 def _resolve_auto(terms, res, y, kwargs):
     """kwargs with engine = "auto" and optimizer = "auto" replaced by the
-    engine and optimiser chosen for the model."""
+    engine and optimiser chosen for the model.
+
+    Engine: the MME when the model is in its scope and has at most
+    MME_MAX_DIMC_OVER_N random levels per observation, else the dense engine
+    (in low memory mode above n = 5000). Optimiser: AI-REML, except with a
+    spatial lag, which AI does not handle."""
     if kwargs.get("engine") == "auto" or kwargs.get("optimizer") == "auto":
         kwargs = dict(kwargs)
         from .mme import out_of_scope as _hp
-        in_mme = _hp(terms, res, kwargs.get("lag")) is None
+        lag = kwargs.get("lag")
         if kwargs.get("engine") == "auto":
-            kwargs["engine"] = "mme" if in_mme else "dense"
+            in_mme = _hp(terms, res, lag) is None
+            n_levels = sum(int(tm["t"]) * int(tm["q"]) for tm in terms)
+            few_levels = n_levels <= MME_MAX_DIMC_OVER_N * len(y)
+            # a term given only by its precision cannot go to the dense engine
+            kinv_only = any(tm.get("Kinv") is not None and tm.get("LK") is None for tm in terms)
+            kwargs["engine"] = "mme" if in_mme and (few_levels or kinv_only) else "dense"
             if kwargs["engine"] == "dense" and len(y) > 5000 and kwargs.get("memory", "standard") == "standard":
                 kwargs["memory"] = "low"
         if kwargs.get("optimizer") == "auto":
-            kwargs["optimizer"] = "ai" if kwargs["engine"] == "mme" else "lbfgsb"
+            blocks = kwargs.get("engine") == "blocks"
+            kwargs["optimizer"] = "lbfgsb" if lag is not None or blocks else "ai"
     return kwargs
 
 

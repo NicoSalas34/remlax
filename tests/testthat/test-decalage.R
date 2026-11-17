@@ -113,7 +113,9 @@ test_that("decalage et residuelle none : KR refuse, residuelle none comptee", {
 test_that("Psi tenue a 0 reproduit EXACTEMENT l'ajustement sans decalage", {
   skip_si_pas_de_jax()
   d <- .jeu_lag(Psi = matrix(c(0.05, -0.08, 0, 0), 2), seed = 2)
-  f0 <- rx_fit(.modele_tb(d), backend = "cpu", verbose = FALSE)
+  # meme moteur et meme optimiseur que l'ajustement avec decalage (dense, L-BFGS-B)
+  f0 <- rx_fit(.modele_tb(d), engine = "dense", optimizer = "lbfgsb", backend = "cpu",
+               verbose = FALSE)
   for (crit in c("reml_y", "jacobian")) {
     L <- rx_lag(d$W, d$trait, d$unit, struct = "mask", mask = matrix(FALSE, 2, 2), criterion = crit)
     f <- rx_fit(.modele_tb(d, lag = L), backend = "cpu", verbose = FALSE)
@@ -172,7 +174,8 @@ test_that("decalage + residuelle spatiale us(trait):ar1(row):ar1(col) par rx_rem
   expect_true(any(grepl("residual", names(f[["rho"]]))))
   # Psi tenue a 0 : meme ajustement que sans decalage, residuelle spatiale comprise
   f0 <- rx_reml(y ~ trait - 1, random = ~ us(gen), residual = ~ us(trait):ar1(row):ar1(col),
-                data = dat, trait = "trait", backend = "cpu", verbose = FALSE)
+                data = dat, trait = "trait", backend = "cpu", verbose = FALSE,
+                engine = "dense", optimizer = "lbfgsb")
   fz <- rx_reml(y ~ trait - 1, random = ~ us(gen), residual = ~ us(trait):ar1(row):ar1(col),
                 data = dat, trait = "trait", backend = "cpu", verbose = FALSE,
                 lag = rx_lag(d$W, d$trait, d$unit, struct = "mask", mask = matrix(FALSE, 2, 2)))

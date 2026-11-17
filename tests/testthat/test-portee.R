@@ -28,7 +28,8 @@ test_that("sph et cir atteignent le maximum global du profil REML en la portee",
     d <- data.frame(y = 2 + e + rnorm(nB, 0, 0.1), co)
     fml <- stats::as.formula(sprintf("~ %s(cx, cy)", kind))
     fit <- rx_reml(y ~ 1, residual = fml, data = d, backend = "cpu", verbose = FALSE)
-    expect_gt(fit[["n_iter"]], 0L)
+    # an optimisation, not an evaluation (AI may need no step after the range sweep)
+    expect_false(grepl("evaluation only", fit[["scipy_message"]] %||% ""))
     portees <- seq(3, 14, by = 0.05)
     prof <- vapply(portees, function(r) profil_reml(d$y, noyau_portee(kind, De, r)), numeric(1))
     # jamais au-dessus du meilleur point de la grille, et dans la bonne colline

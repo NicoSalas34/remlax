@@ -38,7 +38,9 @@ test_that("theta_init en evaluation seule, fixed_theta, hessian/blups coupes", {
   expect_equal(ff[["theta"]][1], th0[1])
   expect_equal(ff[["n_fixed"]], 1); expect_equal(ff[["n_par_free"]], 1)
   expect_true(ff[["logLik"]] <= f[["logLik"]] + 1e-8)
-  fh <- rx_fit(m, backend = "cpu", verbose = FALSE, hessian = FALSE, blups = FALSE)
+  # moteur dense : sans blups, il ne calcule pas non plus beta (le MME l'a toujours)
+  fh <- rx_fit(m, engine = "dense", optimizer = "lbfgsb", backend = "cpu", verbose = FALSE,
+               hessian = FALSE, blups = FALSE)
   expect_null(fh[["hessian"]]); expect_length(fh[["blups"]], 0L); expect_null(fh[["beta"]])
   # NaN sort en null dans result.json, que jsonlite relit en NULL
   expect_true(is.null(fh[["newton_decrement"]]) || is.na(fh[["newton_decrement"]]))
@@ -70,7 +72,8 @@ test_that("wald, kenward_roger et vpredict : formules exactes du plan equilibre"
   expect_equal(w$term, c("(Intercept)", "trt"))
   expect_equal(w$df[2], 3)
   expect_equal(w$F[2], a$F, tolerance = 1e-6)
-  expect_equal(w$p[2], pchisq(3 * a$F, 3, lower.tail = FALSE), tolerance = 1e-6)
+  # tolerance relative 1e-5 : la valeur p amplifie l'ecart de F (1e-7 avec le MME)
+  expect_equal(w$p[2], pchisq(3 * a$F, 3, lower.tail = FALSE), tolerance = 1e-5)
   kr <- f[["kenward_roger"]]
   expect_true(isTRUE(kr[["available"]] == 1))
   expect_equal(kr[["tests"]]$denDF[2], 15, tolerance = 1e-8)
@@ -229,9 +232,31 @@ test_that("engine = 'auto' choisit le MME et l'AI, meme vraisemblance que le den
   Z <- Matrix::sparseMatrix(i = seq_along(g), j = as.integer(g), x = 1)
   m <- rx_model(y, matrix(1, 400, 1), list(rx_term("g", Z, t = 1L)), rx_residual("iid"))
   a <- rx_fit(m, engine = "auto", optimizer = "auto", backend = "cpu", verbose = FALSE)
-  d <- rx_fit(m, backend = "cpu", verbose = FALSE)
+  d <- rx_fit(m, engine = "dense", optimizer = "lbfgsb", backend = "cpu", verbose = FALSE)
   expect_identical(a$engine, "mme")
   expect_identical(a$optimizer, "ai")
   expect_equal(a$logLik, d$logLik, tolerance = 1e-7)
   expect_true(all(c("preparation", "optimisation", "solver_total") %in% names(a$chrono)))
+})
+
+test_that("par defaut, le choix est automatique ; beaucoup de niveaux par observation -> forme V", {
+  skip_si_pas_de_jax()
+  set.seed(12)
+  n <- 150; q <- 1000                              # 1000 niveaux pour 150 observations
+  g <- sample(q, n, TRUE)
+  y <- rnorm(n)
+  Z <- Matrix::sparseMatrix(i = seq_len(n), j = g, x = 1, dims = c(n, q))
+  m <- rx_model(y, matrix(1, n, 1), list(rx_term("g", Z, t = 1L)), rx_residual("iid"))
+  old_opt <- options(remlax.engine = NULL, remlax.optimizer = NULL)
+  old_env <- Sys.getenv(c("RX_ENGINE", "RX_OPTIMIZER"), unset = NA)
+  Sys.unsetenv(c("RX_ENGINE", "RX_OPTIMIZER"))
+  on.exit({
+    options(old_opt)
+    for (v in names(old_env)) if (!is.na(old_env[[v]])) do.call(Sys.setenv, as.list(old_env[v]))
+  }, add = TRUE)
+  f <- rx_fit(m, backend = "cpu", verbose = FALSE)
+  expect_identical(f$engine, "dense")
+  expect_identical(f$optimizer, "ai")
+  d <- rx_fit(m, engine = "dense", optimizer = "lbfgsb", backend = "cpu", verbose = FALSE)
+  expect_equal(f$logLik, d$logLik, tolerance = 1e-6)
 })

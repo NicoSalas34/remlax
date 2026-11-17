@@ -69,7 +69,7 @@ the number of plots.
 
 | engine | option of `rx_reml()` | factorises | cost grows with | devices |
 |---|---|---|---|---|
-| dense | `engine = "dense"` (default) | the marginal covariance `V` (`n x n`), differentiated by JAX | `n` | CPU, GPU |
+| dense | `engine = "dense"` | the marginal covariance `V` (`n x n`), differentiated by JAX | `n` | CPU, GPU |
 | mixed model equations | `engine = "mme"` | `C = W'R^-1W + diag(0, G^-1)` (`m x m`), with `W = [X Z]` | `m` and the fill-in of `C` | CPU, GPU (dense inversion) |
 | blocks (experimental) | `engine = "blocks"` | `V = A + U U'`, `A` block diagonal | the largest block and the width of `U` | CPU, GPU |
 
@@ -96,7 +96,7 @@ A100. It has not yet been compared with the mixed model equations engine.
 
 ### Optimisers
 
-`optimizer = "lbfgsb"` (default) runs L-BFGS-B on an unconstrained
+`optimizer = "lbfgsb"` runs L-BFGS-B on an unconstrained
 parametrisation. Every `Sigma` is parametrised by its Cholesky factor, so it
 stays positive definite by construction.
 
@@ -126,14 +126,25 @@ multi-environment trials.
 
 ### Choosing automatically
 
-`rx_reml(..., engine = "auto", optimizer = "auto")` takes the mixed model
-equations engine with average information REML when the model is in its
-scope, and otherwise the dense engine with L-BFGS-B, in low memory mode above
-n = 5000. On genetic models with a relationship matrix (genomic BLUP, G x E in
-`fa` or `us`), this combination was the fastest on the benchmarks against kmmr
-and ASReml-R, on CPU and on GPU. When the number of levels is much larger than
-`n` (many genotypes predicted from few observations), the dense engine is
-faster. The automatic choice does not yet detect this case.
+`engine = "auto"` and `optimizer = "auto"` are the defaults. The engine is
+the mixed model equations when the model is in their scope and has at most 4
+random-effect levels per observation (`m <= 4 n`, fixed effects aside).
+Otherwise it is the dense engine, in low memory mode above n = 5000. The
+optimiser is average information REML on both engines. A spatial lag or the
+blocks engine takes L-BFGS-B.
+
+The threshold comes from the absolute benchmark of remlax-validation. One
+evaluation of the mixed model equations costs less than one of `V` up to
+`m / n = 4`, on 8 CPU cores as on an A100. Above, the dense engine is faster:
+16 000 genotypes predicted from 1 000 plants took 128 s with the mixed model
+equations and 15 s with `V` on CPU. On genetic models with a relationship
+matrix (genomic BLUP, G x E in `fa` or `us`), the mixed model equations with
+AI-REML were the fastest combination against kmmr and ASReml-R. With `V`,
+AI-REML beat L-BFGS-B on every case of the benchmark but one. On a `us(8)` of
+nearly rank 2, L-BFGS-B declared convergence 2.3e-3 below the optimum, while
+AI-REML reached it in 8 iterations. Before this version the defaults were
+`engine = "dense"` and `optimizer = "lbfgsb"`;
+`options(remlax.engine = "dense", remlax.optimizer = "lbfgsb")` restores them.
 
 ## What a fit returns
 
@@ -232,8 +243,8 @@ Environment variables:
 |---|---|---|
 | `RX_PY` | how to start Python, space-separated | `python3` |
 | `RX_CLI` | another solver entry point, for instance `-m remlax.cli` with a `remlax` importable by Python | the launcher of the shipped copy |
-| `RX_ENGINE` | default `engine` of `rx_reml()` and `rx_fit()` (`dense`, `mme`, `blocks`, `auto`) | `dense` |
-| `RX_OPTIMIZER` | default `optimizer` of `rx_reml()` and `rx_fit()` (`lbfgsb`, `ai`, `auto`) | `lbfgsb` |
+| `RX_ENGINE` | default `engine` of `rx_reml()` and `rx_fit()` (`auto`, `dense`, `mme`, `blocks`) | `auto` |
+| `RX_OPTIMIZER` | default `optimizer` of `rx_reml()` and `rx_fit()` (`auto`, `ai`, `lbfgsb`) | `auto` |
 | `RX_MEMORY` | default `memory` of `rx_reml()` and `rx_fit()` (`standard`, `low`) | `standard` |
 | `REMLAX_JAX_CACHE` | folder of the persistent XLA compilation cache; `0` disables it | `<user cache>/remlax/jax` |
 | `REMLAX_BLAS_NUMPY` | `keep` keeps NumPy's OpenBLAS threads during mixed model equations fits | one thread |

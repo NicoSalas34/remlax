@@ -1,5 +1,20 @@
 # remlax (development version)
 
+* The defaults of `rx_fit()` and `rx_reml()` are now `engine = "auto"` and
+  `optimizer = "auto"`, set from the absolute benchmark of
+  remlax-validation. The engine is the mixed model equations when the model
+  is in their scope and has at most 4 random-effect levels per observation,
+  else the dense engine: up to that ratio one evaluation of the mixed model
+  equations costs less than one of `V`, on CPU as on an A100, and above it
+  costs more (16 000 genotypes predicted from 1 000 plants: 128 s against
+  15 s). A term given only by its precision keeps the mixed model equations.
+  The optimiser is AI-REML on both engines (L-BFGS-B with a spatial lag or
+  the blocks engine): with `V`, AI-REML beat L-BFGS-B on every case of the
+  benchmark but one, and on a `us(8)` of nearly rank 2 L-BFGS-B declared
+  convergence 2.3e-3 below the optimum. `options(remlax.engine = "dense",
+  remlax.optimizer = "lbfgsb")` restores the former defaults. The Python
+  `fit_reml()` and the solver's command line keep `dense` and `lbfgsb`.
+
 * Multi-trait genome scan. `rx_scan()` accepts a multi-trait null model (long
   format, `trait =`): one SNP effect per trait and family, and the tests
   `"dir"` (any effect, T df), `"dir[trait]"` (1 df), `"dir@common"` (1 df),
